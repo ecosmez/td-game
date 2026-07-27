@@ -1,0 +1,13 @@
+(fn ShowBuildHUD ()
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (bind widget (UserInterface|CreateWidget "/Game/TopDown/TowersWidgetBlueprint.TowersWidgetBlueprint_C" pc)
+        (:then
+          (Variables|Default|SetBuildHUDWidget widget)
+          (UserInterface|Viewport|AddtoViewport widget 10)
+          (UserInterface|Viewport|SetPositioninViewport widget (Math|Vector2D|MakeVector2D 36.0 140.0) true)
+          (UserInterface|Viewport|SetDesiredSizeinViewport widget (Math|Vector2D|MakeVector2D 280.0 90.0))
+          (Input|SetInputModeGameAndUI pc widget "DoNotLock" false false)
+          (Class|PlayerController|SetShowMouseCursor true pc)
+          (Class|PlayerController|SetEnableClickEvents true pc))))))

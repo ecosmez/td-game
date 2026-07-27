@@ -1,0 +1,5 @@
+(fn DestroyGhostTower ()
+  (bind ghost (Variables|Default|GetGhostTower))
+  (Utilities|IsValid ghost
+    (:"Is Valid"
+      (Actor|DestroyActor ghost))))

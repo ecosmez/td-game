@@ -1,0 +1,14 @@
+(fn ResolveCursorPad ()
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (bind (hit didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+      (if didhit
+        (bind (bBlockingHit bInitialOverlap Time Distance Location ImpactPoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hit))
+        (bind pad (Utilities|Casting|CastToBP_TowerPad HitActor)
+          (:then
+            (Class|BPTowerPad|TryPlaceTower pad))
+          (:CastFailed
+            (Development|PrintString "Drop on a tower pad" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 2.0)))
+        (else
+          (Development|PrintString "Drop on a tower pad" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 2.0))))))

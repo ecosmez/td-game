@@ -1,0 +1,8 @@
+(fn CanPlaceTower ()
+  (if (Variables|Default|GetIsBuildPhase)
+    (if (Variables|Default|GetHasTowerSelected)
+      (return true)
+      (else
+        (return false)))
+    (else
+      (return false))))

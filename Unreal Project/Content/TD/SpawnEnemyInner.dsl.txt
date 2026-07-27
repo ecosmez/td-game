@@ -1,0 +1,23 @@
+(fn SpawnEnemyInner ()
+  (bind pathactor (Variables|Default|GetPathActor))
+  (Utilities|IsValid pathactor
+    (:"Is Valid"
+      (bind spline (Actor|GetComponentByClass pathactor "/Script/Engine.SplineComponent"))
+      (Utilities|IsValid spline
+        (:"Is Valid"
+          (bind spawned (Game|SpawnActorfromClass "/Game/TD/BP_Enemy.BP_Enemy_C" (Math|Transform|MakeTransform (Spline|GetLocationAtDistanceAlongSpline spline 0.0 "World")) "AlwaysSpawn"))
+          (Utilities|IsValid spawned
+            (:"Is Valid"
+              (bind enemy (Utilities|Casting|CastToBP_Enemy spawned)
+                (:then
+                  (Class|BPEnemy|SetPathActor :PathActor pathactor :self enemy)
+                  (Class|BPEnemy|SetCrystalActor :CrystalActor (Variables|Default|GetCrystalActor) :self enemy)
+                  (Class|BPEnemy|BuildNavPath :self enemy)
+                  (Variables|Default|SetWaveSpawnedCount (+ (Variables|Default|GetWaveSpawnedCount) 1)))
+                (:CastFailed)))
+            (:"Is Not Valid"
+              (Development|PrintString "SpawnActor null" true true "(R=1.000000,G=0.000000,B=0.000000,A=1.000000)" 3.0))))
+        (:"Is Not Valid"
+          (Development|PrintString "Path has no spline" true true "(R=1.000000,G=0.000000,B=0.000000,A=1.000000)" 3.0))))
+    (:"Is Not Valid"
+      (Development|PrintString "Spawner missing PathActor" true true "(R=1.000000,G=0.000000,B=0.000000,A=1.000000)" 5.0))))

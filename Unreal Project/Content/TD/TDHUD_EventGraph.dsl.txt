@@ -1,0 +1,37 @@
+(event EventBeginPlay)
+
+(event EventReceiveDrawHUD (SizeX SizeY)
+  (bind selfref self)
+  (Utilities|FlowControl|Sequence
+    (:then_0
+      (Actor|GetAllActorsOfClass "/Game/TD/BP_Crystal.BP_Crystal_C"
+        (:then
+          (if (Utilities|Array|IsEmpty _outactors)
+            (HUD|DrawText selfref "Crystal HP: --" "(R=1.000000,G=0.350000,B=0.350000,A=1.000000)" (- SizeX 420.0) 40.0 0 1.6)
+            (else
+              (bind crystal (Utilities|Array|RandomArrayItem _outactors))
+              (Utilities|IsValid crystal
+                (:"Is Valid"
+                  (bind cur (Class|BPCrystal|GetCurrentHealth crystal))
+                  (bind mx (Class|BPCrystal|GetMaxHealth crystal))
+                  (bind line (Utilities|String|Append (Utilities|String|BuildString(Float) "" "Crystal HP: " cur "") (Utilities|String|BuildString(Float) "" " / " mx "")))
+                  (HUD|DrawText selfref line "(R=0.300000,G=1.000000,B=0.550000,A=1.000000)" (- SizeX 420.0) 40.0 0 1.6))
+                (:"Is Not Valid"
+                  (HUD|DrawText selfref "Crystal HP: ?" "(R=1.000000,G=0.350000,B=0.350000,A=1.000000)" (- SizeX 420.0) 40.0 0 1.5))))))))
+    (:then_1
+      (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
+        (:then
+          (if (Utilities|Array|IsEmpty _outactors)
+            (HUD|DrawText selfref "Missing BP_BuildManager in level" "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 40.0 40.0 0 1.2)
+            (else
+              (bind mgr (Utilities|Array|RandomArrayItem _outactors))
+              (Utilities|IsValid mgr
+                (:"Is Valid"
+                  (HUD|DrawText selfref (Class|BPBuildManager|GetStatusLine mgr) "(R=1.000000,G=0.920000,B=0.200000,A=1.000000)" 40.0 40.0 0 1.4)
+                  (HUD|DrawText selfref (Class|BPBuildManager|GetHintLine mgr) "(R=0.850000,G=0.950000,B=1.000000,A=1.000000)" 40.0 75.0 0 1.2)
+                  (if (Class|BPBuildManager|GetIsBuildPhase mgr)
+                    (HUD|DrawText selfref "Drag BASIC TOWER from the left UI onto a hex" "(R=0.400000,G=1.000000,B=0.600000,A=1.000000)" 40.0 110.0 0 1.2)
+                    (else
+                      (HUD|DrawText selfref "Defend the crystal core!" "(R=1.000000,G=0.450000,B=0.450000,A=1.000000)" 40.0 110.0 0 1.2))))
+                (:"Is Not Valid"
+                  (HUD|DrawText selfref "BuildManager invalid" "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 40.0 40.0 0 1.2))))))))))

@@ -1,0 +1,22 @@
+# Unreal Engine generated / local files
+**/Binaries/
+**/Build/
+**/DerivedDataCache/
+**/Intermediate/
+**/Saved/
+
+# IDE / Visual Studio
+**/.vs/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.VC.db-shm
+*.VC.db-wal
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

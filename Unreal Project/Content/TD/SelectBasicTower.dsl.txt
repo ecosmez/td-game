@@ -1,0 +1,5 @@
+(fn SelectBasicTower ()
+  (Variables|Default|SetHasTowerSelected true)
+  (Variables|Default|SetStatusLine "Selected: BASIC TOWER - click a pad to place")
+  (Variables|Default|SetHintLine "Click a hex to place | ESC / RMB cancels")
+  (Development|PrintString "Selected BASIC TOWER - click a pad" true true "(R=0.200000,G=0.900000,B=1.000000,A=1.000000)" 3.0))

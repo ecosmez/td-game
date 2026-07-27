@@ -1,0 +1,12 @@
+(fn EndTowerDrag ()
+  (Variables|Default|SetIsDragging false)
+  (Variables|Default|SetTowerDragLive false)
+  (CallFunction|DestroyGhostTower)
+  (CallFunction|HideHexGrid)
+  (if (Variables|Default|GetIsBuildPhase)
+    (if (Variables|Default|GetHasTowerSelected)
+      (Variables|Default|SetStatusLine "Selected: BASIC TOWER - click a pad or drag again")
+      (Variables|Default|SetHintLine "Click a hex to place | ESC / RMB cancels")
+      (else
+        (Variables|Default|SetStatusLine "BUILD PHASE - drag tower from the UI")
+        (Variables|Default|SetHintLine "Drag BASIC TOWER onto a hex | ENTER starts waves | ESC cancels")))))

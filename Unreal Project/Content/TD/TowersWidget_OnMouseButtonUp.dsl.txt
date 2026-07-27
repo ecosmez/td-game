@@ -1,0 +1,8 @@
+(fn OnMouseButtonUp (MyGeometry MouseEvent)
+  (Utilities|IsValid (Variables|Default|GetBuildManagerRef)
+    (:"Is Valid"
+      (Class|BPBuildManager|TryDropTower (Variables|Default|GetBuildManagerRef))
+      (Class|BPBuildManager|EndTowerDrag (Variables|Default|GetBuildManagerRef))
+      (return (Widget|EventReply|ReleaseMouseCapture (Widget|EventReply|Handled))))
+    (:"Is Not Valid"
+      (return (Widget|EventReply|ReleaseMouseCapture (Widget|EventReply|Unhandled))))))

@@ -1,0 +1,28 @@
+(event EventBeginPlay
+  (bind pc (Game|GetPlayerController 0))
+  (Variables|Default|SetIsBuildPhase true)
+  (Variables|Default|SetWavesStarted false)
+  (Variables|Default|SetHasTowerSelected false)
+  (Variables|Default|SetIsDragging false)
+  (Variables|Default|SetTowerDragLive false)
+  (Variables|Default|SetStatusLine "BUILD + DEFEND - first wave in 5s")
+  (Variables|Default|SetHintLine "Drag towers anytime | ENTER force starts next wave | ESC cancels")
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (Class|PlayerController|SetEnableClickEvents true pc)
+      (Class|PlayerController|SetShowMouseCursor true pc)
+      (Class|PlayerController|SetEnableMouseOverEvents true pc)
+      (CallFunction|ShowBuildHUD)
+      (CallFunction|BeginCombatWaves))))
+
+(event Collision|EventActorBeginOverlap (OtherActor))
+
+(event EventTick (DeltaSeconds)
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (if (Variables|Default|GetTowerDragLive)
+        (CallFunction|UpdateGhostTower))
+      (if (or (Variables|Default|GetTowerDragLive) (Variables|Default|GetHasTowerSelected))
+        (if (or (Game|Player|WasInputKeyJustPressed pc "Escape") (Game|Player|WasInputKeyJustPressed pc "RightMouseButton"))
+          (CallFunction|CancelTowerSelection))))))

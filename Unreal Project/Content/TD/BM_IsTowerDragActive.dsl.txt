@@ -1,0 +1,2 @@
+(fn IsTowerDragActive ()
+  (return (Variables|Default|GetIsDragging)))

@@ -1,0 +1,21 @@
+(fn TickCountdown ()
+  (bind rem (Variables|Default|GetCountdownRemaining))
+  (if (<= rem 0)
+    (Utilities|Time|ClearTimerbyFunctionName self "TickCountdown")
+    (Development|PrintString "GO!" true true "(R=0.000000,G=1.000000,B=0.200000,A=1.000000)" 2.0)
+    (CallFunction|StartWaveSpawning)
+    (else
+      (if (== rem 5)
+        (Development|PrintString "5..." true true "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" 1.1)
+        (else
+          (if (== rem 4)
+            (Development|PrintString "4..." true true "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" 1.1)
+            (else
+              (if (== rem 3)
+                (Development|PrintString "3..." true true "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" 1.1)
+                (else
+                  (if (== rem 2)
+                    (Development|PrintString "2..." true true "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" 1.1)
+                    (else
+                      (Development|PrintString "1..." true true "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" 1.1)))))))))
+      (Variables|Default|SetCountdownRemaining (- rem 1)))))

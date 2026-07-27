@@ -1,0 +1,19 @@
+(fn BeginCombatWaves ()
+  (if (not (Variables|Default|GetWavesStarted))
+    (Variables|Default|SetWavesStarted true)
+    (CallFunction|DestroyGhostTower)
+    (CallFunction|HideHexGrid)
+    (Variables|Default|SetHasTowerSelected false)
+    (Variables|Default|SetIsDragging false)
+    (Variables|Default|SetTowerDragLive false)
+    (Variables|Default|SetStatusLine "WAVES STARTED - keep building!")
+    (Variables|Default|SetHintLine "Drag towers anytime | ENTER force starts next wave | ESC cancels")
+    (bind _outactors (Actor|GetAllActorsOfClass "/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"))
+    (if (Utilities|Array|IsEmpty _outactors)
+      (Development|PrintString "No EnemySpawner" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)
+      (else
+        (bind _asbp_enemy_spawner (Utilities|Casting|CastToBP_EnemySpawner (Utilities|Array|RandomArrayItem _outactors)
+          (:then
+            (CallFunction|StartWaves _asbp_enemy_spawner))
+          (:CastFailed
+            (Development|PrintString "Spawner cast failed" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)))))))

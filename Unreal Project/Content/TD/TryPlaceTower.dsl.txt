@@ -1,0 +1,21 @@
+(fn TryPlaceTower ()
+  (Utilities|IsValid (Variables|Default|GetPlacedTower)
+    (:"Is Valid"
+      (Development|PrintString "Pad already occupied" true true "(R=1.000000,G=0.500000,B=0.000000,A=1.000000)" 2.0))
+    (:"Is Not Valid"
+      (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
+        (:then
+          (if (Utilities|Array|IsEmpty _outactors)
+            (Development|PrintString "No BuildManager" true true "(R=1.000000,G=0.000000,B=0.000000,A=1.000000)" 3.0)
+            (else
+              (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors))
+                (:then
+                  (if (Class|BPBuildManager|CanPlaceTower mgr)
+                    (bind loc (Transformation|GetActorLocation))
+                    (bind spawned (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" (Math|Transform|MakeTransform (Math|Vector|MakeVector (.x loc) (.y loc) (+ (.z loc) 120.0))) "AlwaysSpawn" "MultiplyWithRoot"))
+                    (Variables|Default|SetPlacedTower spawned)
+                    (Development|PrintString "Tower placed!" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 2.0)
+                    (else
+                      (Development|PrintString "Press 1 to select a tower first" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 3.0))))
+                (:CastFailed
+                  (Development|PrintString "BuildManager cast failed")))))))))

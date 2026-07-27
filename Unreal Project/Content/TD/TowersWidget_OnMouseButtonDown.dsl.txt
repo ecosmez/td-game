@@ -1,0 +1,10 @@
+(fn OnMouseButtonDown (MyGeometry MouseEvent)
+  (Utilities|IsValid (Variables|Default|GetBuildManagerRef)
+    (:"Is Valid"
+      (if (Class|BPBuildManager|GetIsBuildPhase (Variables|Default|GetBuildManagerRef))
+        (Class|BPBuildManager|BeginTowerDrag (Variables|Default|GetBuildManagerRef))
+        (return (Widget|EventReply|CaptureMouse (Widget|EventReply|Handled) self))
+        (else
+          (return (Widget|EventReply|Unhandled)))))
+    (:"Is Not Valid"
+      (return (Widget|EventReply|Unhandled)))))

@@ -1,0 +1,17 @@
+(event EventBeginPlay
+  (Variables|Default|SetWaveNumber 0)
+  (Variables|Default|SetCountdownSeconds 5)
+  (Variables|Default|SetBetweenWaveDelay 4.0)
+  (Variables|Default|SetSpawnInterval 1.25)
+  (Variables|Default|SetMaxAlive 99)
+  (Variables|Default|SetAliveCount 0)
+  (Development|PrintString "Spawner ready - first wave in 5s" true true "(R=0.500000,G=0.800000,B=1.000000,A=1.000000)" 5.0))
+
+(event Collision|EventActorBeginOverlap (OtherActor))
+
+(event EventTick (DeltaSeconds)
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (if (Game|Player|WasInputKeyJustPressed pc "Enter")
+        (CallFunction|ForceStartNextWave)))))

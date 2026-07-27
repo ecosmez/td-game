@@ -1,0 +1,6 @@
+(fn OnWaveCleared ()
+  (Utilities|Time|ClearTimerbyFunctionName self "CheckWaveClear")
+  (Variables|Default|SetWaitingForClear false)
+  (Variables|Default|SetAliveCount 0)
+  (Development|PrintString (Utilities|String|BuildString(Integer) "" "WAVE " (Variables|Default|GetWaveNumber) " CLEARED!") true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 3.0)
+  (Utilities|Time|SetTimerbyFunctionName self "AnnounceWave" 4.0 false))

@@ -1,0 +1,4 @@
+(fn HideBuildHUD ()
+  (Utilities|IsValid (Variables|Default|GetBuildHUDWidget)
+    (:"Is Valid"
+      (Widget|RemovefromParent (Variables|Default|GetBuildHUDWidget)))))

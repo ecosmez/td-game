@@ -1,0 +1,9 @@
+(event EventBeginPlay
+  (bind mesh (Actor|GetComponentByClass self "/Script/Engine.StaticMeshComponent"))
+  (Utilities|IsValid mesh
+    (:"Is Valid"
+      (Collision|SetCollisionEnabled mesh "QueryOnly")
+      (Collision|SetCollisionResponseToChannel mesh "ECC_Visibility" "ECR_Block"))))
+
+(event MouseInput|EventActorOnClicked (ButtonPressed)
+  (CallFunction|TryPlaceTower))

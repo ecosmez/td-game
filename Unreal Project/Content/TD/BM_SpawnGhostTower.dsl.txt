@@ -1,0 +1,9 @@
+(fn SpawnGhostTower ()
+  (CallFunction|DestroyGhostTower)
+  (bind ghost (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" (Math|Transform|MakeTransform (Transformation|GetActorLocation)) "AlwaysSpawn" "MultiplyWithRoot"))
+  (Utilities|IsValid ghost
+    (:"Is Valid"
+      (Variables|Default|SetGhostTower ghost)
+      (Collision|SetActorEnableCollision ghost false)
+      (Actor|Tick|SetActorTickEnabled ghost false)
+      (CallFunction|UpdateGhostTower))))

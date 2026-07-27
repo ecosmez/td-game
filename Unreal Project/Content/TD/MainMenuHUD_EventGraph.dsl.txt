@@ -1,0 +1,30 @@
+(event EventBeginPlay
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|IsValid pc
+    (:"Is Valid"
+      (Class|PlayerController|SetShowMouseCursor true pc)
+      (Class|PlayerController|SetEnableClickEvents true pc)
+      (Class|PlayerController|SetEnableMouseOverEvents true pc))))
+
+(event EventReceiveDrawHUD (SizeX SizeY)
+  (bind selfref self)
+  (bind cx (* SizeX 0.5))
+  (bind cy (* SizeY 0.5))
+  (bind play_x (- cx 140.0))
+  (bind play_y (- cy 20.0))
+  (bind exit_y (+ cy 70.0))
+  (HUD|DrawRect selfref "(R=0.020000,G=0.040000,B=0.080000,A=0.720000)" 0.0 0.0 SizeX SizeY)
+  (HUD|DrawText selfref "TOWER DEFENSE" "(R=0.950000,G=0.920000,B=0.750000,A=1.000000)" (- cx 160.0) (- cy 180.0) 0 2.4)
+  (HUD|DrawRect selfref "(R=0.120000,G=0.450000,B=0.220000,A=0.920000)" play_x play_y 280.0 64.0)
+  (HUD|DrawText selfref "PLAY" "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" (+ play_x 95.0) (+ play_y 16.0) 0 2.0)
+  (HUD|AddHitBox selfref (Math|Vector2D|MakeVector2D play_x play_y) (Math|Vector2D|MakeVector2D 280.0 64.0) "Play" true 0)
+  (HUD|DrawRect selfref "(R=0.450000,G=0.140000,B=0.140000,A=0.920000)" play_x exit_y 280.0 64.0)
+  (HUD|DrawText selfref "EXIT" "(R=1.000000,G=1.000000,B=1.000000,A=1.000000)" (+ play_x 100.0) (+ exit_y 16.0) 0 2.0)
+  (HUD|AddHitBox selfref (Math|Vector2D|MakeVector2D play_x exit_y) (Math|Vector2D|MakeVector2D 280.0 64.0) "Exit" true 0))
+
+(event EventHitBoxClicked (BoxName)
+  (if (Utilities|String|EqualExactly(String) (Utilities|String|ToString(Name) BoxName) "Play")
+    (Game|OpenLevel(byName) "Level0" true "")
+    (else
+      (if (Utilities|String|EqualExactly(String) (Utilities|String|ToString(Name) BoxName) "Exit")
+        (Game|QuitGame (Game|GetPlayerController 0) "Quit" false)))))

@@ -1,0 +1,4 @@
+(fn TryDropTower ()
+  (if (Variables|Default|GetIsBuildPhase)
+    (if (Variables|Default|GetHasTowerSelected)
+      (CallFunction|ResolveCursorPad))))

@@ -1,0 +1,16 @@
+(fn UpdateGhostTower ()
+  (bind ghost (Variables|Default|GetGhostTower))
+  (Utilities|IsValid ghost
+    (:"Is Valid"
+      (bind pc (Game|GetPlayerController 0))
+      (Utilities|IsValid pc
+        (:"Is Valid"
+          (bind (hit didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+          (if didhit
+            (bind (bBlockingHit bInitialOverlap Time Distance Location ImpactPoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hit))
+            (bind pad (Utilities|Casting|CastToBP_TowerPad HitActor)
+              (:then
+                (bind padLoc (Transformation|GetActorLocation pad))
+                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x padLoc) (.y padLoc) (+ (.z padLoc) 120.0)) false true))
+              (:CastFailed
+                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)))))))))

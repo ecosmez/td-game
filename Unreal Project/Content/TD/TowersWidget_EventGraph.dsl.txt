@@ -1,0 +1,29 @@
+(event UserInterface|EventPreConstruct (IsDesignTime)
+  (Variables|Default|SetTextValue "BASIC TOWER")
+  (Widget|SetText(Text) (Variables|TowersWidgetBlueprint|GetValueText) "BASIC TOWER"))
+
+(event UserInterface|EventConstruct
+  (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
+    (:then
+      (if (Utilities|Array|IsEmpty _outactors)
+        (Development|PrintString "TowersWidget: no BuildManager" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)
+        (else
+          (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors))
+            (:then
+              (Variables|Default|SetBuildManagerRef mgr))
+            (:CastFailed)))))))
+
+(event UserInterface|EventTick (MyGeometry InDeltaTime)
+  (Utilities|IsValid (Variables|Default|GetBuildManagerRef)
+    (:"Is Valid"
+      (bind pc (Widget|GetOwningPlayer))
+      (Utilities|IsValid pc
+        (:"Is Valid"
+          (if (Class|BPBuildManager|GetIsBuildPhase (Variables|Default|GetBuildManagerRef))
+            (if (Widget|IsHovered (Variables|TowersWidgetBlueprint|GetButton01))
+              (if (Game|Player|WasInputKeyJustPressed pc "LeftMouseButton")
+                (Class|BPBuildManager|BeginTowerDrag (Variables|Default|GetBuildManagerRef))))
+            (if (Class|BPBuildManager|GetTowerDragLive (Variables|Default|GetBuildManagerRef))
+              (if (Game|Player|WasInputKeyJustReleased pc "LeftMouseButton")
+                (Class|BPBuildManager|TryDropTower (Variables|Default|GetBuildManagerRef))
+                (Class|BPBuildManager|EndTowerDrag (Variables|Default|GetBuildManagerRef))))))))))

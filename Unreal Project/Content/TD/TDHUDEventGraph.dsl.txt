@@ -1,0 +1,23 @@
+(event EventReceiveDrawHUD (SizeX SizeY)
+  (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
+    (:then
+      (if (Utilities|Array|IsEmpty _outactors)
+        (HUD|DrawText self "Missing BP_BuildManager in level" "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 40.0 40.0 "" 1.2 false)
+        (else
+          (bind mgractor (Utilities|Array|RandomArrayItem _outactors))
+          (bind mgr (Utilities|Casting|CastToBP_BuildManager mgractor)
+            (:then
+              (HUD|DrawText self (Class|BPBuildManager|GetStatusLine mgr) "(R=1.000000,G=0.920000,B=0.200000,A=1.000000)" 40.0 40.0 "" 1.4 false)
+              (HUD|DrawText self (Class|BPBuildManager|GetHintLine mgr) "(R=0.850000,G=0.950000,B=1.000000,A=1.000000)" 40.0 75.0 "" 1.2 false)
+              (if (Class|BPBuildManager|GetIsBuildPhase mgr)
+                (HUD|DrawText self "Drag BASIC TOWER from the left UI onto a pad" "(R=0.400000,G=1.000000,B=0.600000,A=1.000000)" 40.0 110.0 "" 1.2 false)
+                (else
+                  (HUD|DrawText self "Defend the crystal core!" "(R=1.000000,G=0.450000,B=0.450000,A=1.000000)" 40.0 110.0 "" 1.2 false))))
+            (:CastFailed
+              (HUD|DrawText self "BuildManager cast failed" "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 40.0 40.0 "" 1.2 false))))))))
+
+(event EventBeginPlay)
+
+(event Collision|EventActorBeginOverlap (OtherActor))
+
+(event EventTick (DeltaSeconds))

@@ -1,0 +1,70 @@
+(event EventBeginPlay
+  (Variables|Default|SetIsDropping true)
+  (bind loc (Transformation|GetActorLocation))
+  (bind selfref self)
+  (Transformation|SetActorLocation selfref (Math|Vector|MakeVector (.x loc) (.y loc) (Variables|Default|GetDropHeight)) false true)
+  (bind move (Variables|Character|GetCharacterMovement))
+  (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetFreefallGravityScale) move)
+  (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetAirControlStrength) move)
+  (bind arm (Variables|Camera|GetSpringArm))
+  (Variables|Default|SetSavedArmLength (Class|SpringArmComponent|GetTargetArmLength arm))
+  (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) arm)
+  (Transformation|SetRelativeRotation arm (Math|Rotator|MakeRotator 0.0 -90.0 0.0) false false)
+  (bind pc (Game|GetPlayerController 0))
+  (Utilities|FlowControl|Sequence
+    (:then_0
+      (Utilities|IsValid pc
+        (:"Is Valid"
+          (Class|PlayerController|SetShowMouseCursor true pc)
+          (Class|PlayerController|SetEnableClickEvents true pc)
+          (Class|PlayerController|SetEnableMouseOverEvents true pc)
+          (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController)))
+          (Utilities|IsValid ctrl
+            (:"Is Valid"
+              (Class|BPTopDownController|SetDropMode true ctrl))))))
+    (:then_1
+      (Development|PrintString "SKY DROP - aim with mouse, hold SPACE to plane" true true "(R=0.300000,G=0.900000,B=1.000000,A=1.000000)" 6.0))))
+
+(event EventTick (DeltaSeconds)
+  (bind selfref self)
+  (bind pc (Game|GetPlayerController 0))
+  (bind arm (Variables|Camera|GetSpringArm))
+  (if (Variables|Default|GetIsDropping)
+    (Utilities|IsValid pc
+      (:"Is Valid"
+        (bind (hitresult bhit) (Game|Player|GetHitResultUnderCursorByChannel pc "TraceTypeQuery1" true))
+        (if bhit
+          (bind (blocking overlap time dist cursorloc) (Collision|BreakHitResult hitresult))
+          (bind myloc (Transformation|GetActorLocation))
+          (Pawn|Input|AddMovementInput selfref (Math|Vector|GetUnitDirection(Vector) (Math|Vector|MakeVector (.x myloc) (.y myloc) 0.0) (Math|Vector|MakeVector (.x cursorloc) (.y cursorloc) 0.0)) (Variables|Default|GetSteerScale) false))
+        (if (Game|Player|IsInputKeyDown pc "SpaceBar")
+          (bind move (Variables|Character|GetCharacterMovement))
+          (bind vel (Transformation|GetVelocity))
+          (Class|MovementComponent|SetVelocity (Math|Vector|MakeVector (.x vel) (.y vel) (Variables|Default|GetGlideFallSpeed)) move))))
+    (else
+      (Utilities|IsValid pc
+        (:"Is Valid"
+          (bind targetarmlength (Class|SpringArmComponent|GetTargetArmLength arm))
+          (bind zoomspeed (Variables|Default|GetZoomSpeed))
+          (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollUp")
+            (Class|SpringArmComponent|SetTargetArmLength (select (< (- targetarmlength zoomspeed) (Variables|Default|GetMinZoom)) (Variables|Default|GetMinZoom) (- targetarmlength zoomspeed)) arm))
+          (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollDown")
+            (Class|SpringArmComponent|SetTargetArmLength (select (> (+ targetarmlength zoomspeed) (Variables|Default|GetMaxZoom)) (Variables|Default|GetMaxZoom) (+ targetarmlength zoomspeed)) arm)))))))
+
+(event EventOnLanded (Hit)
+  (if (Variables|Default|GetIsDropping)
+    (Variables|Default|SetIsDropping false)
+    (bind move (Variables|Character|GetCharacterMovement))
+    (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetDefaultGravityScale) move)
+    (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetDefaultAirControl) move)
+    (bind arm (Variables|Camera|GetSpringArm))
+    (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) arm)
+    (Transformation|SetRelativeRotation arm (Math|Rotator|MakeRotator 0.0 (Variables|Default|GetTopDownArmPitch) 0.0) false false)
+    (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController)))
+    (Utilities|FlowControl|Sequence
+      (:then_0
+        (Utilities|IsValid ctrl
+          (:"Is Valid"
+            (Class|BPTopDownController|SetDropMode false ctrl))))
+      (:then_1
+        (Development|PrintString "LANDED - click to move, build phase ready" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 5.0)))))
