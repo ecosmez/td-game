@@ -1,0 +1,40 @@
+Tower Types (from concept sheets) — /Game/TD/Towers/
+
+Base: /Game/TD/BP_Tower (shared construction + combat). Child BPs only change defaults.
+
+PlacementRule: Pad (hex pad) | Path | Crystal
+ProjectileStyle: Arrow | CannonShell | SniperShot | MagicBeam | Burst | None
+CanMerge: merge design (later) — drag tower onto tower.
+
+TYPE              ROLE      COST  BUILD  ATK SPD  DMG   RANGE  PROJ          NOTES
+----------------------------------------------------------------------------------------
+Arrow             Combat     60   2.5s    3.0/s     6   1600  Arrow         High ROF, air+ground, volley 3
+Buff Stats        Support    80   3.0s    —         —    900  None          Constant buff, BuffRadius 900, +20% dmg / +15% AS
+Cannon            Combat    100   4.0s    0.6/s    35   1400  CannonShell   Ground only, AoE 350
+Sniper            Combat    140   4.5s    0.45/s   80   2800  SniperShot    High single-target, bosses
+Economy           Economy    90   3.5s    —         —      0  None          Crystal placement, +8 gold / 2s
+Trap Mine         Trap       40   1.5s    trigger  45    200  Burst         Path only, burst AoE 250
+Wall Blockage     Wall       35   2.0s    —         —      0  None          Path only, block/redirect, no damage
+Magical Tower     Combat    200   5.0s    1.2/s    55   2000  MagicBeam     Expensive, multi-shot, anti-air
+
+Merged Towers: not a separate BP yet — CanMerge flag marks merge-capable types.
+  Future: drag merge on pad → fused stats stronger than sum, costs one tile.
+
+Assets:
+  /Game/TD/Towers/BP_Tower_Arrow
+  /Game/TD/Towers/BP_Tower_Buff
+  /Game/TD/Towers/BP_Tower_Cannon
+  /Game/TD/Towers/BP_Tower_Sniper
+  /Game/TD/Towers/BP_Tower_Economy
+  /Game/TD/Towers/BP_Tower_Trap
+  /Game/TD/Towers/BP_Tower_Wall
+  /Game/TD/Towers/BP_Tower_Magic
+
+Wire-up next:
+- BuildManager / UI spawn selected child class instead of always BP_Tower
+- Enforce PlacementRule (Path/Crystal vs Pad)
+- Buff tick: apply BuffDamageMult / BuffAttackSpeedMult to towers in BuffRadius
+- Economy tick: GoldPerInterval every EconomyInterval
+- Trap trigger on overlap; Wall as path occupancy
+- Volley (ShotsPerVolley) and AoE radius on projectile hit
+- Merge interaction

@@ -1,0 +1,10 @@
+(fn InitProjectile (InTarget InDamage)
+  (Variables|Default|SetTargetActor InTarget)
+  (Variables|Default|SetDamage InDamage)
+  (bind mesh_comp (Variables|Default|GetProjectileMesh))
+  (bind display (Variables|Default|GetDisplayMesh))
+  (Utilities|IsValid display
+    (:"Is Valid"
+      (Utilities|IsValid mesh_comp
+        (:"Is Valid"
+          (Components|StaticMesh|SetStaticMesh mesh_comp display))))))

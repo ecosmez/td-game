@@ -12,3 +12,10 @@ try:
 except Exception as exc:
     import unreal
     unreal.log_warning("init_unreal setup_main_menu_widget_ui failed: {}".format(exc))
+
+try:
+    import setup_ability_bar_ui
+    setup_ability_bar_ui.setup(force=False)
+except Exception as exc:
+    import unreal
+    unreal.log_warning("init_unreal setup_ability_bar_ui failed: {}".format(exc))

@@ -1,5 +1,5 @@
 ; Champion abilities (ARAM-style) — reference notes
-; Implemented on BP_TopDownCharacter + BP_Enemy + BP_ShieldWall + BP_SlowZone + BP_AbilityAimPreview
+; Implemented on BP_TopDownCharacter + BP_Enemy + BP_ShieldWall + BP_ThrownShield + BP_SlowZone + BP_AbilityAimPreview
 ;
 ; Controls (LoL-style):
 ;   Right click = move (cancels aim if currently aiming)
@@ -13,21 +13,31 @@
 ;   W = Charge dash to aim point + nearby damage  CD 8s  Range_W 1200
 ;   E = Slow Area    (/Game/TD/BP_SlowZone)    CD 10s  Range_E 1000  SlowRadius 400
 ;       Visual = flat Cylinder ground mask (MI_SlowZone); SlowVolume radius 400
-;   R = Ultimate AoE damage+stun (ChampionLevel >= 3)  CD 30s  Range_R 850  UltRadius 700
+;   R = Shield Throw (/Game/TD/BP_ThrownShield)  CD 30s  Range_R 1400  (ChampionLevel >= 3)
+;       Hero stays put; huge shield flies forward along aim direction
+;       Overlap enemies => ApplyStun(UltStun) once each + drain ShieldThrowHPCost from shield HP
+;       Stun VFX: BP_Enemy StunVFXRoot + spinning gold stars (MI_StunEffect) while StunRemaining > 0
+;       Destroy when CurrentShieldHP <= 0, MaxTravelDistance reached, or overlap non-enemy obstacle
+;       Tunables on character: ShieldThrowHP 120, ShieldThrowSpeed 2000, ShieldThrowHPCost 25, UltStun 2.5
 ;
 ; Preview actor: /Game/TD/BP_AbilityAimPreview (RangeRing + AimMarker place disc + AbilityGhost mesh)
 ;   Q ghost = Cube (matches BP_ShieldWall WallMesh 4x0.8x2)
 ;   W target = small flat AimMarker disc on ground (AbilityGhost hidden)
 ;   E ghost = Cylinder ground mask (MI_SlowZone)
-;   R ghost = Sphere scaled to effect radius
+;   R ghost = huge Cube (6x1x1.6) oriented toward aim (throw direction)
 ; Materials: MI_AbilityRange (blue), MI_AbilityPlace (amber), MI_AbilityGhost (cyan), MI_SlowZone (blue mask)
 ; W Charge: line-trace ground at aim XY, SetActorLocation to ImpactZ + capsule half-height, stop movement, Walking
 ; Move binding: IMC_Default IA_SetDestination_Click -> RightMouseButton
 ;
 ; Leveling: TickAbilities accumulates LevelTimer; every LevelInterval (45s) Level++ up to 3
 ;
-; Ability HUD: /Game/TD/UI/WBP_AbilityBar
-;   Q/W/E buttons with CDBar_* progress (remaining/max) + CDText_* seconds
-;   Disabled / dimmed while CD > 0 or bIsDropping; enabled when ready
-;   Spawned by BP_TopDownCharacter::ShowAbilityHUD on land
+; Ability HUD: /Game/TD/UI/WBP_AbilityBar (parent: AbilityBarWidget C++)
+;   Bottom-center LoL bar: Q W E R
+;   States: available | on cooldown (dark fill + seconds) | locked (R until ChampionLevel>=3)
+;           dimmed while bIsDropping | aiming highlight when PendingAbility matches
+;   Reads CD_*/MaxCD_*/bIsDropping/ChampionLevel/PendingAbility from owning pawn
+;   Spawned by BP_TopDownCharacter::ShowAbilityHUD on land (EventOnLanded)
+;   CreateWidget class MUST be /Game/TD/UI/WBP_AbilityBar.WBP_AbilityBar_C
+;   Setup: Content/Python/setup_ability_bar_ui.py (also via init_unreal.py)
+;   Play path: MainMenu -> Level0 (not Lvl_TopDown)
 ;

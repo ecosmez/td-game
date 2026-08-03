@@ -1,24 +1,28 @@
 (fn TryPlaceTower ()
-  (Utilities|IsValid (Variables|Default|GetPlacedTower)
-    (:"Is Valid"
-      (Development|PrintString "Pad already occupied" true true "(R=1.000000,G=0.500000,B=0.000000,A=1.000000)" 2.0))
-    (:"Is Not Valid"
-      (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
-        (:then
-          (if (Utilities|Array|IsEmpty _outactors)
-            (Development|PrintString "No BuildManager" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)
-            (else
-              (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors))
+  (bind loc (Transformation|GetActorLocation))
+  (bind spawn_xf (Math|Transform|MakeTransform (Math|Vector|MakeVector (.x loc) (.y loc) (+ (.z loc) 120.0))))
+  (bind existing (Variables|Default|GetPlacedTower))
+  (bind managers (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
+  (if (Utilities|Array|IsEmpty managers)
+    (Development|PrintString "No BuildManager" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)
+    (else
+      (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem managers)))
+      (if (Class|BPBuildManager|GetIsBuildPhase mgr)
+        (if (Class|BPBuildManager|GetHasTowerSelected mgr)
+          (Utilities|FlowControl|Sequence
+            (:then_0
+              (Utilities|IsValid existing
+                (:"Is Valid"
+                  (Actor|DestroyActor existing))))
+            (:then_1
+              (bind spawned (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" spawn_xf "AlwaysSpawn" "MultiplyWithRoot")
                 (:then
-                  (if (Class|BPBuildManager|GetIsBuildPhase mgr)
-                    (if (Class|BPBuildManager|GetHasTowerSelected mgr)
-                      (bind loc (Transformation|GetActorLocation))
-                      (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" (Math|Transform|MakeTransform (Math|Vector|MakeVector (.x loc) (.y loc) (+ (.z loc) 120.0))) "AlwaysSpawn" "MultiplyWithRoot"
-                        (:then
-                          (Variables|Default|SetPlacedTower _returnvalue)
-                          (Development|PrintString "Tower placed!" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 2.0)))
-                      (else
-                        (Development|PrintString "Select a tower from the UI first" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 3.0)))
-                    (else
-                      (Development|PrintString "Waves already started" true true "(R=1.000000,G=0.500000,B=0.200000,A=1.000000)" 2.0))))
-                (:CastFailed)))))))))
+                  (Variables|Default|SetPlacedTower spawned)
+                  (bind as_tower (Utilities|Casting|CastToBP_Tower spawned)
+                    (:then
+                      (Class|BPTower|StartConstruction as_tower))
+                    (:CastFailed))))))
+          (else
+            (Development|PrintString "Select a tower first" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 3.0)))
+        (else
+          (Development|PrintString "Waves already started" true true "(R=1.000000,G=0.500000,B=0.200000,A=1.000000)"))))))

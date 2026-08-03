@@ -1,0 +1,33 @@
+﻿; Moba RTS/MOBA free-camera system (C++ TD module)
+;
+; Classes:
+;   AMobaCameraPawn        - independent SpringArm camera (edge/WASD/MMB/zoom/Space focus)
+;   AMobaPlayerController  - GameAndUI input mode, ControlledChampion, GetControlledChampion
+;   AMobaGameMode          - defaults PlayerController + DefaultPawn to free camera
+;
+; Enable in a map GameMode override OR create BP_MobaGameMode child:
+;   Player Controller Class = AMobaPlayerController (or BP child)
+;   Default Pawn Class      = AMobaCameraPawn
+;   On controller: set ChampionClass = BP_TopDownCharacter (so Space has a champion to follow)
+;   Or from existing controller BeginPlay: SetControlledChampion(myChamp); GetOrSpawnCameraPawn(); Possess cam
+;
+; Enhanced Input assets (optional - runtime defaults exist if missing):
+;   /Game/TD/Input/MobaCamera/IA_CameraMove
+;   /Game/TD/Input/MobaCamera/IA_CameraZoom
+;   /Game/TD/Input/MobaCamera/IA_CameraRotate
+;   /Game/TD/Input/MobaCamera/IA_CameraDrag
+;   /Game/TD/Input/MobaCamera/IA_CameraFocusChampion
+;   /Game/TD/Input/MobaCamera/IMC_MobaCamera
+; Run Content/Python/create_moba_camera_input.py in the editor to generate them.
+;
+; Controls:
+;   WASD           - planar move
+;   Edge of screen - edge scroll
+;   Mouse wheel    - zoom
+;   MMB drag       - pan
+;   Space hold     - follow champion
+;   Q/E            - yaw rotate (if bEnableCameraRotation)
+;
+; Existing BP_TopDownCharacter LoLCameraComponent is champion-attached edge pan.
+; This free-camera pawn REPLACES that architecture when MobaGameMode is used.
+; Disable LoLCamera on the champion (or remove component) to avoid double cameras.

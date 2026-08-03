@@ -51,15 +51,15 @@
           (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollDown")
             (Class|SpringArmComponent|SetTargetArmLength (select (> (+ targetarmlength zoomspeed) (Variables|Default|GetMaxZoom)) (Variables|Default|GetMaxZoom) (+ targetarmlength zoomspeed)) arm)))))))
 
+; Landing camera: LoLCameraComponent auto-plays land zoom when bIsDropping goes false
+; (arm punch-in + pitch -90 -> TopDownArmPitch settle). Do NOT snap SpringArm here.
 (event EventOnLanded (Hit)
   (if (Variables|Default|GetIsDropping)
     (Variables|Default|SetIsDropping false)
     (bind move (Variables|Character|GetCharacterMovement))
     (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetDefaultGravityScale) move)
     (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetDefaultAirControl) move)
-    (bind arm (Variables|Camera|GetSpringArm))
-    (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) arm)
-    (Transformation|SetRelativeRotation arm (Math|Rotator|MakeRotator 0.0 (Variables|Default|GetTopDownArmPitch) 0.0) false false)
+    ; Camera: LoLCameraComponent::PlayLandingZoom (auto) uses SavedArmLength + TopDownArmPitch
     (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController)))
     (Utilities|FlowControl|Sequence
       (:then_0

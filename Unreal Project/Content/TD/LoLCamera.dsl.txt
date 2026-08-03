@@ -1,0 +1,85 @@
+; LoL-style camera for BP_TopDownCharacter (post-land only).
+; Uses SpringArm relative XY offset so the boom pivot stays at CameraFocusLocation.
+; Space during IsDropping remains glide; Space after land recenters.
+;
+; Variables to add on BP_TopDownCharacter:
+;   CameraFocusLocation (Vector)
+;   bCameraRecentering (Bool)
+;   bLoLCameraEnabled (Bool, default false — set true OnLanded)
+;   EdgeMargin (Float = 25)
+;   EdgeScrollSpeed (Float = 2800)
+;   CameraRecenterInterpSpeed (Float = 10)
+;
+; Prefer adding C++ component LoLCameraComponent instead of this graph when TD module is built.
+
+(fn UpdateLoLCamera (DeltaSeconds)
+  (if (Variables|Default|GetbLoLCameraEnabled)
+    (bind selfref self)
+    (bind pc (Game|GetPlayerController 0))
+    (bind arm (Variables|Camera|GetSpringArm))
+    (Utilities|IsValid pc
+      (:"Is Valid"
+        (Utilities|IsValid arm
+          (:"Is Valid"
+            ; Space -> start recenter (only when not dropping; caller gates)
+            (if (Game|Player|WasInputKeyJustPressed pc "SpaceBar")
+              (Variables|Default|SetbCameraRecentering true))
+
+            ; Edge scroll
+            (bind (mx my bmouse) (Game|Player|GetMousePosition pc))
+            (if bmouse
+              (bind (vx vy) (Game|Player|GetViewportSize pc))
+              (bind yaw (Math|Rotator|MakeRotator 0.0 (.yaw (Transformation|GetControlRotation pc)) 0.0))
+              (bind forward (Math|Vector|GetForwardVector yaw))
+              (bind right (Math|Vector|GetRightVector yaw))
+              (bind margin (Variables|Default|GetEdgeMargin))
+              (bind pan (Math|Vector|MakeVector 0.0 0.0 0.0))
+              (if (< mx margin)
+                (bind pan (Math|Vector|- pan right)))
+              (if (> mx (- vx margin))
+                (bind pan (Math|Vector|+ pan right)))
+              (if (< my margin)
+                (bind pan (Math|Vector|+ pan forward)))
+              (if (> my (- vy margin))
+                (bind pan (Math|Vector|- pan forward)))
+              (if (> (Math|Vector|VectorLength pan) 0.01)
+                (bind pan (Math|Vector|Normal pan))
+                (Variables|Default|SetbCameraRecentering false)
+                (Variables|Default|SetCameraFocusLocation
+                  (Math|Vector|+
+                    (Variables|Default|GetCameraFocusLocation)
+                    (Math|Vector|* pan (* (Variables|Default|GetEdgeScrollSpeed) DeltaSeconds))))))
+
+            ; Recenter interp
+            (if (Variables|Default|GetbCameraRecentering)
+              (bind target (Transformation|GetActorLocation selfref))
+              (bind focus (Math|Vector|VInterpTo
+                (Variables|Default|GetCameraFocusLocation)
+                target
+                DeltaSeconds
+                (Variables|Default|GetCameraRecenterInterpSpeed)))
+              (Variables|Default|SetCameraFocusLocation focus)
+              (if (< (Math|Vector|Distance2D focus target) 5.0)
+                (Variables|Default|SetCameraFocusLocation target)
+                (Variables|Default|SetbCameraRecentering false)))
+
+            ; Apply focus via SpringArm relative offset
+            (bind actorloc (Transformation|GetActorLocation selfref))
+            (bind focus (Variables|Default|GetCameraFocusLocation))
+            (bind rel (Transformation|GetRelativeLocation arm))
+            (Transformation|SetRelativeLocation arm
+              (Math|Vector|MakeVector (- (.x focus) (.x actorloc)) (- (.y focus) (.y actorloc)) (.z rel))
+              false false)))))))
+
+; Hook into existing EventTick else-branch (when NOT IsDropping), after zoom:
+;   (UpdateLoLCamera DeltaSeconds)
+;
+; OnLanded after SetDropMode false:
+;   (Variables|Default|SetbLoLCameraEnabled true)
+;   (Variables|Default|SetCameraFocusLocation (Transformation|GetActorLocation))
+;   (Variables|Default|SetbCameraRecentering false)
+;   ; Prefer C++ LoLCamera: auto landing zoom (arm punch + pitch recover).
+;   ; Tune: LandingZoomDuration, LandingZoomPunchAmount, LandingFovKick, LandingSettlePitch
+;   ; Or call PlayLandingZoom(SavedArmLength, TopDownArmPitch) from BP.
+;
+; BeginPlay: leave bLoLCameraEnabled false until land.
