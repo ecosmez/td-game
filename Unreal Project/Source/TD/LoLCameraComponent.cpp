@@ -1,9 +1,13 @@
 ﻿#include "LoLCameraComponent.h"
+#include "MobaPlayerController.h"
 #include "TDUIInputLibrary.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "EnhancedInputSubsystems.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -176,7 +180,25 @@ APlayerController* ULoLCameraComponent::GetOwnerPlayerController() const
 {
 	if (const APawn* Pawn = Cast<APawn>(GetOwner()))
 	{
-		return Cast<APlayerController>(Pawn->GetController());
+		if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+		{
+			return PC;
+		}
+		// Free-camera path: champion is AI-possessed; resolve via Moba controller mapping.
+		if (UWorld* World = Pawn->GetWorld())
+		{
+			for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+			{
+				if (AMobaPlayerController* MPC = Cast<AMobaPlayerController>(It->Get()))
+				{
+					if (MPC->GetControlledChampion() == Pawn)
+					{
+						return MPC;
+					}
+				}
+			}
+			return World->GetFirstPlayerController();
+		}
 	}
 	return nullptr;
 }
@@ -423,6 +445,17 @@ void ULoLCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		return;
 	}
 	const bool bDropping = IsOwnerDropping();
+
+	// Allow skip even while LoL pan is disabled during freefall.
+	{
+		APlayerController* SkipPC = GetOwnerPlayerController();
+		if (!SkipPC && GetWorld())
+		{
+			SkipPC = GetWorld()->GetFirstPlayerController();
+		}
+		TrySkipSkyDropFromHotkey(SkipPC);
+	}
+
 	// Auto: drop finished -> LoL land zoom. Explicit PlayLandingZoom still preferred from BP.
 	if (bAutoPlayLandingZoom && bWasOwnerDropping && !bDropping && !bLandingZoomActive)
 	{
@@ -569,4 +602,91 @@ void ULoLCameraComponent::ApplyFocusToSpringArm()
 		CameraFocusLocation.X - ActorLoc.X,
 		CameraFocusLocation.Y - ActorLoc.Y,
 		RelZ));
+}
+
+void ULoLCameraComponent::TrySkipSkyDropFromHotkey(APlayerController* PC)
+{
+	if (!bEnableSkipSkyDropHotkey || !PC || !SkipSkyDropKey.IsValid())
+	{
+		return;
+	}
+	if (!PC->WasInputKeyJustPressed(SkipSkyDropKey) || !IsOwnerDropping())
+	{
+		return;
+	}
+
+	// Prefer MOBA controller path (same Champion resolution + CompleteDropLanding helpers).
+	if (AMobaPlayerController* MPC = Cast<AMobaPlayerController>(PC))
+	{
+		MPC->TrySkipSkyDrop();
+		return;
+	}
+
+	// Non-MOBA controller (e.g. classic top-down): snap + call BP helpers / reflection.
+	AActor* Owner = GetOwner();
+	APawn* Pawn = Cast<APawn>(Owner);
+	if (!Pawn || !GetWorld())
+	{
+		return;
+	}
+
+	if (UFunction* SkipFn = Pawn->FindFunction(FName(TEXT("SkipSkyDrop"))))
+	{
+		if (SkipFn->NumParms == 0)
+		{
+			Pawn->ProcessEvent(SkipFn, nullptr);
+			return;
+		}
+	}
+
+	const FVector Loc = Pawn->GetActorLocation();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(LoLSkipSkyDrop), true, Pawn);
+	Params.AddIgnoredActor(Pawn);
+	FHitResult Hit;
+	if (GetWorld()->LineTraceSingleByChannel(
+			Hit, Loc, FVector(Loc.X, Loc.Y, Loc.Z - 100000.f), ECC_Visibility, Params)
+		&& Hit.bBlockingHit)
+	{
+		float HalfH = 96.f;
+		if (const ACharacter* AsChar = Cast<ACharacter>(Pawn))
+		{
+			if (const UCapsuleComponent* Cap = AsChar->GetCapsuleComponent())
+			{
+				HalfH = Cap->GetScaledCapsuleHalfHeight();
+			}
+		}
+		Pawn->SetActorLocation(
+			FVector(Hit.ImpactPoint.X, Hit.ImpactPoint.Y, Hit.ImpactPoint.Z + HalfH),
+			false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	if (UFunction* CompleteFn = Pawn->FindFunction(FName(TEXT("CompleteDropLanding"))))
+	{
+		if (CompleteFn->NumParms == 0)
+		{
+			Pawn->ProcessEvent(CompleteFn, nullptr);
+			return;
+		}
+	}
+
+	// Minimal reflection fallback.
+	if (FBoolProperty* DropProp = FindFProperty<FBoolProperty>(Pawn->GetClass(), FName(TEXT("bIsDropping"))))
+	{
+		DropProp->SetPropertyValue_InContainer(Pawn, false);
+	}
+	if (ACharacter* AsChar = Cast<ACharacter>(Pawn))
+	{
+		if (UCharacterMovementComponent* Move = AsChar->GetCharacterMovement())
+		{
+			Move->GravityScale = 1.f;
+			Move->Velocity = FVector::ZeroVector;
+		}
+	}
+	if (UFunction* HUD = Pawn->FindFunction(FName(TEXT("ShowAbilityHUD"))))
+	{
+		if (HUD->NumParms == 0)
+		{
+			Pawn->ProcessEvent(HUD, nullptr);
+		}
+	}
 }

@@ -2,19 +2,106 @@
 
 #include "MobaCameraPawn.h"
 #include "MinimapWidget.h"
+#include "MapDiscoveryComponent.h"
+#include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
 
 #include "AIController.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/CapsuleComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "NavigationSystem.h"
 #include "TimerManager.h"
+#include "UObject/UnrealType.h"
+
+namespace MobaSkipDropPrivate
+{
+	static bool ReadBoolProp(const UObject* Obj, FName Name, bool& OutValue)
+	{
+		if (!Obj)
+		{
+			return false;
+		}
+		if (const FBoolProperty* Prop = FindFProperty<FBoolProperty>(Obj->GetClass(), Name))
+		{
+			OutValue = Prop->GetPropertyValue_InContainer(Obj);
+			return true;
+		}
+		return false;
+	}
+
+	static bool WriteBoolProp(UObject* Obj, FName Name, bool Value)
+	{
+		if (!Obj)
+		{
+			return false;
+		}
+		if (FBoolProperty* Prop = FindFProperty<FBoolProperty>(Obj->GetClass(), Name))
+		{
+			Prop->SetPropertyValue_InContainer(Obj, Value);
+			return true;
+		}
+		return false;
+	}
+
+	static bool ReadFloatProp(const UObject* Obj, FName Name, float& OutValue)
+	{
+		if (!Obj)
+		{
+			return false;
+		}
+		if (const FFloatProperty* Prop = FindFProperty<FFloatProperty>(Obj->GetClass(), Name))
+		{
+			OutValue = Prop->GetPropertyValue_InContainer(Obj);
+			return true;
+		}
+		if (const FDoubleProperty* DProp = FindFProperty<FDoubleProperty>(Obj->GetClass(), Name))
+		{
+			OutValue = static_cast<float>(DProp->GetPropertyValue_InContainer(Obj));
+			return true;
+		}
+		return false;
+	}
+
+	static bool IsPawnDropping(const APawn* Pawn)
+	{
+		if (!Pawn)
+		{
+			return false;
+		}
+		bool bDropping = false;
+		if (ReadBoolProp(Pawn, FName(TEXT("bIsDropping")), bDropping)
+			|| ReadBoolProp(Pawn, FName(TEXT("IsDropping")), bDropping)
+			|| ReadBoolProp(Pawn, FName(TEXT("isDropping")), bDropping))
+		{
+			return bDropping;
+		}
+		return false;
+	}
+
+	static void CallNoArgFunction(UObject* Obj, FName FuncName)
+	{
+		if (!Obj)
+		{
+			return;
+		}
+		if (UFunction* Fn = Obj->FindFunction(FuncName))
+		{
+			if (Fn->NumParms == 0)
+			{
+				Obj->ProcessEvent(Fn, nullptr);
+			}
+		}
+	}
+}
 
 AMobaPlayerController::AMobaPlayerController()
 {
@@ -26,6 +113,9 @@ AMobaPlayerController::AMobaPlayerController()
 	PrimaryActorTick.bCanEverTick = true;
 
 	CameraPawnClass = AMobaCameraPawn::StaticClass();
+
+	MapDiscovery = CreateDefaultSubobject<UMapDiscoveryComponent>(TEXT("MapDiscovery"));
+	WorldFogOfWar = CreateDefaultSubobject<UWorldFogOfWarComponent>(TEXT("WorldFogOfWar"));
 }
 
 void AMobaPlayerController::BeginPlay()
@@ -34,9 +124,42 @@ void AMobaPlayerController::BeginPlay()
 
 	ApplyMobaInputMode();
 	InitializeMobaCamera();
+
+	if (MapDiscovery)
+	{
+		MapDiscovery->SetEnabled(bEnableMapDiscovery);
+		// Only use camera bounds when authored (WorldBoundsSource). Default ±50k clamps
+		// destroy mask UV precision and leave the stamp invisibly tiny / off explorer.
+		if (AMobaCameraPawn* Cam = GetMobaCameraPawn())
+		{
+			if (Cam->bConstrainToWorldBounds && Cam->WorldBoundsSource)
+			{
+				MapDiscovery->SetWorldBounds(Cam->MinimumWorldBounds, Cam->MaximumWorldBounds);
+			}
+		}
+		MapDiscovery->SetExplorer(GetControlledChampion());
+	}
+	if (WorldFogOfWar)
+	{
+		WorldFogOfWar->SetDiscoverySource(MapDiscovery);
+	}
+	ApplyFogOfWarVisualState();
+
 	if (bShowMinimap)
 	{
 		ShowMinimap();
+	}
+
+	// After minimap auto-fit, seed discovery once if we never got an authored volume.
+	if (MapDiscovery && MinimapWidget)
+	{
+		float Cx = 0.f, Cy = 0.f, Ortho = 1.f;
+		MapDiscovery->GetOrthoWorldRect(Cx, Cy, Ortho);
+		// Defaults are ±12k (Ortho 24k). Prefer minimap's tighter level fit for better stamp precision.
+		if (Ortho >= 20000.f)
+		{
+			MapDiscovery->SetWorldBounds(MinimapWidget->WorldMin, MinimapWidget->WorldMax);
+		}
 	}
 }
 
@@ -67,6 +190,13 @@ UMinimapWidget* AMobaPlayerController::ShowMinimap()
 				MinimapWidget->SetWorldBounds(Cam->MinimumWorldBounds, Cam->MaximumWorldBounds);
 			}
 		}
+		// Share map discovery mask with the minimap fog overlay.
+		if (MapDiscovery)
+		{
+			MinimapWidget->SetDiscoverySource(MapDiscovery);
+		}
+		// Apply current FOW toggle / discovery flags to minimap fog visuals.
+		ApplyFogOfWarVisualState();
 		MinimapWidget->AddToViewport(20);
 	}
 	return MinimapWidget;
@@ -142,12 +272,190 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 	const bool bBlockWorld = ShouldBlockWorldClickInput();
 	bEnableClickEvents = !bBlockWorld;
 
+	HandleSkipSkyDropInput();
+	HandleToggleFogOfWarInput();
 	HandleClickToMoveChampion();
+}
+
+void AMobaPlayerController::HandleSkipSkyDropInput()
+{
+	if (!SkipSkyDropKey.IsValid() || !WasInputKeyJustPressed(SkipSkyDropKey))
+	{
+		return;
+	}
+	TrySkipSkyDrop();
+}
+
+void AMobaPlayerController::HandleToggleFogOfWarInput()
+{
+	if (!ToggleFogOfWarKey.IsValid() || !WasInputKeyJustPressed(ToggleFogOfWarKey))
+	{
+		return;
+	}
+	ToggleWorldFogOfWar();
+}
+
+void AMobaPlayerController::ToggleWorldFogOfWar()
+{
+	SetWorldFogOfWarEnabled(!bEnableWorldFogOfWar);
+}
+
+void AMobaPlayerController::SetWorldFogOfWarEnabled(bool bEnabled)
+{
+	bEnableWorldFogOfWar = bEnabled;
+	ApplyFogOfWarVisualState();
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			99117,
+			1.5f,
+			bEnableWorldFogOfWar ? FColor::Orange : FColor::Green,
+			bEnableWorldFogOfWar ? TEXT("Fog of War: ON") : TEXT("Fog of War: OFF"));
+	}
+}
+
+void AMobaPlayerController::ApplyFogOfWarVisualState()
+{
+	const bool bShowWorldFog = bEnableWorldFogOfWar && bEnableMapDiscovery;
+	if (WorldFogOfWar)
+	{
+		WorldFogOfWar->SetEnabled(bShowWorldFog);
+	}
+
+	// Minimap fog overlay only — do not call SetMapDiscoveryEnabled (that would
+	// stop the shared discovery mask used by world FOW).
+	if (MinimapWidget)
+	{
+		const bool bShowMinimapFog =
+			bEnableWorldFogOfWar && bEnableMinimapDiscoveryFog && bEnableMapDiscovery;
+		MinimapWidget->bMapDiscoveryEnabled = bShowMinimapFog;
+	}
+}
+
+bool AMobaPlayerController::TrySkipSkyDrop()
+{
+	APawn* Champion = GetControlledChampion();
+	if (!Champion)
+	{
+		return false;
+	}
+
+	// Prefer BP helper if EventGraph has SkipSkyDrop (snaps + CompleteDropLanding).
+	if (UFunction* SkipFn = Champion->FindFunction(FName(TEXT("SkipSkyDrop"))))
+	{
+		if (SkipFn->NumParms == 0 && MobaSkipDropPrivate::IsPawnDropping(Champion))
+		{
+			Champion->ProcessEvent(SkipFn, nullptr);
+			return true;
+		}
+	}
+
+	if (!MobaSkipDropPrivate::IsPawnDropping(Champion))
+	{
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	const FVector Loc = Champion->GetActorLocation();
+	const FVector TraceEnd(Loc.X, Loc.Y, Loc.Z - 100000.f);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SkipSkyDrop), true, Champion);
+	Params.AddIgnoredActor(Champion);
+
+	FHitResult Hit;
+	const bool bHit = World->LineTraceSingleByChannel(Hit, Loc, TraceEnd, ECC_Visibility, Params);
+
+	float CapsuleHalfHeight = 96.f;
+	if (const ACharacter* AsChar = Cast<ACharacter>(Champion))
+	{
+		if (const UCapsuleComponent* Cap = AsChar->GetCapsuleComponent())
+		{
+			CapsuleHalfHeight = Cap->GetScaledCapsuleHalfHeight();
+		}
+	}
+
+	if (bHit && Hit.bBlockingHit)
+	{
+		const FVector LandLoc(Hit.ImpactPoint.X, Hit.ImpactPoint.Y, Hit.ImpactPoint.Z + CapsuleHalfHeight);
+		Champion->SetActorLocation(LandLoc, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	if (UFunction* CompleteFn = Champion->FindFunction(FName(TEXT("CompleteDropLanding"))))
+	{
+		if (CompleteFn->NumParms == 0)
+		{
+			Champion->ProcessEvent(CompleteFn, nullptr);
+			return true;
+		}
+	}
+
+	// Fallback when BP landing helpers are missing: mirror OnLanded cleanup via reflection.
+	MobaSkipDropPrivate::WriteBoolProp(Champion, FName(TEXT("bIsDropping")), false);
+	MobaSkipDropPrivate::WriteBoolProp(Champion, FName(TEXT("IsDropping")), false);
+
+	if (ACharacter* AsChar = Cast<ACharacter>(Champion))
+	{
+		if (UCharacterMovementComponent* Move = AsChar->GetCharacterMovement())
+		{
+			float Gravity = 1.f;
+			float AirControl = 0.05f;
+			MobaSkipDropPrivate::ReadFloatProp(Champion, FName(TEXT("DefaultGravityScale")), Gravity);
+			MobaSkipDropPrivate::ReadFloatProp(Champion, FName(TEXT("DefaultAirControl")), AirControl);
+			Move->GravityScale = Gravity;
+			Move->AirControl = AirControl;
+			Move->Velocity = FVector::ZeroVector;
+		}
+	}
+
+	if (USpringArmComponent* Arm = Champion->FindComponentByClass<USpringArmComponent>())
+	{
+		float SavedArm = Arm->TargetArmLength;
+		float SettlePitch = -55.f;
+		MobaSkipDropPrivate::ReadFloatProp(Champion, FName(TEXT("SavedArmLength")), SavedArm);
+		MobaSkipDropPrivate::ReadFloatProp(Champion, FName(TEXT("TopDownArmPitch")), SettlePitch);
+		Arm->TargetArmLength = SavedArm;
+		const FRotator Rel = Arm->GetRelativeRotation();
+		Arm->SetRelativeRotation(FRotator(SettlePitch, Rel.Yaw, Rel.Roll));
+	}
+
+	bDropMode = false;
+
+	// Free camera: stay locked on the landed champion (sky-drop can steer XY far from spawn).
+	if (AMobaCameraPawn* Cam = GetMobaCameraPawn())
+	{
+		Cam->RecenterOnChampion(true);
+	}
+
+	MobaSkipDropPrivate::CallNoArgFunction(Champion, FName(TEXT("ShowAbilityHUD")));
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			-1, 4.f, FColor::Cyan, TEXT("Sky drop skipped (Enter)"));
+	}
+	return true;
+}
+
+void AMobaPlayerController::SetDropMode(bool bInDropMode)
+{
+	bDropMode = bInDropMode;
 }
 
 void AMobaPlayerController::HandleClickToMoveChampion()
 {
-	if (!bEnableClickToMoveChampion || ShouldBlockWorldClickInput())
+	if (!bEnableClickToMoveChampion || bDropMode || ShouldBlockWorldClickInput())
+	{
+		return;
+	}
+
+	// Also suppress path orders while the champion is still falling/dropping.
+	if (MobaSkipDropPrivate::IsPawnDropping(GetControlledChampion()))
 	{
 		return;
 	}
@@ -187,15 +495,29 @@ void AMobaPlayerController::EnsureChampionHasAIController(APawn* Champion)
 		return;
 	}
 
-	if (Cast<AAIController>(Champion->GetController()))
+	if (AAIController* ExistingAI = Cast<AAIController>(Champion->GetController()))
+	{
+		// Fix prior bug: AI Owner must not be the pawn (GetNetConnection recursion:
+		// Pawn -> Controller -> Owner(Pawn) -> ...).
+		if (ExistingAI->GetOwner() == Champion)
+		{
+			ExistingAI->SetOwner(this);
+		}
+		return;
+	}
+
+	// Still possessed by a player — attach AI only after free-cam repossess.
+	if (Cast<APlayerController>(Champion->GetController()))
 	{
 		return;
 	}
 
-	// Unpossessed pawn needs an AI controller for SimpleMoveToLocation.
+	// Unpossessed champion needs AI for SimpleMoveToLocation.
+	// Owner = this PC (never the champion) to avoid GetNetConnection infinite recursion.
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Params.Owner = Champion;
+	Params.Owner = this;
+	Params.Instigator = Champion;
 	AAIController* AIC = GetWorld()->SpawnActor<AAIController>(
 		AAIController::StaticClass(), Champion->GetActorLocation(), FRotator::ZeroRotator, Params);
 	if (AIC)
@@ -226,12 +548,16 @@ void AMobaPlayerController::WireChampionFromPawn(APawn* InPawn)
 
 void AMobaPlayerController::InitializeMobaCamera()
 {
-	// Capture champion if we still possess a non-camera pawn.
+	// Capture champion if we still possess a non-camera pawn (do not force AI yet).
 	if (APawn* Current = GetPawn())
 	{
 		if (!Cast<AMobaCameraPawn>(Current))
 		{
-			SetControlledChampion(Current);
+			ControlledChampion = Current;
+			if (MapDiscovery)
+			{
+				MapDiscovery->SetExplorer(Current);
+			}
 		}
 		else
 		{
@@ -244,11 +570,15 @@ void AMobaPlayerController::InitializeMobaCamera()
 	{
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		Params.Owner = this;
 		const FVector SpawnLoc = FVector::ZeroVector;
 		if (APawn* SpawnedChamp = GetWorld()->SpawnActor<APawn>(ChampionClass, SpawnLoc, FRotator::ZeroRotator, Params))
 		{
-			SetControlledChampion(SpawnedChamp);
-			EnsureChampionHasAIController(SpawnedChamp);
+			ControlledChampion = SpawnedChamp;
+			if (MapDiscovery)
+			{
+				MapDiscovery->SetExplorer(SpawnedChamp);
+			}
 		}
 	}
 
@@ -257,10 +587,10 @@ void AMobaPlayerController::InitializeMobaCamera()
 	{
 		if (UWorld* World = GetWorld())
 		{
-			for (TActorIterator<AMobaCameraPawn> It(World); It; ++It)
+			TActorIterator<AMobaCameraPawn> It(World);
+			if (It)
 			{
 				CachedCameraPawn = *It;
-				break;
 			}
 		}
 	}
@@ -282,12 +612,14 @@ void AMobaPlayerController::InitializeMobaCamera()
 					Loc.Z = CameraPivotHeight;
 				}
 				Cam->SetActorLocation(Loc);
+				// Default sticky lock so drop + landing keep framing on the champion.
+				Cam->SetLockedToChampion(true);
 			}
 		}
 
 		if (bPossessCameraPawn && GetPawn() != Cam)
 		{
-			// Keep champion alive; after Possess, give it AI for pathfinding.
+			// Keep champion alive; after Possess free cam, give champion AI for pathfinding.
 			APawn* Champ = GetControlledChampion();
 			Possess(Cam);
 			if (Champ)
@@ -298,6 +630,14 @@ void AMobaPlayerController::InitializeMobaCamera()
 		else if (!bPossessCameraPawn)
 		{
 			SetViewTarget(Cam);
+		}
+	}
+	else if (APawn* Champ = GetControlledChampion())
+	{
+		// No free camera — still ensure AI for click-to-move when unpossessed / default path.
+		if (GetPawn() != Champ)
+		{
+			EnsureChampionHasAIController(Champ);
 		}
 	}
 
@@ -327,6 +667,10 @@ void AMobaPlayerController::SetControlledChampion(APawn* NewChampion)
 	if (NewChampion)
 	{
 		EnsureChampionHasAIController(NewChampion);
+	}
+	if (MapDiscovery)
+	{
+		MapDiscovery->SetExplorer(NewChampion);
 	}
 }
 

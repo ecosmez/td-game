@@ -20,6 +20,7 @@
 #include "GameFramework/Volume.h"
 #include "Components/BrushComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "UObject/UnrealType.h"
 
 AMobaCameraPawn::AMobaCameraPawn()
 {
@@ -56,9 +57,10 @@ AMobaCameraPawn::AMobaCameraPawn()
 	FloatingPawnMovement->Acceleration = 12000.0f;
 	FloatingPawnMovement->Deceleration = 12000.0f;
 	FloatingPawnMovement->TurningBoost = 8.0f;
-	// RTS camera uses custom planar integration; this drives lag-like deceleration when idle.
-	FloatingPawnMovement->bConstrainToPlane = true;
-	FloatingPawnMovement->SetPlaneConstraintNormal(FVector::UpVector);
+	// Planar motion is owned by Tick (ApplyVelocity / SnapToWorldXY). Disabling the
+	// movement component plane constraint avoids forcing Z to the origin plane (Z=0),
+	// which pulls the pivot under the floor.
+	FloatingPawnMovement->bConstrainToPlane = false;
 
 	AutoPossessPlayer = EAutoReceiveInput::Disabled;
 }
@@ -304,15 +306,19 @@ void AMobaCameraPawn::RemoveMappingContext()
 
 void AMobaCameraPawn::OnMove(const FInputActionValue& Value)
 {
-	if (ShouldBlockCameraInputForUI())
+	if (!IsKeyboardCameraMoveEnabled() || ShouldBlockCameraInputForUI())
 	{
 		MoveInput = FVector2D::ZeroVector;
 		return;
 	}
 	MoveInput = Value.Get<FVector2D>();
-	if (bManualMovementCancelsFocus && !MoveInput.IsNearlyZero() && bFocusChampionHeld)
+	if (bManualMovementCancelsFocus && !MoveInput.IsNearlyZero() && ShouldFollowChampion())
 	{
-		bFocusChampionHeld = false;
+		// Don't unlock while forcing follow during freefall.
+		if (!(bFollowWhileChampionDropping && IsChampionDropping()))
+		{
+			CancelChampionFollow();
+		}
 	}
 }
 
@@ -329,7 +335,7 @@ void AMobaCameraPawn::OnZoom(const FInputActionValue& Value)
 
 void AMobaCameraPawn::OnRotate(const FInputActionValue& Value)
 {
-	if (!bEnableCameraRotation || ShouldBlockCameraInputForUI())
+	if (!bEnableCameraRotation || !IsKeyboardCameraMoveEnabled() || ShouldBlockCameraInputForUI())
 	{
 		RotateInput = 0.0f;
 		return;
@@ -359,9 +365,10 @@ void AMobaCameraPawn::OnDragStarted(const FInputActionValue& Value)
 			PC->bShowMouseCursor = false;
 		}
 	}
-	if (bManualMovementCancelsFocus && bFocusChampionHeld)
+	if (bManualMovementCancelsFocus && ShouldFollowChampion()
+		&& !(bFollowWhileChampionDropping && IsChampionDropping()))
 	{
-		bFocusChampionHeld = false;
+		CancelChampionFollow();
 	}
 }
 
@@ -386,6 +393,8 @@ void AMobaCameraPawn::OnFocusStarted(const FInputActionValue& Value)
 	{
 		return;
 	}
+	// Space = sticky lock + hold-to-follow (matches LoL recenter + lock).
+	bLockedToChampion = true;
 	bFocusChampionHeld = true;
 	CurrentVelocity = FVector::ZeroVector;
 	DesiredVelocity = FVector::ZeroVector;
@@ -393,8 +402,8 @@ void AMobaCameraPawn::OnFocusStarted(const FInputActionValue& Value)
 
 void AMobaCameraPawn::OnFocusCompleted(const FInputActionValue& Value)
 {
+	// Release hold only; sticky lock (bLockedToChampion) keeps following after land.
 	bFocusChampionHeld = false;
-	// Leave camera at current world position – free move resumes next tick.
 }
 
 void AMobaCameraPawn::SetFocusingChampion(bool bFocusing)
@@ -402,9 +411,76 @@ void AMobaCameraPawn::SetFocusingChampion(bool bFocusing)
 	bFocusChampionHeld = bFocusing;
 	if (bFocusing)
 	{
+		bLockedToChampion = true;
 		CurrentVelocity = FVector::ZeroVector;
 		DesiredVelocity = FVector::ZeroVector;
 	}
+	else
+	{
+		bLockedToChampion = false;
+	}
+}
+
+void AMobaCameraPawn::SetLockedToChampion(bool bLocked)
+{
+	bLockedToChampion = bLocked;
+	if (bLocked)
+	{
+		bFocusChampionHeld = false;
+		CurrentVelocity = FVector::ZeroVector;
+		DesiredVelocity = FVector::ZeroVector;
+	}
+}
+
+void AMobaCameraPawn::CancelChampionFollow()
+{
+	bLockedToChampion = false;
+	bFocusChampionHeld = false;
+}
+
+bool AMobaCameraPawn::ShouldFollowChampion() const
+{
+	if (bFocusChampionHeld || bLockedToChampion)
+	{
+		return true;
+	}
+	return bFollowWhileChampionDropping && IsChampionDropping();
+}
+
+bool AMobaCameraPawn::IsChampionDropping() const
+{
+	const APawn* Champion = ResolveFocusChampion();
+	if (!Champion)
+	{
+		return false;
+	}
+	static const FName Names[] = {
+		FName(TEXT("bIsDropping")),
+		FName(TEXT("IsDropping")),
+		FName(TEXT("isDropping"))
+	};
+	for (const FName& Name : Names)
+	{
+		if (const FBoolProperty* BoolProp = FindFProperty<FBoolProperty>(Champion->GetClass(), Name))
+		{
+			return BoolProp->GetPropertyValue_InContainer(Champion);
+		}
+	}
+	if (const AMobaPlayerController* MPC = GetMobaController())
+	{
+		return MPC->IsDropMode();
+	}
+	return false;
+}
+
+bool AMobaCameraPawn::IsKeyboardCameraMoveEnabled() const
+{
+	// Mouse + Space only once grounded (default). Optional during freefall if enabled on cam.
+	if (IsChampionDropping())
+	{
+		return true;
+	}
+	return bEnableKeyboardCameraMoveWhenGrounded;
 }
 
 void AMobaCameraPawn::SetTargetZoom(float NewZoom)
@@ -419,15 +495,45 @@ void AMobaCameraPawn::RecenterOnChampion(bool bInstant)
 		FVector Loc = Champion->GetActorLocation();
 		Loc.Z = CachedPawnHeight;
 		ConstrainLocation(Loc);
+		bLockedToChampion = true;
 		if (bInstant)
 		{
 			SetActorLocation(Loc);
 			CurrentVelocity = FVector::ZeroVector;
+			DesiredVelocity = FVector::ZeroVector;
+			bFocusChampionHeld = false;
 		}
 		else
 		{
 			bFocusChampionHeld = true;
 		}
+	}
+}
+
+void AMobaCameraPawn::SnapToWorldXY(const FVector& WorldLocation)
+{
+	// Cancel champion lock so tick doesn't immediately pull the camera back.
+	CancelChampionFollow();
+	CurrentVelocity = FVector::ZeroVector;
+	DesiredVelocity = FVector::ZeroVector;
+
+	// Keep current height only — never inherit Z from the minimap click payload
+	// (that Z is only for coordinate math and must not push the pivot underground).
+	FVector Loc = GetActorLocation();
+	Loc.X = WorldLocation.X;
+	Loc.Y = WorldLocation.Y;
+	if (CachedPawnHeight == 0.0f)
+	{
+		CachedPawnHeight = Loc.Z;
+	}
+	Loc.Z = CachedPawnHeight;
+	ConstrainLocation(Loc);
+	SetActorLocation(Loc, false, nullptr, ETeleportType::TeleportPhysics);
+
+	if (FloatingPawnMovement)
+	{
+		FloatingPawnMovement->StopMovementImmediately();
+		FloatingPawnMovement->Velocity = FVector::ZeroVector;
 	}
 }
 
@@ -476,7 +582,7 @@ float AMobaCameraPawn::GetZoomSpeedScale() const
 
 void AMobaCameraPawn::UpdateKeyboardMove(float DeltaTime)
 {
-	if (MoveInput.IsNearlyZero())
+	if (!IsKeyboardCameraMoveEnabled() || MoveInput.IsNearlyZero())
 	{
 		return;
 	}
@@ -492,7 +598,7 @@ void AMobaCameraPawn::UpdateKeyboardMove(float DeltaTime)
 
 void AMobaCameraPawn::UpdateEdgeScroll(float DeltaTime)
 {
-	if (!bEnableEdgeScrolling || bIsDragging || bFocusChampionHeld)
+	if (!bEnableEdgeScrolling || bIsDragging || ShouldFollowChampion())
 	{
 		return;
 	}
@@ -592,15 +698,15 @@ void AMobaCameraPawn::UpdateMiddleMouseDrag(float DeltaTime)
 	const float Scale = DragMoveSpeed * 100.0f; // px -> cm/s-ish feel
 	DesiredVelocity += DragDirection * Scale;
 
-	if (bManualMovementCancelsFocus)
+	if (bManualMovementCancelsFocus && !(bFollowWhileChampionDropping && IsChampionDropping()))
 	{
-		bFocusChampionHeld = false;
+		CancelChampionFollow();
 	}
 }
 
 void AMobaCameraPawn::UpdateChampionFocus(float DeltaTime)
 {
-	if (!bFocusChampionHeld)
+	if (!ShouldFollowChampion())
 	{
 		return;
 	}
@@ -611,14 +717,25 @@ void AMobaCameraPawn::UpdateChampionFocus(float DeltaTime)
 		return;
 	}
 
+	// Re-assert sticky lock when drop ends so post-land stay-on-player continues.
+	const bool bDropping = IsChampionDropping();
+	if (bDropping && bFollowWhileChampionDropping)
+	{
+		bLockedToChampion = true;
+	}
+
 	FVector TargetLocation = Champion->GetActorLocation();
 	TargetLocation.Z = CachedPawnHeight;
 
-	FVector NewLocation = FMath::VInterpTo(
-		GetActorLocation(),
-		TargetLocation,
-		DeltaTime,
-		ChampionFollowInterpolationSpeed);
+	FVector NewLocation = TargetLocation;
+	if (!(bDropping && bSnapFollowWhileDropping))
+	{
+		NewLocation = FMath::VInterpTo(
+			GetActorLocation(),
+			TargetLocation,
+			DeltaTime,
+			ChampionFollowInterpolationSpeed);
+	}
 
 	ConstrainLocation(NewLocation);
 	SetActorLocation(NewLocation);
@@ -657,7 +774,7 @@ void AMobaCameraPawn::UpdateRotation(float DeltaTime)
 
 void AMobaCameraPawn::ApplyVelocity(float DeltaTime)
 {
-	if (bFocusChampionHeld)
+	if (ShouldFollowChampion())
 	{
 		return;
 	}
@@ -708,7 +825,8 @@ void AMobaCameraPawn::Tick(float DeltaTime)
 
 	UpdateRotation(DeltaTime);
 
-	if (bFocusChampionHeld)
+	// While locked, edge scroll is ignored (WASD / MMB / minimap unlock free cam).
+	if (ShouldFollowChampion())
 	{
 		UpdateChampionFocus(DeltaTime);
 	}

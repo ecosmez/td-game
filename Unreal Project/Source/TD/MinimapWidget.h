@@ -10,14 +10,16 @@ class UImage;
 class USizeBox;
 class UCanvasPanelSlot;
 class UTextureRenderTarget2D;
+class UTexture2D;
 class USceneCaptureComponent2D;
 class ASceneCapture2D;
 class AMobaCameraPawn;
+class UMapDiscoveryComponent;
 
 /**
  * LoL-style minimap anchored bottom-right.
- * Top-down orthographic SceneCapture + champion / camera markers.
- * Left-click pans the free camera (or recenters view target) to the world point.
+ * Top-down orthographic SceneCapture of the playable level (lit scene color),
+ * champion / camera markers, LMB camera pan, and optional discovery fog.
  */
 UCLASS()
 class TD_API UMinimapWidget : public UUserWidget
@@ -55,11 +57,26 @@ public:
 	float CaptureHeight = 25000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "32"))
-	int32 RenderTargetSize = 256;
+	int32 RenderTargetSize = 512;
 
 	/** Update scene capture every N seconds (0 = every frame). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "0.0"))
-	float CaptureInterval = 0.05f;
+	float CaptureInterval = 0.1f;
+
+	/**
+	 * Fit minimap orthographic bounds to placed level actors (pads, meshes, etc.).
+	 * Avoids empty solid-color maps when free-cam defaults use huge world clamps.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World")
+	bool bAutoFitBoundsToLevel = true;
+
+	/** Padding added around auto-fit actor bounds (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.0", EditCondition = "bAutoFitBoundsToLevel"))
+	float AutoFitBoundsPadding = 800.0f;
+
+	/** Re-scan level bounds every N seconds while auto-fit is on (0 = only once). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.0", EditCondition = "bAutoFitBoundsToLevel"))
+	float AutoFitRescanInterval = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bShowChampionMarker = true;
@@ -83,11 +100,58 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	FLinearColor CameraMarkerColor = FLinearColor(1.0f, 0.92f, 0.35f, 0.95f);
 
+	/**
+	 * Diablo-style map discovery: unexplored areas stay fogged on the minimap.
+	 * Prefer the shared UMapDiscoveryComponent from the player controller when set.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery")
+	bool bMapDiscoveryEnabled = true;
+
+	/** World-space radius (cm) revealed around the champion while exploring. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "100.0", EditCondition = "bMapDiscoveryEnabled"))
+	float DiscoveryRadius = 1800.0f;
+
+	/** Soft edge width as a fraction of DiscoveryRadius (0 = hard circle, 1 = fully soft). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bMapDiscoveryEnabled"))
+	float DiscoverySoftness = 0.35f;
+
+	/** Resolution of the persistent reveal fog mask (square). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "64", ClampMax = "1024", EditCondition = "bMapDiscoveryEnabled"))
+	int32 DiscoveryMaskSize = 256;
+
+	/** Champion must move at least this far (cm) before stamping another reveal. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "0.0", EditCondition = "bMapDiscoveryEnabled"))
+	float DiscoveryStampDistance = 80.0f;
+
+	/** Fog tint for unexplored minimap regions (alpha = opacity over terrain). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (EditCondition = "bMapDiscoveryEnabled"))
+	FLinearColor UndiscoveredColor = FLinearColor(0.02f, 0.03f, 0.04f, 0.96f);
+
 	UFUNCTION(BlueprintCallable, Category = "Minimap")
 	void SetWorldBounds(FVector2D InMin, FVector2D InMax);
 
 	UFUNCTION(BlueprintCallable, Category = "Minimap")
 	void RefreshCaptureSettings();
+
+	/** True when screen pos is over the map frame (not the full-viewport root). */
+	UFUNCTION(BlueprintPure, Category = "Minimap")
+	bool IsScreenPosOverMap(FVector2D ScreenPos) const;
+
+	/** Permanently reveal a circle at the given world location (uses DiscoveryRadius). */
+	UFUNCTION(BlueprintCallable, Category = "Minimap|Discovery")
+	void RevealAtWorldLocation(const FVector& WorldLocation);
+
+	/** Clear all exploration (full fog). Current champion position is re-stamped on next tick. */
+	UFUNCTION(BlueprintCallable, Category = "Minimap|Discovery")
+	void ResetMapDiscovery();
+
+	/** Enable/disable discovery fog at runtime. */
+	UFUNCTION(BlueprintCallable, Category = "Minimap|Discovery")
+	void SetMapDiscoveryEnabled(bool bEnabled);
+
+	/** Bind a shared discovery mask (from AMobaPlayerController). */
+	UFUNCTION(BlueprintCallable, Category = "Minimap|Discovery")
+	void SetDiscoverySource(UMapDiscoveryComponent* InDiscovery);
 
 protected:
 	void EnsureBuilt();
@@ -95,15 +159,42 @@ protected:
 	void EnsureCapture();
 	void DestroyCapture();
 	void SyncBoundsFromCamera();
+	void RefitBoundsFromLevel();
 	void UpdateCaptureTransform();
+	void ConfigureSceneCapture();
 	void UpdateMarkers();
 	void UpdateCapture(float DeltaTime);
+	void UpdateMapDiscovery();
+	void EnsureDiscoveryFog();
+	void ClearDiscoveryFog();
+	void FlushDiscoveryFogTexture();
+	void StampDiscoveryAtNormalized(const FVector2D& NormalizedUV);
+	/** Square orthographic footprint centered on WorldMin/WorldMax (matches capture ↔ markers). */
+	void GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, float& OutOrthoWidth) const;
 	bool LocalToWorld(const FVector2D& LocalPos, const FGeometry& Geometry, FVector& OutWorld) const;
+	/** Map pointer to world using the frame widget geometry (not full-viewport root). */
+	bool TryPointerToWorld(const FPointerEvent& MouseEvent, FVector& OutWorld) const;
 	FVector2D WorldToNormalized(const FVector& WorldLoc) const;
 	void PanCameraToWorld(const FVector& WorldLoc);
 	APawn* ResolveChampion() const;
 	AMobaCameraPawn* ResolveCameraPawn() const;
 	void PlaceMarker(UBorder* Marker, UCanvasPanelSlot* Slot, const FVector2D& Normalized, float HalfSize);
+	/** Apply hit-test policy so only the map frame eats input. */
+	void ApplyHitTestPolicy();
+	void BindMapPointerEvents();
+	/** Shared LMB pan logic for frame/image delegates and native handlers. */
+	FReply HandleMapPointerDown(const FPointerEvent& MouseEvent);
+	FReply HandleMapPointerMove(const FPointerEvent& MouseEvent);
+	FReply HandleMapPointerUp(const FPointerEvent& MouseEvent);
+
+	UFUNCTION()
+	FEventReply OnMapMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+
+	UFUNCTION()
+	FEventReply OnMapMouseMove(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+
+	UFUNCTION()
+	FEventReply OnMapMouseButtonUp(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> RootCanvas = nullptr;
@@ -116,6 +207,10 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UImage> MapImage = nullptr;
+
+	/** Black fog over unexplored regions; alpha punched out by champion discovery. */
+	UPROPERTY()
+	TObjectPtr<UImage> FogImage = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UBorder> ChampionMarker = nullptr;
@@ -135,8 +230,24 @@ protected:
 	UPROPERTY()
 	TObjectPtr<ASceneCapture2D> CaptureActor = nullptr;
 
+	/** CPU-backed fog texture: RGB = UndiscoveredColor, A = remaining fog (255 = fully hidden). */
+	UPROPERTY()
+	TObjectPtr<UTexture2D> DiscoveryFogTexture = nullptr;
+
+	/** Shared discovery from player controller when available. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMapDiscoveryComponent> DiscoverySource = nullptr;
+
+	TArray<FColor> DiscoveryFogPixels;
+	FVector LastDiscoveryStampLocation = FVector(ForceInitToZero);
+	bool bHasDiscoveryStamp = false;
+	bool bDiscoveryFogDirty = false;
+	int32 DiscoveryFogTextureSize = 0;
+
 	float CaptureTimer = 0.0f;
+	float AutoFitTimer = 0.0f;
 	bool bBuilt = false;
 	bool bDragging = false;
 	bool bCaptureReady = false;
+	bool bDidAutoFitBounds = false;
 };

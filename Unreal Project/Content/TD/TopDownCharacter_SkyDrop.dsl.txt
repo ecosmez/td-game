@@ -18,12 +18,15 @@
           (Class|PlayerController|SetShowMouseCursor true pc)
           (Class|PlayerController|SetEnableClickEvents true pc)
           (Class|PlayerController|SetEnableMouseOverEvents true pc)
-          (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController)))
+          (bind ctrl (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController)))
           (Utilities|IsValid ctrl
             (:"Is Valid"
-              (Class|BPTopDownController|SetDropMode true ctrl))))))
+              (Class|MobaPlayerController|SetbEnableClickToMoveChampion false ctrl)
+              ;; Prefer SetDropMode once TD module is recompiled with bDropMode:
+              ;; (Class|MobaPlayerController|SetDropMode true ctrl)
+              ))))))
     (:then_1
-      (Development|PrintString "SKY DROP - aim with mouse, hold SPACE to plane" true true "(R=0.300000,G=0.900000,B=1.000000,A=1.000000)" 6.0))))
+      (Development|PrintString "SKY DROP - mouse aim, SPACE plane, ENTER skip" true true "(R=0.300000,G=0.900000,B=1.000000,A=1.000000)" 6.0))))
 
 (event EventTick (DeltaSeconds)
   (bind selfref self)
@@ -53,18 +56,11 @@
 
 ; Landing camera: LoLCameraComponent auto-plays land zoom when bIsDropping goes false
 ; (arm punch-in + pitch -90 -> TopDownArmPitch settle). Do NOT snap SpringArm here.
+; Land cleanup lives in CompleteDropLanding; EventOnLanded just calls it.
+; Skip during freefall: Enter -> AMobaPlayerController::TrySkipSkyDrop (C++)
+;   prefer BP SkipSkyDrop / CompleteDropLanding if present, else reflection fallback.
 (event EventOnLanded (Hit)
-  (if (Variables|Default|GetIsDropping)
-    (Variables|Default|SetIsDropping false)
-    (bind move (Variables|Character|GetCharacterMovement))
-    (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetDefaultGravityScale) move)
-    (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetDefaultAirControl) move)
-    ; Camera: LoLCameraComponent::PlayLandingZoom (auto) uses SavedArmLength + TopDownArmPitch
-    (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController)))
-    (Utilities|FlowControl|Sequence
-      (:then_0
-        (Utilities|IsValid ctrl
-          (:"Is Valid"
-            (Class|BPTopDownController|SetDropMode false ctrl))))
-      (:then_1
-        (Development|PrintString "LANDED - click to move, build phase ready" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 5.0)))))
+  (CallFunction|CompleteDropLanding))
+
+; (fn CompleteDropLanding ()  — clear bIsDropping, restore CMC + spring arm, SetDropMode false, ShowAbilityHUD)
+; (fn SkipSkyDrop ()          — line-trace to ground, teleport, then CompleteDropLanding)

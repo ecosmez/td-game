@@ -1,6 +1,7 @@
 #include "AbilityBarWidget.h"
 
 #include "MinimapWidget.h"
+#include "TowerStoreWidget.h"
 #include "TDUIInputLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
@@ -33,6 +34,9 @@ namespace AbilityBarPrivate
 	static FLinearColor KeyColor(0.92f, 0.95f, 1.f, 1.f);
 	static FLinearColor CdTextColor(1.f, 0.88f, 0.35f, 1.f);
 	static FLinearColor LockTextColor(0.75f, 0.75f, 0.8f, 1.f);
+	static FLinearColor StorePlusBg(0.12f, 0.42f, 0.55f, 0.95f);
+	static FLinearColor StorePlusBgOpen(0.55f, 0.28f, 0.18f, 0.95f);
+	static FLinearColor StorePlusFrame(0.45f, 0.78f, 0.88f, 1.f);
 }
 
 UAbilityBarWidget::UAbilityBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -51,8 +55,8 @@ void UAbilityBarWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	EnsureBuilt();
-	// Visible but ignore mouse so world click-to-move / cast still works.
-	SetVisibility(ESlateVisibility::HitTestInvisible);
+	// Root ignores empty space; bar chrome + store plus receive clicks.
+	ApplyHitTestPolicy();
 	UE_LOG(LogTemp, Display, TEXT("AbilityBarWidget constructed. Built=%d Root=%s"),
 		bBuilt ? 1 : 0,
 		WidgetTree && WidgetTree->RootWidget ? *WidgetTree->RootWidget->GetName() : TEXT("None"));
@@ -88,6 +92,8 @@ void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 		EnsureBuilt();
 	}
 
+	RefreshStorePlusVisual();
+
 	if (APawn* Pawn = ResolveChampionPawn())
 	{
 		RefreshFromPawn(Pawn);
@@ -111,17 +117,55 @@ void UAbilityBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget)
+	if (!WidgetTree->RootWidget || !SlotRow)
 	{
 		BuildDefaultUI();
 	}
-	else if (!SlotRow)
+	else if (!StorePlusButton)
 	{
-		// Blueprint may already own a tree; still build a bottom-centered row if missing.
-		BuildDefaultUI();
+		// Hot-reload / older runtime tree had slots without the store opener.
+		if (SlotRow)
+		{
+			SlotRow->ClearChildren();
+			BuildStorePlusSlot(SlotRow);
+			SlotQ = BuildSlot(SlotRow, TEXT('Q'), 1);
+			SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
+			SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
+			SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
+		}
+		else
+		{
+			BuildDefaultUI();
+		}
 	}
 
-	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr;
+	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr && StorePlusButton != nullptr;
+	if (bBuilt)
+	{
+		ApplyHitTestPolicy();
+	}
+}
+
+void UAbilityBarWidget::ApplyHitTestPolicy()
+{
+	// Full-screen root does not eat world clicks; chrome + interactive plus do.
+	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	if (UWidget* Root = WidgetTree ? WidgetTree->RootWidget : nullptr)
+	{
+		Root->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	if (BarChrome)
+	{
+		BarChrome->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (SlotRow)
+	{
+		SlotRow->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (StorePlusButton)
+	{
+		StorePlusButton->SetVisibility(ESlateVisibility::Visible);
+	}
 }
 
 void UAbilityBarWidget::BuildDefaultUI()
@@ -138,26 +182,157 @@ void UAbilityBarWidget::BuildDefaultUI()
 		WidgetTree->RootWidget = Root;
 	}
 
-	UBorder* BarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("AbilityBarChrome"));
-	BarChrome->SetPadding(FMargin(16.f, 12.f));
-	// High-contrast chrome so the bar is obvious against the greybox.
-	BarChrome->SetBrushColor(FLinearColor(0.05f, 0.08f, 0.12f, 0.92f));
-	if (UCanvasPanelSlot* ChromeSlot = Root->AddChildToCanvas(BarChrome))
+	if (!BarChrome)
+	{
+		BarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("AbilityBarChrome"));
+		BarChrome->SetPadding(FMargin(16.f, 12.f));
+		BarChrome->SetBrushColor(FLinearColor(0.05f, 0.08f, 0.12f, 0.92f));
+		if (UCanvasPanelSlot* ChromeSlot = Root->AddChildToCanvas(BarChrome))
+		{
+			ChromeSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
+			ChromeSlot->SetAlignment(FVector2D(0.5f, 1.f));
+			ChromeSlot->SetAutoSize(true);
+			// Non-stretch canvas: Offset.Top lifts from bottom (Alignment Y=1). Bottom is ignored.
+			ChromeSlot->SetOffsets(FMargin(0.f, -40.f, 0.f, 0.f));
+			ChromeSlot->SetZOrder(10);
+		}
+	}
+	else if (UCanvasPanelSlot* ChromeSlot = Cast<UCanvasPanelSlot>(BarChrome->Slot))
 	{
 		ChromeSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
 		ChromeSlot->SetAlignment(FVector2D(0.5f, 1.f));
 		ChromeSlot->SetAutoSize(true);
-		ChromeSlot->SetOffsets(FMargin(0.f, 0.f, 0.f, 40.f));
-		ChromeSlot->SetZOrder(10);
+		ChromeSlot->SetOffsets(FMargin(0.f, -40.f, 0.f, 0.f));
 	}
 
-	SlotRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("AbilitySlotRow"));
-	BarChrome->SetContent(SlotRow);
+	if (!SlotRow)
+	{
+		SlotRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("AbilitySlotRow"));
+		BarChrome->SetContent(SlotRow);
+	}
+	else
+	{
+		SlotRow->ClearChildren();
+	}
+
+	// Tower store opener is the first button, left of Q.
+	BuildStorePlusSlot(SlotRow);
 
 	SlotQ = BuildSlot(SlotRow, TEXT('Q'), 1);
 	SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
 	SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
 	SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
+
+	ApplyHitTestPolicy();
+}
+
+void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
+{
+	if (!Parent || !WidgetTree)
+	{
+		return;
+	}
+
+	StorePlusSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StorePlusSize"));
+	StorePlusSizeBox->SetWidthOverride(SlotSize);
+	StorePlusSizeBox->SetHeightOverride(SlotSize);
+
+	StorePlusFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StorePlusFrame"));
+	StorePlusFrame->SetPadding(FMargin(2.f));
+	StorePlusFrame->SetBrushColor(AbilityBarPrivate::StorePlusFrame);
+	StorePlusSizeBox->SetContent(StorePlusFrame);
+
+	StorePlusButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("StorePlusButton"));
+	StorePlusButton->SetBackgroundColor(AbilityBarPrivate::StorePlusBg);
+	StorePlusButton->SetIsEnabled(true);
+	StorePlusButton->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnStorePlusClicked);
+	StorePlusFrame->SetContent(StorePlusButton);
+
+	StorePlusLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StorePlusLabel"));
+	StorePlusLabel->SetText(FText::FromString(TEXT("+")));
+	StorePlusLabel->SetJustification(ETextJustify::Center);
+	StorePlusLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
+	StorePlusLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+	StorePlusLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
+	{
+		FSlateFontInfo Font = StorePlusLabel->GetFont();
+		Font.Size = 32.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		StorePlusLabel->SetFont(Font);
+	}
+	StorePlusButton->SetContent(StorePlusLabel);
+
+	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(StorePlusSizeBox))
+	{
+		RowSlot->SetPadding(FMargin(8.f, 0.f, 12.f, 0.f));
+		RowSlot->SetVerticalAlignment(VAlign_Center);
+	}
+}
+
+void UAbilityBarWidget::OnStorePlusClicked()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Prefer the store widget already shown by BuildManager.
+	for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
+	{
+		UTowerStoreWidget* Store = *It;
+		if (!IsValid(Store) || Store->GetWorld() != World)
+		{
+			continue;
+		}
+		Store->ToggleStore();
+		RefreshStorePlusVisual();
+		return;
+	}
+
+	// Fallback: spawn store if BuildManager has not created one yet.
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (UTowerStoreWidget* Store = CreateWidget<UTowerStoreWidget>(PC, UTowerStoreWidget::StaticClass()))
+		{
+			// Above ability bar (Z=100 in ShowAbilityHUD) so strip draws on top.
+			Store->AddToViewport(120);
+			Store->SetStoreOpen(true);
+			RefreshStorePlusVisual();
+		}
+	}
+}
+
+void UAbilityBarWidget::RefreshStorePlusVisual()
+{
+	if (!StorePlusButton || !StorePlusLabel)
+	{
+		return;
+	}
+
+	bool bOpen = false;
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
+		{
+			UTowerStoreWidget* Store = *It;
+			if (IsValid(Store) && Store->GetWorld() == World && Store->IsInViewport())
+			{
+				bOpen = Store->IsStoreOpen();
+				break;
+			}
+		}
+	}
+
+	StorePlusButton->SetBackgroundColor(bOpen ? AbilityBarPrivate::StorePlusBgOpen : AbilityBarPrivate::StorePlusBg);
+	StorePlusLabel->SetText(FText::FromString(bOpen ? TEXT("−") : TEXT("+")));
+	if (StorePlusFrame)
+	{
+		StorePlusFrame->SetBrushColor(bOpen
+			? FLinearColor(0.9f, 0.55f, 0.35f, 1.f)
+			: AbilityBarPrivate::StorePlusFrame);
+	}
 }
 
 FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId)

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "InputCoreTypes.h"
 #include "LoLCameraComponent.generated.h"
 class USpringArmComponent;
 class UCameraComponent;
@@ -78,6 +79,18 @@ public:
 	void StopLandingZoom(bool bSnapToSettle = true);
 	UFUNCTION(BlueprintPure, Category = "LoL Camera|Landing")
 	bool IsLandingZoomActive() const { return bLandingZoomActive; }
+
+	/**
+	 * Hotkey checked while owner has bIsDropping. Calls champion SkipSkyDrop / CompleteDropLanding
+	 * when available, else snaps to ground and clears drop state (default: Enter).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LoL Camera|Landing")
+	FKey SkipSkyDropKey = EKeys::Enter;
+
+	/** If true, SkipSkyDropKey ends freefall while the owner is dropping. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LoL Camera|Landing")
+	bool bEnableSkipSkyDropHotkey = true;
+
 protected:
 	UPROPERTY()
 	TObjectPtr<USpringArmComponent> SpringArm;
@@ -108,5 +121,6 @@ protected:
 	void SyncFocusFromSpringArm();
 	void UpdateLandingZoom(float DeltaTime);
 	void ApplyLandingZoomFrame(float NormalizedTime);
+	void TrySkipSkyDropFromHotkey(APlayerController* PC);
 	static float SmoothStep01(float T);
 };

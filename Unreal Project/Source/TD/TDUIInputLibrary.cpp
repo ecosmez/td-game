@@ -1,10 +1,18 @@
 #include "TDUIInputLibrary.h"
 
+#include "MinimapWidget.h"
+#include "TowerStoreWidget.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
+#include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "UObject/SoftObjectPath.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectIterator.h"
 #include "Widgets/SWidget.h"
 
 namespace TDUIInputLibPrivate
@@ -32,6 +40,17 @@ bool UTDUIInputLibrary::IsPointerOverHitTestableUI(const UObject* WorldContextOb
 
 	FSlateApplication& App = FSlateApplication::Get();
 	const FVector2D Cursor = App.GetCursorPos();
+
+	// Minimap frame is hit-testable but not an SButton; block world path-to under it.
+	for (TObjectIterator<UMinimapWidget> It; It; ++It)
+	{
+		UMinimapWidget* Mini = *It;
+		if (Mini && Mini->IsInViewport() && Mini->IsScreenPosOverMap(Cursor))
+		{
+			return true;
+		}
+	}
+
 	TArray<TSharedRef<SWindow>> Windows;
 	App.GetAllVisibleWindowsOrdered(Windows);
 	const FWidgetPath Path = App.LocateWindowUnderMouse(Cursor, Windows, /*bIgnoreEnabledStatus=*/false);
@@ -144,4 +163,76 @@ bool UTDUIInputLibrary::ShouldBlockWorldClickInput(const UObject* WorldContextOb
 		return true;
 	}
 	return false;
+}
+
+UUserWidget* UTDUIInputLibrary::CreateTowerStoreWidget(UObject* WorldContextObject, APlayerController* OwningPlayer)
+{
+	APlayerController* PC = OwningPlayer;
+	if (!PC)
+	{
+		if (UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr)
+		{
+			PC = World->GetFirstPlayerController();
+		}
+	}
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	// Prefer designed WBP when cooked/loaded; fall back to C++ store implementation.
+	static const FSoftClassPath WbpPath(TEXT("/Game/TD/UI/WBP_TowerStore.WBP_TowerStore_C"));
+	UClass* WidgetClass = WbpPath.TryLoadClass<UUserWidget>();
+	if (!WidgetClass)
+	{
+		WidgetClass = UTowerStoreWidget::StaticClass();
+	}
+
+	return CreateWidget<UUserWidget>(PC, WidgetClass);
+}
+
+UUserWidget* UTDUIInputLibrary::CreateAndShowTowerStore(
+	UObject* WorldContextObject,
+	APlayerController* OwningPlayer,
+	int32 ZOrder)
+{
+	APlayerController* PC = OwningPlayer;
+	if (!PC)
+	{
+		if (UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr)
+		{
+			PC = World->GetFirstPlayerController();
+		}
+	}
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	UUserWidget* Widget = CreateTowerStoreWidget(WorldContextObject, PC);
+	if (!Widget)
+	{
+		return nullptr;
+	}
+
+	if (!Widget->IsInViewport())
+	{
+		Widget->AddToViewport(ZOrder);
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	Mode.SetWidgetToFocus(Widget->TakeWidget());
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	PC->bEnableClickEvents = true;
+
+	// Mount closed: open only via ability-bar + or SetStoreOpen(true).
+	if (UTowerStoreWidget* Store = Cast<UTowerStoreWidget>(Widget))
+	{
+		Store->SetStoreOpen(false);
+	}
+
+	return Widget;
 }

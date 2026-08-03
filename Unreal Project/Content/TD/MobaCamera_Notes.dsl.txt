@@ -5,11 +5,13 @@
 ;   AMobaPlayerController  - GameAndUI input mode, ControlledChampion, GetControlledChampion
 ;   AMobaGameMode          - defaults PlayerController + DefaultPawn to free camera
 ;
-; Enable in a map GameMode override OR create BP_MobaGameMode child:
-;   Player Controller Class = AMobaPlayerController (or BP child)
-;   Default Pawn Class      = AMobaCameraPawn
-;   On controller: set ChampionClass = BP_TopDownCharacter (so Space has a champion to follow)
-;   Or from existing controller BeginPlay: SetControlledChampion(myChamp); GetOrSpawnCameraPawn(); Possess cam
+; ALWAYS use AMobaPlayerController on gameplay maps (not BP_TopDownController).
+; BP_TopDownGameMode / Level0 / Lvl_TopDown use:
+;   Player Controller Class = AMobaPlayerController
+;   Default Pawn Class      = BP_TopDownCharacter (controller re-possesses free camera at BeginPlay)
+;   Optional free-cam path: Default Pawn = AMobaCameraPawn + ChampionClass on controller
+; Character sky drop: SetDropMode(true/false) on AMobaPlayerController (not BP_TopDownController)
+; Run Content/Python/set_moba_player_controller.py after template merges to re-assert settings.
 ;
 ; Enhanced Input assets (optional - runtime defaults exist if missing):
 ;   /Game/TD/Input/MobaCamera/IA_CameraMove
@@ -20,13 +22,15 @@
 ;   /Game/TD/Input/MobaCamera/IMC_MobaCamera
 ; Run Content/Python/create_moba_camera_input.py in the editor to generate them.
 ;
-; Controls:
-;   WASD           - planar move
-;   Edge of screen - edge scroll
+; Controls (after land / grounded):
+;   Edge of screen - edge scroll (unlocks from champion lock)
 ;   Mouse wheel    - zoom
-;   MMB drag       - pan
-;   Space hold     - follow champion
-;   Q/E            - yaw rotate (if bEnableCameraRotation)
+;   MMB drag       - pan (cancels champion lock)
+;   Space          - sticky lock + center on champion
+;   WASD / QE      - disabled for free-cam when grounded (bEnableKeyboardCameraMoveWhenGrounded)
+;
+; Camera follow: bLockedToChampion starts true so freefall steer + post-land walk keep framing.
+; Drop force-follow: bFollowWhileChampionDropping snaps XY while bIsDropping even if player panned.
 ;
 ; Existing BP_TopDownCharacter LoLCameraComponent is champion-attached edge pan.
 ; This free-camera pawn REPLACES that architecture when MobaGameMode is used.

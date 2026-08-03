@@ -40,11 +40,10 @@ struct FAbilityBarSlotWidgets
 };
 
 /**
- * League-style champion ability bar (Q W E R).
- * Reads CD_*, MaxCD_*, bIsDropping, ChampionLevel, PendingAbility from the owning pawn
- * (Blueprint variables on BP_TopDownCharacter) via reflection.
+ * League-style champion ability bar (+ store | Q W E R).
+ * Leading "+" opens the tower store. Ability slots read CD_* from the champion pawn.
  *
- * States per slot:
+ * States per ability slot:
  * - Available: full opacity, no CD overlay
  * - On cooldown: dark fill + remaining seconds
  * - Unavailable (dropping / locked ult): dimmed + disabled
@@ -80,6 +79,13 @@ public:
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
+	void BuildStorePlusSlot(UHorizontalBox* Parent);
+	void ApplyHitTestPolicy();
+	void RefreshStorePlusVisual();
+
+	UFUNCTION()
+	void OnStorePlusClicked();
+
 	FAbilityBarSlotWidgets BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId);
 
 	APawn* ResolveChampionPawn() const;
@@ -93,6 +99,22 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> SlotRow = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> BarChrome = nullptr;
+
+	/** Tower store toggle — first button in the bar, before Q. */
+	UPROPERTY()
+	TObjectPtr<USizeBox> StorePlusSizeBox = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> StorePlusFrame = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UButton> StorePlusButton = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> StorePlusLabel = nullptr;
 
 	UPROPERTY()
 	FAbilityBarSlotWidgets SlotQ;

@@ -2,11 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 #include "MobaPlayerController.generated.h"
 
 class AMobaCameraPawn;
 class UMinimapWidget;
 class UInputMappingContext;
+class UMapDiscoveryComponent;
+class UWorldFogOfWarComponent;
 
 /**
  * MOBA player controller: free RTS camera + separately tracked champion pawn.
@@ -83,6 +86,45 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
 	TSubclassOf<UMinimapWidget> MinimapWidgetClass;
 
+	/**
+	 * Persistent map discovery + 3D fog of war (Diablo-style permanent reveal).
+	 * Shared with the minimap fog overlay when enabled.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Discovery")
+	TObjectPtr<UMapDiscoveryComponent> MapDiscovery;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Discovery")
+	TObjectPtr<UWorldFogOfWarComponent> WorldFogOfWar;
+
+	/** When true, discovery runs even without minimap fog. Drives 3D FOW. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
+	bool bEnableMapDiscovery = true;
+
+	/** When true, apply dark world fog over unexplored terrain. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
+	bool bEnableWorldFogOfWar = true;
+
+	/** Also paint discovery fog on the minimap. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
+	bool bEnableMinimapDiscoveryFog = true;
+
+	/**
+	 * Hotkey that toggles 3D fog of war (and matching minimap fog visuals).
+	 * Discovery continues under the fog so reveal progress is preserved.
+	 * Default: J
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
+	FKey ToggleFogOfWarKey = EKeys::J;
+
+	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
+	void ToggleWorldFogOfWar();
+
+	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
+	void SetWorldFogOfWarEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "Map Discovery")
+	bool IsWorldFogOfWarEnabled() const { return bEnableWorldFogOfWar; }
+
 	UFUNCTION(BlueprintCallable, Category = "Moba HUD")
 	UMinimapWidget* ShowMinimap();
 
@@ -91,6 +133,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Moba HUD")
 	UMinimapWidget* GetMinimapWidget() const { return MinimapWidget; }
+
+	UFUNCTION(BlueprintPure, Category = "Map Discovery")
+	UMapDiscoveryComponent* GetMapDiscovery() const { return MapDiscovery; }
+
+	UFUNCTION(BlueprintPure, Category = "Map Discovery")
+	UWorldFogOfWarComponent* GetWorldFogOfWar() const { return WorldFogOfWar; }
 
 	UFUNCTION(BlueprintPure, Category = "Moba Camera")
 	APawn* GetControlledChampion() const;
@@ -120,10 +168,38 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void MoveChampionToLocation(const FVector& WorldLocation);
 
+	/**
+	 * Instantly end sky-drop / freefall: snap champion to the ground under them,
+	 * clear bIsDropping, restore movement/camera defaults, show ability HUD.
+	 * Bound to SkipSkyDropKey while the champion is dropping.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Moba|Sky Drop")
+	bool TrySkipSkyDrop();
+
+	/** Hotkey that skips the landing/sky-drop phase (default: Enter). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop")
+	FKey SkipSkyDropKey = EKeys::Enter;
+
+	/**
+	 * While true, RMB champion click-to-move is disabled (sky drop / freefall).
+	 * Call from character BPs instead of the old BP_TopDownController path.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop")
+	bool bDropMode = false;
+
+	UFUNCTION(BlueprintCallable, Category = "Moba|Sky Drop")
+	void SetDropMode(bool bInDropMode);
+
+	UFUNCTION(BlueprintPure, Category = "Moba|Sky Drop")
+	bool IsDropMode() const { return bDropMode; }
+
 protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
 	void HandleClickToMoveChampion();
+	void HandleSkipSkyDropInput();
+	void HandleToggleFogOfWarInput();
+	void ApplyFogOfWarVisualState();
 	void EnsureChampionHasAIController(APawn* Champion);
 
 	UPROPERTY(Transient)

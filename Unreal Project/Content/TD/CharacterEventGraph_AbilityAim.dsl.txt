@@ -51,9 +51,9 @@
       (Class|PlayerController|SetShowMouseCursor true pc)
       (Class|PlayerController|SetEnableClickEvents true pc)
       (Class|PlayerController|SetEnableMouseOverEvents true pc)
-      (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController))
+      (bind ctrl (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController))
         (:then
-          (Class|BPTopDownController|SetDropMode true ctrl)
+          (Class|MobaPlayerController|SetbEnableClickToMoveChampion false ctrl)
           (Development|PrintString "SKY DROP - aim with mouse, hold SPACE to plane"))
         (:CastFailed
           (Development|PrintString "SKY DROP - aim with mouse, hold SPACE to plane"))))))
@@ -67,9 +67,9 @@
     (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetDefaultAirControl) movement)
     (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) springarm)
     (Transformation|SetRelativeRotation springarm (Math|Rotator|MakeRotator 0.0 (Variables|Default|GetTopDownArmPitch)))
-    (bind ctrl (Utilities|Casting|CastToBP_TopDownController (Pawn|GetController))
+    (bind ctrl (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController))
       (:then
-        (Class|BPTopDownController|SetDropMode false ctrl)
+        (Class|MobaPlayerController|SetbEnableClickToMoveChampion true ctrl)
         (Development|PrintString "LANDED - QWER to aim, LMB to cast, RMB to cancel"))
       (:CastFailed
         (Development|PrintString "LANDED - QWER to aim, LMB to cast, RMB to cancel")))))

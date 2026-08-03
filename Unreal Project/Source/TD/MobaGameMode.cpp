@@ -4,7 +4,8 @@
 
 AMobaGameMode::AMobaGameMode()
 {
+	// Canonical for all maps: free-camera MOBA controller.
+	// BP_TopDownGameMode also pins PlayerControllerClass to this class.
 	PlayerControllerClass = AMobaPlayerController::StaticClass();
 	DefaultPawnClass = AMobaCameraPawn::StaticClass();
-	// HUD / spectator left to project defaults / BP overrides.
 }

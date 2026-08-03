@@ -1,5 +1,6 @@
 ﻿#include "MinimapWidget.h"
 
+#include "MapDiscoveryComponent.h"
 #include "MobaCameraPawn.h"
 #include "MobaPlayerController.h"
 
@@ -8,15 +9,28 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Components/LightComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SizeBox.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Engine/Brush.h"
+#include "Engine/Light.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/SceneCapture2D.h"
+#include "Engine/SkyLight.h"
+#include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Info.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerStart.h"
 #include "Kismet/KismetRenderingLibrary.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "Styling/SlateBrush.h"
+#include "Components/SlateWrapperTypes.h"
+#include "InputCoreTypes.h"
 
 UMinimapWidget::UMinimapWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -34,7 +48,11 @@ void UMinimapWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	EnsureBuilt();
-	SetVisibility(ESlateVisibility::Visible);
+	// Critical: AddToViewport widgets fill the entire screen. Visible on the root
+	// captures every LMB as a "minimap click" and remaps screen UV → world, which
+	// teleports the camera (or champion) when clicking the ground.
+	ApplyHitTestPolicy();
+	BindMapPointerEvents();
 	EnsureCapture();
 	RefreshCaptureSettings();
 }
@@ -116,6 +134,17 @@ void UMinimapWidget::BuildDefaultUI()
 		ImageSlot->SetZOrder(0);
 	}
 
+	// Diablo-style fog: black overlay with alpha punched out as the champion explores.
+	FogImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapFog"));
+	FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+	FogImage->SetColorAndOpacity(FLinearColor::White);
+	if (UCanvasPanelSlot* FogSlot = MapCanvas->AddChildToCanvas(FogImage))
+	{
+		FogSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		FogSlot->SetOffsets(FMargin(0.f));
+		FogSlot->SetZOrder(1);
+	}
+
 	ChampionMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionMarker"));
 	ChampionMarker->SetBrushColor(ChampionMarkerColor);
 	ChampionMarker->SetPadding(FMargin(0.f));
@@ -125,7 +154,7 @@ void UMinimapWidget::BuildDefaultUI()
 		ChampSlot->SetAnchors(FAnchors(0.f, 0.f));
 		ChampSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		ChampSlot->SetSize(FVector2D(12.f, 12.f));
-		ChampSlot->SetZOrder(2);
+		ChampSlot->SetZOrder(3);
 		ChampionSlot = ChampSlot;
 	}
 
@@ -138,8 +167,51 @@ void UMinimapWidget::BuildDefaultUI()
 		CamSlot->SetAnchors(FAnchors(0.f, 0.f));
 		CamSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		CamSlot->SetSize(FVector2D(10.f, 10.f));
-		CamSlot->SetZOrder(1);
+		CamSlot->SetZOrder(2);
 		CameraSlot = CamSlot;
+	}
+
+	ApplyHitTestPolicy();
+	BindMapPointerEvents();
+}
+
+void UMinimapWidget::ApplyHitTestPolicy()
+{
+	// Root / empty canvas pass clicks through to the world.
+	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	if (RootCanvas)
+	{
+		RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	// Only the sized frame (bottom-right) participates in hit tests.
+	if (FrameSizeBox)
+	{
+		FrameSizeBox->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (FrameBorder)
+	{
+		FrameBorder->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (MapImage)
+	{
+		// Visible leaf so LMB hits the map image directly (not only SObjectWidget bubble).
+		MapImage->SetVisibility(ESlateVisibility::Visible);
+	}
+}
+
+void UMinimapWidget::BindMapPointerEvents()
+{
+	// Leaf image down-handler (Image only exposes ButtonDown). Capture + drag use native path after LMB.
+	if (MapImage)
+	{
+		MapImage->OnMouseButtonDownEvent.BindDynamic(this, &UMinimapWidget::OnMapMouseButtonDown);
+	}
+	// Border still receives events in padding and if image brush is unbound.
+	if (FrameBorder)
+	{
+		FrameBorder->OnMouseButtonDownEvent.BindDynamic(this, &UMinimapWidget::OnMapMouseButtonDown);
+		FrameBorder->OnMouseMoveEvent.BindDynamic(this, &UMinimapWidget::OnMapMouseMove);
+		FrameBorder->OnMouseButtonUpEvent.BindDynamic(this, &UMinimapWidget::OnMapMouseButtonUp);
 	}
 }
 
@@ -155,19 +227,435 @@ void UMinimapWidget::SetWorldBounds(FVector2D InMin, FVector2D InMax)
 	{
 		WorldMax.Y = WorldMin.Y + 1000.f;
 	}
+	// Only seed discovery when it still looks unauthored (huge / free-cam).
+	if (DiscoverySource)
+	{
+		float Cx = 0.f, Cy = 0.f, Ortho = 1.f;
+		DiscoverySource->GetOrthoWorldRect(Cx, Cy, Ortho);
+		if (Ortho > 70000.f)
+		{
+			DiscoverySource->SetWorldBounds(WorldMin, WorldMax);
+		}
+	}
 	RefreshCaptureSettings();
+}
+
+void UMinimapWidget::SetDiscoverySource(UMapDiscoveryComponent* InDiscovery)
+{
+	DiscoverySource = InDiscovery;
+	if (DiscoverySource)
+	{
+		// Minimap follows shared discovery bounds / settings — discovery is the authority.
+		// Only seed bounds into discovery when it still has defaults and we have a tight fit.
+		float DiscCx = 0.f, DiscCy = 0.f, DiscOrtho = 1.f;
+		DiscoverySource->GetOrthoWorldRect(DiscCx, DiscCy, DiscOrtho);
+		if (DiscOrtho > 70000.f)
+		{
+			// Discovery still on free-cam-sized defaults — seed from minimap fit.
+			DiscoverySource->SetWorldBounds(WorldMin, WorldMax);
+		}
+		else
+		{
+			// Pull authoritative bounds onto the minimap so capture lines up.
+			FVector2D DMin = DiscoverySource->WorldMin;
+			FVector2D DMax = DiscoverySource->WorldMax;
+			WorldMin = DMin;
+			WorldMax = DMax;
+		}
+		DiscoverySource->DiscoveryRadius = DiscoveryRadius;
+		DiscoverySource->DiscoverySoftness = DiscoverySoftness;
+		if (DiscoverySource->MaskSize != DiscoveryMaskSize && DiscoveryMaskSize >= 64)
+		{
+			DiscoverySource->MaskSize = DiscoveryMaskSize;
+		}
+		DiscoverySource->StampDistance = DiscoveryStampDistance;
+		DiscoverySource->UndiscoveredColor = UndiscoveredColor;
+		// Never disable shared discovery from the minimap path — world FOW also uses it.
+		if (bMapDiscoveryEnabled)
+		{
+			DiscoverySource->SetEnabled(true);
+		}
+		if (APawn* Champ = ResolveChampion())
+		{
+			DiscoverySource->SetExplorer(Champ);
+		}
+	}
+}
+
+void UMinimapWidget::SetMapDiscoveryEnabled(bool bEnabled)
+{
+	bMapDiscoveryEnabled = bEnabled;
+	if (DiscoverySource)
+	{
+		DiscoverySource->SetEnabled(bEnabled);
+	}
+	if (!bMapDiscoveryEnabled)
+	{
+		if (FogImage)
+		{
+			FogImage->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+
+	EnsureDiscoveryFog();
+	// Force a stamp at current position next tick / immediately.
+	bHasDiscoveryStamp = false;
+	UpdateMapDiscovery();
+}
+
+void UMinimapWidget::ResetMapDiscovery()
+{
+	if (DiscoverySource)
+	{
+		DiscoverySource->ResetDiscovery();
+		UpdateMapDiscovery();
+		return;
+	}
+	ClearDiscoveryFog();
+	bHasDiscoveryStamp = false;
+	if (bMapDiscoveryEnabled)
+	{
+		UpdateMapDiscovery();
+	}
+}
+
+void UMinimapWidget::RevealAtWorldLocation(const FVector& WorldLocation)
+{
+	if (!bMapDiscoveryEnabled)
+	{
+		return;
+	}
+	if (DiscoverySource)
+	{
+		DiscoverySource->RevealAtWorldLocation(WorldLocation);
+		UpdateMapDiscovery();
+		return;
+	}
+	EnsureDiscoveryFog();
+	StampDiscoveryAtNormalized(WorldToNormalized(WorldLocation));
+	LastDiscoveryStampLocation = WorldLocation;
+	bHasDiscoveryStamp = true;
+	FlushDiscoveryFogTexture();
+}
+
+void UMinimapWidget::EnsureDiscoveryFog()
+{
+	if (!bMapDiscoveryEnabled)
+	{
+		if (FogImage)
+		{
+			FogImage->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+
+	// Shared discovery component owns the fog texture.
+	if (DiscoverySource)
+	{
+		UTexture2D* SharedFog = DiscoverySource->GetFogTexture();
+		if (FogImage && SharedFog)
+		{
+			const int32 Size = SharedFog->GetSizeX();
+			FSlateBrush Brush = FogImage->GetBrush();
+			Brush.SetResourceObject(SharedFog);
+			Brush.DrawAs = ESlateBrushDrawType::Image;
+			Brush.ImageSize = FVector2D(static_cast<float>(Size), static_cast<float>(Size));
+			Brush.TintColor = FSlateColor(FLinearColor::White);
+			FogImage->SetBrush(Brush);
+			FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+			FogImage->SetColorAndOpacity(FLinearColor::White);
+		}
+		return;
+	}
+
+	const int32 Size = FMath::Clamp(DiscoveryMaskSize, 64, 1024);
+	const bool bNeedNewTexture = !DiscoveryFogTexture || DiscoveryFogTextureSize != Size;
+	if (bNeedNewTexture)
+	{
+		DiscoveryFogTextureSize = Size;
+		DiscoveryFogPixels.SetNumUninitialized(Size * Size);
+
+		// Transient so we can UpdateTextureRegions every stamp without asset dependency.
+		DiscoveryFogTexture = UTexture2D::CreateTransient(Size, Size, PF_B8G8R8A8);
+		if (DiscoveryFogTexture)
+		{
+			DiscoveryFogTexture->CompressionSettings = TC_VectorDisplacementmap;
+			DiscoveryFogTexture->SRGB = false;
+			DiscoveryFogTexture->Filter = TF_Bilinear;
+			DiscoveryFogTexture->AddressX = TA_Clamp;
+			DiscoveryFogTexture->AddressY = TA_Clamp;
+			DiscoveryFogTexture->UpdateResource();
+		}
+
+		ClearDiscoveryFog();
+		bHasDiscoveryStamp = false;
+	}
+
+	if (FogImage && DiscoveryFogTexture)
+	{
+		FSlateBrush Brush = FogImage->GetBrush();
+		Brush.SetResourceObject(DiscoveryFogTexture);
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.ImageSize = FVector2D(static_cast<float>(Size), static_cast<float>(Size));
+		Brush.TintColor = FSlateColor(FLinearColor::White);
+		FogImage->SetBrush(Brush);
+		FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		FogImage->SetColorAndOpacity(FLinearColor::White);
+	}
+}
+
+void UMinimapWidget::UpdateMapDiscovery()
+{
+	if (!bMapDiscoveryEnabled)
+	{
+		if (FogImage && FogImage->GetVisibility() != ESlateVisibility::Collapsed)
+		{
+			FogImage->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+
+	// Shared discovery owns stamping + bounds; minimap only mirrors the fog texture.
+	if (DiscoverySource)
+	{
+		// Pull bounds for capture / markers only — do not overwrite discovery UV domain every tick
+		// or reveals walk off the player as the minimap refits.
+		float Cx = 0.f, Cy = 0.f, Ortho = 1.f;
+		DiscoverySource->GetOrthoWorldRect(Cx, Cy, Ortho);
+		const float Half = Ortho * 0.5f;
+		WorldMin = FVector2D(Cx - Half, Cy - Half);
+		WorldMax = FVector2D(Cx + Half, Cy + Half);
+
+		if (APawn* Champ = ResolveChampion())
+		{
+			DiscoverySource->SetExplorer(Champ);
+		}
+		EnsureDiscoveryFog();
+		return;
+	}
+
+	EnsureDiscoveryFog();
+
+	APawn* Champ = ResolveChampion();
+	if (!Champ)
+	{
+		return;
+	}
+
+	const FVector Loc = Champ->GetActorLocation();
+	const bool bMovedFarEnough = !bHasDiscoveryStamp
+		|| FVector::DistSquared2D(Loc, LastDiscoveryStampLocation)
+			>= FMath::Square(FMath::Max(0.f, DiscoveryStampDistance));
+
+	if (bMovedFarEnough)
+	{
+		StampDiscoveryAtNormalized(WorldToNormalized(Loc));
+		LastDiscoveryStampLocation = Loc;
+		bHasDiscoveryStamp = true;
+		FlushDiscoveryFogTexture();
+	}
 }
 
 void UMinimapWidget::SyncBoundsFromCamera()
 {
+	// Only honor camera bounds when they come from an explicit bounds source in the level.
+	// The free-cam defaults (±50k) are huge clamps and turn the minimap into empty solid colour.
 	if (AMobaCameraPawn* Cam = ResolveCameraPawn())
 	{
-		if (Cam->bConstrainToWorldBounds)
+		if (Cam->bConstrainToWorldBounds && Cam->WorldBoundsSource)
 		{
 			WorldMin = Cam->MinimumWorldBounds;
 			WorldMax = Cam->MaximumWorldBounds;
+			bDidAutoFitBounds = true; // don't fight a authored bounds volume
 		}
 	}
+}
+
+void UMinimapWidget::RefitBoundsFromLevel()
+{
+	UWorld* World = GetWorld();
+	if (!World || !bAutoFitBoundsToLevel)
+	{
+		return;
+	}
+
+	FBox2D Accum(ForceInit);
+	bool bAny = false;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor || !IsValid(Actor) || Actor->IsHidden())
+		{
+			continue;
+		}
+
+		// Skip system / non-geometry actors that inflate or confuse bounds.
+		// AInfo covers sky atmosphere / clouds / nav managers in many setups.
+		if (Actor->IsA(AInfo::StaticClass())
+			|| Actor->IsA(APlayerController::StaticClass())
+			|| Actor->IsA(APawn::StaticClass())
+			|| Actor->IsA(APlayerStart::StaticClass())
+			|| Actor->IsA(ASceneCapture2D::StaticClass())
+			|| Actor->IsA(ABrush::StaticClass())
+			|| Actor->IsA(APostProcessVolume::StaticClass())
+			|| Actor->IsA(ALight::StaticClass())
+			|| Actor->IsA(ASkyLight::StaticClass()))
+		{
+			continue;
+		}
+
+		// Prefer mesh-bearing components over full actor bounds (nav volumes, etc.).
+		bool bUsedComp = false;
+		TInlineComponentArray<UPrimitiveComponent*> PrimComps(Actor);
+		for (UPrimitiveComponent* Prim : PrimComps)
+		{
+			if (!Prim || !Prim->IsRegistered() || !Prim->IsVisible())
+			{
+				continue;
+			}
+			// Lights/particles don't define the playable floor layout.
+			if (Prim->IsA(ULightComponentBase::StaticClass())
+				|| Prim->IsA(UParticleSystemComponent::StaticClass()))
+			{
+				continue;
+			}
+
+			const FBoxSphereBounds B = Prim->Bounds;
+			const FVector Ext = B.BoxExtent;
+			if (Ext.X < 5.f && Ext.Y < 5.f)
+			{
+				continue;
+			}
+			// Ignore giant volumes used only for lighting / nav.
+			if (Ext.X > 80000.f || Ext.Y > 80000.f)
+			{
+				continue;
+			}
+
+			const FVector Min = B.Origin - Ext;
+			const FVector Max = B.Origin + Ext;
+			Accum += FVector2D(Min.X, Min.Y);
+			Accum += FVector2D(Max.X, Max.Y);
+			bAny = true;
+			bUsedComp = true;
+		}
+
+		if (!bUsedComp)
+		{
+			FVector Origin;
+			FVector Extent;
+			Actor->GetActorBounds(false, Origin, Extent);
+			if (Extent.X < 5.f && Extent.Y < 5.f)
+			{
+				continue;
+			}
+			if (Extent.X > 80000.f || Extent.Y > 80000.f)
+			{
+				continue;
+			}
+			Accum += FVector2D(Origin.X - Extent.X, Origin.Y - Extent.Y);
+			Accum += FVector2D(Origin.X + Extent.X, Origin.Y + Extent.Y);
+			bAny = true;
+		}
+	}
+
+	if (!bAny || !Accum.bIsValid)
+	{
+		return;
+	}
+
+	const float Pad = FMath::Max(0.f, AutoFitBoundsPadding);
+	const FVector2D NewMin(Accum.Min.X - Pad, Accum.Min.Y - Pad);
+	const FVector2D NewMax(Accum.Max.X + Pad, Accum.Max.Y + Pad);
+
+	// Ignore degenerate envelopes.
+	if ((NewMax.X - NewMin.X) < 200.f || (NewMax.Y - NewMin.Y) < 200.f)
+	{
+		return;
+	}
+
+	WorldMin = NewMin;
+	WorldMax = NewMax;
+	bDidAutoFitBounds = true;
+	RefreshCaptureSettings();
+}
+
+void UMinimapWidget::GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, float& OutOrthoWidth) const
+{
+	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
+	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
+	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
+	const float MaxY = FMath::Max(WorldMin.Y, WorldMax.Y);
+	OutCenterX = (MinX + MaxX) * 0.5f;
+	OutCenterY = (MinY + MaxY) * 0.5f;
+	// Square orthographic volume: cover full bounds so the RT is a true top-down map projection.
+	const float ExtX = FMath::Max(100.f, MaxX - MinX);
+	const float ExtY = FMath::Max(100.f, MaxY - MinY);
+	OutOrthoWidth = FMath::Max(ExtX, ExtY);
+}
+
+void UMinimapWidget::ConfigureSceneCapture()
+{
+	if (!CaptureActor)
+	{
+		return;
+	}
+
+	USceneCaptureComponent2D* Cap = CaptureActor->GetCaptureComponent2D();
+	if (!Cap)
+	{
+		return;
+	}
+
+	Cap->TextureTarget = RenderTarget;
+	Cap->ProjectionType = ECameraProjectionMode::Orthographic;
+	// Lit final colour of the level — same identity as the playable scene, top-down.
+	Cap->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	Cap->bCaptureEveryFrame = false;
+	Cap->bCaptureOnMovement = false;
+	Cap->bAlwaysPersistRenderingState = true;
+	Cap->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
+	Cap->bUseCustomProjectionMatrix = false;
+	Cap->MaxViewDistanceOverride = -1.f;
+	// Composite cleanly into UMG without HDR bloom wash.
+	Cap->CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
+
+	FEngineShowFlags& Flags = Cap->ShowFlags;
+	// Readable map: lit geometry, no weather / heavy post that kills small-RT clarity.
+	Flags.SetLighting(true);
+	Flags.SetSkyLighting(true);
+	Flags.SetStaticMeshes(true);
+	Flags.SetInstancedStaticMeshes(true);
+	Flags.SetLandscape(true);
+	Flags.SetBSP(true);
+	Flags.SetNaniteMeshes(true);
+	Flags.SetSkeletalMeshes(true);
+	Flags.SetInstancedFoliage(true);
+	Flags.SetInstancedGrass(false);
+
+	Flags.SetAtmosphere(false);
+	Flags.SetFog(false);
+	Flags.SetVolumetricFog(false);
+	Flags.SetCloud(false);
+	Flags.SetBloom(false);
+	Flags.SetEyeAdaptation(false);
+	Flags.SetToneCurve(false);
+	Flags.SetVignette(false);
+	Flags.SetMotionBlur(false);
+	Flags.SetDepthOfField(false);
+	Flags.SetAntiAliasing(true);
+	Flags.SetTemporalAA(false);
+	Flags.SetScreenSpaceReflections(false);
+	Flags.SetContactShadows(false);
+	Flags.SetDynamicShadows(true);
+	Flags.SetAmbientOcclusion(false);
+	Flags.SetGlobalIllumination(false);
+	Flags.SetPostProcessing(true);
+	Flags.SetParticles(false);
+	Flags.SetNiagara(false);
+	Flags.SetTranslucency(true);
 }
 
 void UMinimapWidget::EnsureCapture()
@@ -183,11 +671,16 @@ void UMinimapWidget::EnsureCapture()
 		return;
 	}
 
+	if (bAutoFitBoundsToLevel && !bDidAutoFitBounds)
+	{
+		RefitBoundsFromLevel();
+	}
+
 	const int32 Size = FMath::Clamp(RenderTargetSize, 64, 1024);
 	if (!RenderTarget)
 	{
 		RenderTarget = UKismetRenderingLibrary::CreateRenderTarget2D(
-			this, Size, Size, RTF_RGBA8, FLinearColor::Black, false);
+			this, Size, Size, RTF_RGBA8, FLinearColor(0.05f, 0.07f, 0.06f, 1.f), false);
 	}
 
 	if (!CaptureActor)
@@ -196,6 +689,8 @@ void UMinimapWidget::EnsureCapture()
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		Params.ObjectFlags |= RF_Transient;
 		Params.Owner = GetOwningPlayer();
+		// Top-down: pitch -90 looks at ground. Yaw -90 aligns world +X → image +X,
+		// world +Y → image -Y so capture UVs match WorldToNormalized / LocalToWorld.
 		CaptureActor = World->SpawnActor<ASceneCapture2D>(
 			ASceneCapture2D::StaticClass(),
 			FVector::ZeroVector,
@@ -208,20 +703,7 @@ void UMinimapWidget::EnsureCapture()
 		return;
 	}
 
-	if (USceneCaptureComponent2D* Cap = CaptureActor->GetCaptureComponent2D())
-	{
-		Cap->TextureTarget = RenderTarget;
-		Cap->ProjectionType = ECameraProjectionMode::Orthographic;
-		Cap->CaptureSource = ESceneCaptureSource::SCS_SceneColorHDR;
-		Cap->bCaptureEveryFrame = false;
-		Cap->bCaptureOnMovement = false;
-		Cap->bAlwaysPersistRenderingState = true;
-		Cap->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
-		Cap->ShowFlags.SetAtmosphere(false);
-		Cap->ShowFlags.SetFog(false);
-		Cap->ShowFlags.SetBloom(false);
-		Cap->ShowFlags.SetEyeAdaptation(false);
-	}
+	ConfigureSceneCapture();
 
 	if (MapImage && RenderTarget)
 	{
@@ -251,6 +733,14 @@ void UMinimapWidget::DestroyCapture()
 	CaptureActor = nullptr;
 	RenderTarget = nullptr;
 	bCaptureReady = false;
+
+	DiscoveryFogTexture = nullptr;
+	DiscoveryFogPixels.Reset();
+	DiscoveryFogTextureSize = 0;
+	bHasDiscoveryStamp = false;
+	bDiscoveryFogDirty = false;
+	bDidAutoFitBounds = false;
+	AutoFitTimer = 0.f;
 }
 
 void UMinimapWidget::RefreshCaptureSettings()
@@ -262,6 +752,7 @@ void UMinimapWidget::RefreshCaptureSettings()
 	}
 	if (bCaptureReady)
 	{
+		ConfigureSceneCapture();
 		UpdateCaptureTransform();
 	}
 }
@@ -273,21 +764,17 @@ void UMinimapWidget::UpdateCaptureTransform()
 		return;
 	}
 
-	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
-	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
-	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
-	const float MaxY = FMath::Max(WorldMin.Y, WorldMax.Y);
-	const float CenterX = (MinX + MaxX) * 0.5f;
-	const float CenterY = (MinY + MaxY) * 0.5f;
-	const float ExtX = FMath::Max(100.f, MaxX - MinX);
-	const float ExtY = FMath::Max(100.f, MaxY - MinY);
-	const float Ortho = FMath::Max(ExtX, ExtY);
+	float CenterX = 0.f;
+	float CenterY = 0.f;
+	float Ortho = 1000.f;
+	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 
 	CaptureActor->SetActorLocation(FVector(CenterX, CenterY, CaptureHeight));
 	CaptureActor->SetActorRotation(FRotator(-90.f, -90.f, 0.f));
 
 	if (USceneCaptureComponent2D* Cap = CaptureActor->GetCaptureComponent2D())
 	{
+		Cap->ProjectionType = ECameraProjectionMode::Orthographic;
 		Cap->OrthoWidth = Ortho;
 		Cap->TextureTarget = RenderTarget;
 	}
@@ -319,15 +806,16 @@ void UMinimapWidget::UpdateCapture(float DeltaTime)
 
 FVector2D UMinimapWidget::WorldToNormalized(const FVector& WorldLoc) const
 {
-	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
-	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
-	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
-	const float MaxY = FMath::Max(WorldMin.Y, WorldMax.Y);
-	const float ExtX = FMath::Max(1.f, MaxX - MinX);
-	const float ExtY = FMath::Max(1.f, MaxY - MinY);
+	// Same square orthographic footprint as the scene capture.
+	float CenterX = 0.f;
+	float CenterY = 0.f;
+	float Ortho = 1.f;
+	GetOrthoWorldRect(CenterX, CenterY, Ortho);
+	const float Half = Ortho * 0.5f;
 
-	const float U = (WorldLoc.X - MinX) / ExtX;
-	const float V = 1.f - ((WorldLoc.Y - MinY) / ExtY);
+	const float U = (WorldLoc.X - CenterX) / Ortho + 0.5f;
+	// Screen +Y is down; world +Y maps up the image with capture yaw -90.
+	const float V = 0.5f - (WorldLoc.Y - CenterY) / Ortho;
 	return FVector2D(FMath::Clamp(U, 0.f, 1.f), FMath::Clamp(V, 0.f, 1.f));
 }
 
@@ -342,6 +830,134 @@ void UMinimapWidget::PlaceMarker(UBorder* Marker, UCanvasPanelSlot* MarkerSlot, 
 	MarkerSlot->SetPosition(FVector2D(Normalized.X * Inner, Normalized.Y * Inner));
 	MarkerSlot->SetSize(FVector2D(HalfSize * 2.f, HalfSize * 2.f));
 	Marker->SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
+void UMinimapWidget::ClearDiscoveryFog()
+{
+	if (DiscoveryFogTextureSize <= 0)
+	{
+		return;
+	}
+
+	const FColor FogColor = UndiscoveredColor.ToFColor(true);
+	// Alpha encodes remaining fog (FogColor.A = full cover). Stamps only lower alpha.
+	const FColor Pixel(FogColor.R, FogColor.G, FogColor.B, FogColor.A);
+	for (FColor& P : DiscoveryFogPixels)
+	{
+		P = Pixel;
+	}
+	bDiscoveryFogDirty = true;
+	FlushDiscoveryFogTexture();
+}
+
+void UMinimapWidget::StampDiscoveryAtNormalized(const FVector2D& NormalizedUV)
+{
+	if (DiscoveryFogTextureSize <= 0 || DiscoveryFogPixels.Num() != DiscoveryFogTextureSize * DiscoveryFogTextureSize)
+	{
+		return;
+	}
+
+	float CenterX = 0.f;
+	float CenterY = 0.f;
+	float Ortho = 1.f;
+	GetOrthoWorldRect(CenterX, CenterY, Ortho);
+	if (Ortho <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const float RadiusWorld = FMath::Max(50.f, DiscoveryRadius);
+	const float RadiusUV = RadiusWorld / Ortho;
+	const float Soft = FMath::Clamp(DiscoverySoftness, 0.f, 1.f);
+	// Inner fully-clear radius + soft falloff ring (matches Diablo's soft reveal edge).
+	const float HardUV = RadiusUV * (1.f - Soft);
+	const float SoftUV = FMath::Max(RadiusUV * Soft, 1.f / static_cast<float>(DiscoveryFogTextureSize));
+
+	const int32 Size = DiscoveryFogTextureSize;
+	const float Cx = FMath::Clamp(NormalizedUV.X, 0.f, 1.f) * static_cast<float>(Size - 1);
+	const float Cy = FMath::Clamp(NormalizedUV.Y, 0.f, 1.f) * static_cast<float>(Size - 1);
+	const float RadiusPx = RadiusUV * static_cast<float>(Size);
+	const float HardPx = HardUV * static_cast<float>(Size);
+	const float SoftPx = SoftUV * static_cast<float>(Size);
+	const uint8 MaxFogAlpha = UndiscoveredColor.ToFColor(true).A;
+
+	const int32 MinX = FMath::Clamp(FMath::FloorToInt(Cx - RadiusPx - 1.f), 0, Size - 1);
+	const int32 MaxX = FMath::Clamp(FMath::CeilToInt(Cx + RadiusPx + 1.f), 0, Size - 1);
+	const int32 MinY = FMath::Clamp(FMath::FloorToInt(Cy - RadiusPx - 1.f), 0, Size - 1);
+	const int32 MaxY = FMath::Clamp(FMath::CeilToInt(Cy + RadiusPx + 1.f), 0, Size - 1);
+
+	bool bChanged = false;
+	for (int32 Y = MinY; Y <= MaxY; ++Y)
+	{
+		for (int32 X = MinX; X <= MaxX; ++X)
+		{
+			const float DX = static_cast<float>(X) - Cx;
+			const float DY = static_cast<float>(Y) - Cy;
+			const float Dist = FMath::Sqrt(DX * DX + DY * DY);
+
+			uint8 TargetAlpha = MaxFogAlpha;
+			if (Dist <= HardPx)
+			{
+				TargetAlpha = 0;
+			}
+			else if (Dist < HardPx + SoftPx)
+			{
+				const float T = (Dist - HardPx) / SoftPx;
+				TargetAlpha = static_cast<uint8>(FMath::Clamp(
+					FMath::RoundToInt(T * static_cast<float>(MaxFogAlpha)), 0, static_cast<int32>(MaxFogAlpha)));
+			}
+			else
+			{
+				continue;
+			}
+
+			FColor& Pixel = DiscoveryFogPixels[Y * Size + X];
+			if (TargetAlpha < Pixel.A)
+			{
+				Pixel.A = TargetAlpha;
+				bChanged = true;
+			}
+		}
+	}
+
+	if (bChanged)
+	{
+		bDiscoveryFogDirty = true;
+	}
+}
+
+void UMinimapWidget::FlushDiscoveryFogTexture()
+{
+	if (!bDiscoveryFogDirty || !DiscoveryFogTexture || DiscoveryFogTextureSize <= 0)
+	{
+		return;
+	}
+	if (DiscoveryFogPixels.Num() != DiscoveryFogTextureSize * DiscoveryFogTextureSize)
+	{
+		return;
+	}
+
+	const int32 Size = DiscoveryFogTextureSize;
+	const int32 Bytes = Size * Size * static_cast<int32>(sizeof(FColor));
+
+	// Own copies until the RHI upload finishes — pixels may be re-stamped next move.
+	uint8* SrcCopy = new uint8[Bytes];
+	FMemory::Memcpy(SrcCopy, DiscoveryFogPixels.GetData(), Bytes);
+	FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, Size, Size);
+
+	DiscoveryFogTexture->UpdateTextureRegions(
+		0,
+		1,
+		Region,
+		static_cast<uint32>(Size * sizeof(FColor)),
+		sizeof(FColor),
+		SrcCopy,
+		[](uint8* SrcData, const FUpdateTextureRegion2D* Regions)
+		{
+			delete[] SrcData;
+			delete Regions;
+		});
+	bDiscoveryFogDirty = false;
 }
 
 void UMinimapWidget::UpdateMarkers()
@@ -415,13 +1031,43 @@ APawn* UMinimapWidget::ResolveChampion() const
 
 AMobaCameraPawn* UMinimapWidget::ResolveCameraPawn() const
 {
-	if (const AMobaPlayerController* MPC = Cast<AMobaPlayerController>(GetOwningPlayer()))
+	// Never fall back to the gameplay champion — minimap pans the free camera only.
+	if (AMobaPlayerController* MPC = Cast<AMobaPlayerController>(GetOwningPlayer()))
 	{
-		return MPC->GetMobaCameraPawn();
+		if (AMobaCameraPawn* Cam = MPC->GetMobaCameraPawn())
+		{
+			return Cam;
+		}
+		// Prefer existing world camera before spawning a new one mid-click.
+		if (UWorld* World = MPC->GetWorld())
+		{
+			TActorIterator<AMobaCameraPawn> It(World);
+			if (It)
+			{
+				return *It;
+			}
+		}
+		return MPC->GetOrSpawnCameraPawn();
 	}
+
 	if (APlayerController* PC = GetOwningPlayer())
 	{
-		return Cast<AMobaCameraPawn>(PC->GetPawn());
+		if (AMobaCameraPawn* Cam = Cast<AMobaCameraPawn>(PC->GetPawn()))
+		{
+			return Cam;
+		}
+		if (AMobaCameraPawn* Cam = Cast<AMobaCameraPawn>(PC->GetViewTarget()))
+		{
+			return Cam;
+		}
+		if (UWorld* World = PC->GetWorld())
+		{
+			TActorIterator<AMobaCameraPawn> It(World);
+			if (It)
+			{
+				return *It;
+			}
+		}
 	}
 	return nullptr;
 }
@@ -437,97 +1083,195 @@ bool UMinimapWidget::LocalToWorld(const FVector2D& LocalPos, const FGeometry& Ge
 	const float U = FMath::Clamp(LocalPos.X / LocalSize.X, 0.f, 1.f);
 	const float V = FMath::Clamp(LocalPos.Y / LocalSize.Y, 0.f, 1.f);
 
-	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
-	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
-	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
-	const float MaxY = FMath::Max(WorldMin.Y, WorldMax.Y);
+	float CenterX = 0.f;
+	float CenterY = 0.f;
+	float Ortho = 1.f;
+	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 
-	const float WorldX = FMath::Lerp(MinX, MaxX, U);
-	const float WorldY = FMath::Lerp(MaxY, MinY, V);
+	const float WorldX = CenterX + (U - 0.5f) * Ortho;
+	const float WorldY = CenterY - (V - 0.5f) * Ortho;
 
 	float Z = 0.f;
-	if (APawn* Champ = ResolveChampion())
+	if (AMobaCameraPawn* Cam = ResolveCameraPawn())
+	{
+		// Prefer free-camera height for any world point derived from the minimap.
+		Z = Cam->GetActorLocation().Z;
+	}
+	else if (APawn* Champ = ResolveChampion())
 	{
 		Z = Champ->GetActorLocation().Z;
-	}
-	else if (AMobaCameraPawn* Cam = ResolveCameraPawn())
-	{
-		Z = Cam->GetActorLocation().Z;
 	}
 
 	OutWorld = FVector(WorldX, WorldY, Z);
 	return true;
 }
 
+bool UMinimapWidget::TryPointerToWorld(const FPointerEvent& MouseEvent, FVector& OutWorld) const
+{
+	// InGeometry from UserWidget is full-viewport; always map against the frame.
+	const UWidget* Frame = FrameSizeBox
+		? static_cast<const UWidget*>(FrameSizeBox.Get())
+		: static_cast<const UWidget*>(FrameBorder.Get());
+	if (!Frame)
+	{
+		return false;
+	}
+
+	const FGeometry& Geo = Frame->GetCachedGeometry();
+	const FVector2D Size = Geo.GetLocalSize();
+	if (Size.X <= KINDA_SMALL_NUMBER || Size.Y <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const FVector2D Local = Geo.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+	if (Local.X < 0.f || Local.Y < 0.f || Local.X > Size.X || Local.Y > Size.Y)
+	{
+		return false;
+	}
+
+	return LocalToWorld(Local, Geo, OutWorld);
+}
+
+bool UMinimapWidget::IsScreenPosOverMap(FVector2D ScreenPos) const
+{
+	const UWidget* Frame = FrameSizeBox
+		? static_cast<const UWidget*>(FrameSizeBox.Get())
+		: static_cast<const UWidget*>(FrameBorder.Get());
+	if (!Frame || !IsInViewport())
+	{
+		return false;
+	}
+
+	const FGeometry& Geo = Frame->GetCachedGeometry();
+	const FVector2D Size = Geo.GetLocalSize();
+	if (Size.X <= KINDA_SMALL_NUMBER || Size.Y <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const FVector2D Local = Geo.AbsoluteToLocal(ScreenPos);
+	return Local.X >= 0.f && Local.Y >= 0.f && Local.X <= Size.X && Local.Y <= Size.Y;
+}
+
 void UMinimapWidget::PanCameraToWorld(const FVector& WorldLoc)
 {
-	if (AMobaCameraPawn* Cam = ResolveCameraPawn())
+	// Strictly camera-only. Never move the champion/view-target character — that was
+	// teleporting the player off geo (Z kept, XY void) so they fell forever.
+	AMobaCameraPawn* Cam = ResolveCameraPawn();
+	if (!Cam)
 	{
-		FVector Loc = WorldLoc;
-		Loc.Z = Cam->GetActorLocation().Z;
-		if (Cam->bConstrainToWorldBounds)
-		{
-			Loc.X = FMath::Clamp(Loc.X, Cam->MinimumWorldBounds.X, Cam->MaximumWorldBounds.X);
-			Loc.Y = FMath::Clamp(Loc.Y, Cam->MinimumWorldBounds.Y, Cam->MaximumWorldBounds.Y);
-		}
-		Cam->SetActorLocation(Loc);
 		return;
 	}
 
-	if (APlayerController* PC = GetOwningPlayer())
+	// Guard: never treat the controlled champion as the free camera.
+	if (const AMobaPlayerController* MPC = Cast<AMobaPlayerController>(GetOwningPlayer()))
 	{
-		if (APawn* P = PC->GetPawn())
+		if (APawn* Champ = MPC->GetControlledChampion())
 		{
-			FVector Loc = P->GetActorLocation();
-			Loc.X = WorldLoc.X;
-			Loc.Y = WorldLoc.Y;
-			P->SetActorLocation(Loc);
+			if (Cam == Champ)
+			{
+				return;
+			}
 		}
 	}
+
+	Cam->SnapToWorldXY(WorldLoc);
+}
+
+FReply UMinimapWidget::HandleMapPointerDown(const FPointerEvent& MouseEvent)
+{
+	if (!bClickToPanCamera || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return FReply::Unhandled();
+	}
+
+	FVector World;
+	if (!TryPointerToWorld(MouseEvent, World))
+	{
+		return FReply::Unhandled();
+	}
+
+	PanCameraToWorld(World);
+	bDragging = true;
+	return FReply::Handled().CaptureMouse(TakeWidget());
+}
+
+FReply UMinimapWidget::HandleMapPointerMove(const FPointerEvent& MouseEvent)
+{
+	if (!bDragging || !bClickToPanCamera)
+	{
+		return FReply::Unhandled();
+	}
+
+	FVector World;
+	if (TryPointerToWorld(MouseEvent, World))
+	{
+		PanCameraToWorld(World);
+	}
+	return FReply::Handled();
+}
+
+FReply UMinimapWidget::HandleMapPointerUp(const FPointerEvent& MouseEvent)
+{
+	if (bDragging && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		bDragging = false;
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	return FReply::Unhandled();
+}
+
+FEventReply UMinimapWidget::OnMapMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
+{
+	FEventReply Reply;
+	Reply.NativeReply = HandleMapPointerDown(MouseEvent);
+	return Reply;
+}
+
+FEventReply UMinimapWidget::OnMapMouseMove(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
+{
+	FEventReply Reply;
+	Reply.NativeReply = HandleMapPointerMove(MouseEvent);
+	return Reply;
+}
+
+FEventReply UMinimapWidget::OnMapMouseButtonUp(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
+{
+	FEventReply Reply;
+	Reply.NativeReply = HandleMapPointerUp(MouseEvent);
+	return Reply;
 }
 
 FReply UMinimapWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (!bClickToPanCamera || !InMouseEvent.GetEffectingButton().IsMouseButton())
+	const FReply Reply = HandleMapPointerDown(InMouseEvent);
+	if (Reply.IsEventHandled())
 	{
-		return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
-	}
-
-	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-	{
-		const FVector2D Local = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
-		FVector World;
-		if (LocalToWorld(Local, InGeometry, World))
-		{
-			PanCameraToWorld(World);
-			bDragging = true;
-			return FReply::Handled().CaptureMouse(TakeWidget());
-		}
+		return Reply;
 	}
 	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
 }
 
 FReply UMinimapWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (bDragging && bClickToPanCamera && HasMouseCapture())
+	if (bDragging && (HasMouseCapture() || InMouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton)))
 	{
-		const FVector2D Local = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
-		FVector World;
-		if (LocalToWorld(Local, InGeometry, World))
+		const FReply Reply = HandleMapPointerMove(InMouseEvent);
+		if (Reply.IsEventHandled())
 		{
-			PanCameraToWorld(World);
+			return Reply;
 		}
-		return FReply::Handled();
 	}
 	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
 }
 
 FReply UMinimapWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (bDragging && InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	const FReply Reply = HandleMapPointerUp(InMouseEvent);
+	if (Reply.IsEventHandled())
 	{
-		bDragging = false;
-		return FReply::Handled().ReleaseMouseCapture();
+		return Reply;
 	}
 	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
 }
@@ -542,6 +1286,30 @@ void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	}
 
 	SyncBoundsFromCamera();
+
+	if (bAutoFitBoundsToLevel)
+	{
+		const float Rescan = FMath::Max(0.f, AutoFitRescanInterval);
+		if (!bDidAutoFitBounds)
+		{
+			RefitBoundsFromLevel();
+		}
+		else if (Rescan > KINDA_SMALL_NUMBER)
+		{
+			AutoFitTimer += InDeltaTime;
+			if (AutoFitTimer >= Rescan)
+			{
+				AutoFitTimer = 0.f;
+				const AMobaCameraPawn* Cam = ResolveCameraPawn();
+				if (!(Cam && Cam->WorldBoundsSource))
+				{
+					RefitBoundsFromLevel();
+				}
+			}
+		}
+	}
+
 	UpdateCapture(InDeltaTime);
+	UpdateMapDiscovery();
 	UpdateMarkers();
 }

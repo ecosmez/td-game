@@ -63,6 +63,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement", meta = (ClampMin = "0.0"))
 	float KeyboardMoveSpeed = 1800.0f;
 
+	/**
+	 * Grounded free-cam policy (after sky drop lands): mouse edge/drag/zoom + Space lock only.
+	 * WASD/QE keys do not pan the camera once the champion is no longer dropping.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement")
+	bool bEnableKeyboardCameraMoveWhenGrounded = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement", meta = (ClampMin = "0.0"))
 	float EdgeScrollSpeed = 1600.0f;
 
@@ -104,8 +111,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Focus", meta = (ClampMin = "0.01"))
 	float ChampionFollowInterpolationSpeed = 12.0f;
 
+	/**
+	 * Sticky LoL-style lock: free camera keeps XY over the champion until the player pans.
+	 * Defaults on so sky-drop and post-land framing stay on the player.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Focus")
-	bool bManualMovementCancelsFocus = false;
+	bool bLockedToChampion = true;
+
+	/** While the champion has bIsDropping, re-lock and follow even if the player had panned away. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Focus")
+	bool bFollowWhileChampionDropping = true;
+
+	/** Snap XY onto the champion every tick while dropping (avoids lag during freefall steer). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Focus")
+	bool bSnapFollowWhileDropping = true;
+
+	/** MMB drag / minimap pan clear lock (Space re-locks). Edge scroll only when unlocked. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Focus")
+	bool bManualMovementCancelsFocus = true;
 
 	// ---- Rotation ----
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Rotation")
@@ -152,7 +175,13 @@ public:
 	void SetFocusingChampion(bool bFocusing);
 
 	UFUNCTION(BlueprintPure, Category = "Moba Camera")
-	bool IsFocusingChampion() const { return bFocusChampionHeld; }
+	bool IsFocusingChampion() const { return ShouldFollowChampion(); }
+
+	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
+	void SetLockedToChampion(bool bLocked);
+
+	UFUNCTION(BlueprintPure, Category = "Moba Camera")
+	bool IsLockedToChampion() const { return bLockedToChampion; }
 
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void SetTargetZoom(float NewZoom);
@@ -162,6 +191,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void RecenterOnChampion(bool bInstant = false);
+
+	/** Instantly pan the free camera pivot over a world XY (keeps current height). Used by minimap. */
+	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
+	void SnapToWorldXY(const FVector& WorldLocation);
 
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void RefreshBoundsFromSource();
@@ -189,6 +222,11 @@ protected:
 	void UpdateRotation(float DeltaTime);
 	void ApplyVelocity(float DeltaTime);
 	void ConstrainLocation(FVector& Location) const;
+	void CancelChampionFollow();
+	bool ShouldFollowChampion() const;
+	bool IsChampionDropping() const;
+	/** True when WASD/QE are allowed for free-cam (disabled on ground by default). */
+	bool IsKeyboardCameraMoveEnabled() const;
 
 	class AMobaPlayerController* GetMobaController() const;
 	APawn* ResolveFocusChampion() const;

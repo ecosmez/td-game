@@ -2,12 +2,10 @@
   (bind pc (Game|GetPlayerController 0))
   (Utilities|IsValid pc
     (:"Is Valid"
-      (bind widget (UserInterface|CreateWidget "/Game/TopDown/TowersWidgetBlueprint.TowersWidgetBlueprint_C" pc)
-        (:then
-          (Variables|Default|SetBuildHUDWidget widget)
-          (UserInterface|Viewport|AddtoViewport widget 10)
-          (UserInterface|Viewport|SetPositioninViewport widget (Math|Vector2D|MakeVector2D 36.0 140.0) true)
-          (UserInterface|Viewport|SetDesiredSizeinViewport widget (Math|Vector2D|MakeVector2D 280.0 90.0))
-          (Input|SetInputModeGameAndUI pc widget "DoNotLock" false false)
-          (Class|PlayerController|SetShowMouseCursor true pc)
-          (Class|PlayerController|SetEnableClickEvents true pc))))))
+      ; C++ helper — no Create Widget Class pin to go missing at compile time.
+      (bind widget (TD|UI|CreateAndShowTowerStore :OwningPlayer pc :ZOrder 120))
+      (Utilities|IsValid widget
+        (:"Is Valid"
+          (Variables|Default|SetBuildHUDWidget widget))
+        (:"Is Not Valid"
+          (Development|PrintString "ShowBuildHUD: CreateAndShowTowerStore failed"))))))

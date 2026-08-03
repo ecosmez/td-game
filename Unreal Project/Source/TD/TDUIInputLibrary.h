@@ -25,4 +25,21 @@ public:
 	/** True when world click-to-move / 3D click events should be ignored. */
 	UFUNCTION(BlueprintPure, Category = "TD|Input", meta = (WorldContext = "WorldContextObject"))
 	static bool ShouldBlockWorldClickInput(const UObject* WorldContextObject, bool bCheckUI = true);
+
+	/**
+	 * Create the tower store HUD (WBP_TowerStore if available, else TowerStoreWidget C++).
+	 * Avoids BP "Create Widget must have a class specified" compile failures.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))
+	static UUserWidget* CreateTowerStoreWidget(UObject* WorldContextObject, APlayerController* OwningPlayer = nullptr);
+
+	/**
+	 * Create the tower store, add to viewport (closed strip), GameAndUI + show cursor.
+	 * Opens via ability bar + / SetStoreOpen. Returns widget for BuildManager cache.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))
+	static UUserWidget* CreateAndShowTowerStore(
+		UObject* WorldContextObject,
+		APlayerController* OwningPlayer = nullptr,
+		int32 ZOrder = 120);
 };
