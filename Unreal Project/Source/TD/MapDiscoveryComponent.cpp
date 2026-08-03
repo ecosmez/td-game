@@ -82,6 +82,7 @@ void UMapDiscoveryComponent::ResetDiscovery()
 {
 	ClearFogTexture();
 	bHasStamp = false;
+	ApplyPermanentReveals(true);
 	UpdateFromExplorer();
 }
 
@@ -93,10 +94,69 @@ void UMapDiscoveryComponent::RevealAtWorldLocation(const FVector& WorldLocation)
 	}
 	EnsureFogTexture();
 	EnsureExplorerInsideBounds(WorldLocation);
-	StampAtNormalized(WorldToNormalized(WorldLocation));
+	StampAtNormalized(WorldToNormalized(WorldLocation), DiscoveryRadius);
 	LastStampLocation = WorldLocation;
 	bHasStamp = true;
 	FlushFogTexture();
+}
+
+void UMapDiscoveryComponent::RegisterPermanentReveal(const FVector& WorldLocation, float RadiusWorldCm)
+{
+	const float R = RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : DiscoveryRadius;
+	// Update existing registration at nearly the same spot, else append.
+	for (FPermanentReveal& Entry : PermanentReveals)
+	{
+		if (FVector::DistSquared2D(Entry.Location, WorldLocation) < FMath::Square(50.f))
+		{
+			Entry.Location = WorldLocation;
+			Entry.RadiusCm = R;
+			if (bEnabled)
+			{
+				EnsureFogTexture();
+				EnsureExplorerInsideBounds(WorldLocation);
+				StampAtNormalized(WorldToNormalized(WorldLocation), R);
+				FlushFogTexture();
+			}
+			return;
+		}
+	}
+
+	FPermanentReveal NewEntry;
+	NewEntry.Location = WorldLocation;
+	NewEntry.RadiusCm = R;
+	PermanentReveals.Add(NewEntry);
+
+	if (bEnabled)
+	{
+		EnsureFogTexture();
+		EnsureExplorerInsideBounds(WorldLocation);
+		StampAtNormalized(WorldToNormalized(WorldLocation), R);
+		FlushFogTexture();
+	}
+}
+
+void UMapDiscoveryComponent::ClearPermanentReveals()
+{
+	PermanentReveals.Reset();
+}
+
+void UMapDiscoveryComponent::ApplyPermanentReveals(bool bFlush)
+{
+	if (!bEnabled || PermanentReveals.Num() == 0)
+	{
+		return;
+	}
+	EnsureFogTexture();
+	for (const FPermanentReveal& Entry : PermanentReveals)
+	{
+		EnsureExplorerInsideBounds(Entry.Location);
+		const float R = Entry.RadiusCm > KINDA_SMALL_NUMBER ? Entry.RadiusCm : DiscoveryRadius;
+		StampAtNormalized(WorldToNormalized(Entry.Location), R);
+	}
+	if (bFlush)
+	{
+		FlushFogTexture();
+	}
 }
 
 void UMapDiscoveryComponent::GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, float& OutOrthoWidth) const
@@ -203,6 +263,8 @@ void UMapDiscoveryComponent::EnsureFogTexture()
 	}
 
 	ClearFogTexture();
+	// Restore always-visible landmarks after a fresh mask.
+	ApplyPermanentReveals(true);
 	bHasStamp = false;
 }
 
@@ -223,7 +285,7 @@ void UMapDiscoveryComponent::ClearFogTexture()
 	FlushFogTexture();
 }
 
-void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV)
+void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV, float RadiusWorldCm)
 {
 	if (FogTextureSize <= 0 || FogPixels.Num() != FogTextureSize * FogTextureSize)
 	{
@@ -239,7 +301,7 @@ void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV)
 		return;
 	}
 
-	const float RadiusWorld = FMath::Max(50.f, DiscoveryRadius);
+	const float RadiusWorld = FMath::Max(50.f, RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : DiscoveryRadius);
 	const float RadiusUV = RadiusWorld / Ortho;
 	const float Soft = FMath::Clamp(DiscoverySoftness, 0.f, 1.f);
 	const float HardUV = RadiusUV * (1.f - Soft);
@@ -359,9 +421,11 @@ void UMapDiscoveryComponent::UpdateFromExplorer()
 
 	if (bMovedFarEnough)
 	{
-		StampAtNormalized(WorldToNormalized(Loc));
+		StampAtNormalized(WorldToNormalized(Loc), DiscoveryRadius);
 		LastStampLocation = Loc;
 		bHasStamp = true;
+		// Keep permanent landmarks punched through if bounds shifted.
+		ApplyPermanentReveals(false);
 		FlushFogTexture();
 	}
 }

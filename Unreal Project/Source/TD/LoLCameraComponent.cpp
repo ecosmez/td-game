@@ -501,7 +501,20 @@ void ULoLCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 	if (bDisableWhileDropping && bDropping)
 	{
-		LockToChampion();
+		// Keep focus locked, but do not touch spring-arm rotation — freefall cam is
+		// world-frozen by AMobaPlayerController (only the player may rotate).
+		bCameraLocked = true;
+		bEdgeScrollArmed = true;
+		if (const AActor* Owner = GetOwner())
+		{
+			CameraFocusLocation = Owner->GetActorLocation();
+		}
+		if (SpringArm)
+		{
+			// Position only: never pitch/yaw during drop.
+			const float RelZ = SpringArm->GetRelativeLocation().Z;
+			SpringArm->SetRelativeLocation(FVector(0.f, 0.f, RelZ));
+		}
 		return;
 	}
 	APlayerController* PC = GetOwnerPlayerController();

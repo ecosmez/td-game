@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "UObject/SoftObjectPath.h"
 #include "MinimapWidget.generated.h"
 
 class UCanvasPanel;
@@ -100,6 +101,44 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	FLinearColor CameraMarkerColor = FLinearColor(1.0f, 0.92f, 0.35f, 0.95f);
 
+	/** Crystal (goal) marker — green. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	bool bShowCrystalMarker = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	FLinearColor CrystalMarkerColor = FLinearColor(0.15f, 0.95f, 0.35f, 1.0f);
+
+	/** Half-size of the crystal marker on the minimap (slate units). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks", meta = (ClampMin = "2.0"))
+	float CrystalMarkerHalfSize = 7.0f;
+
+	/** First enemy spawner marker — red. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	bool bShowEnemySpawnMarker = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	FLinearColor EnemySpawnMarkerColor = FLinearColor(0.95f, 0.18f, 0.15f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks", meta = (ClampMin = "2.0"))
+	float EnemySpawnMarkerHalfSize = 7.0f;
+
+	/**
+	 * World radius (cm) permanently revealed around crystal + first enemy spawn
+	 * (clears minimap fog and 3D FOW at those sites).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks", meta = (ClampMin = "100.0"))
+	float LandmarkRevealRadius = 2200.0f;
+
+	/** Soft class path for BP_Crystal. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	FSoftClassPath CrystalActorClass =
+		FSoftClassPath(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C"));
+
+	/** Soft class path for BP_EnemySpawner (first found = initial spawn). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
+	FSoftClassPath EnemySpawnerActorClass =
+		FSoftClassPath(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
+
 	/**
 	 * Diablo-style map discovery: unexplored areas stay fogged on the minimap.
 	 * Prefer the shared UMapDiscoveryComponent from the player controller when set.
@@ -153,6 +192,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Minimap|Discovery")
 	void SetDiscoverySource(UMapDiscoveryComponent* InDiscovery);
 
+	/** Find crystal / first spawner, place fog reveals, and bind marker actors. */
+	UFUNCTION(BlueprintCallable, Category = "Minimap|Landmarks")
+	void RefreshLandmarks();
+
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
@@ -179,6 +222,8 @@ protected:
 	APawn* ResolveChampion() const;
 	AMobaCameraPawn* ResolveCameraPawn() const;
 	void PlaceMarker(UBorder* Marker, UCanvasPanelSlot* Slot, const FVector2D& Normalized, float HalfSize);
+	AActor* FindFirstActorOfSoftClass(const FSoftClassPath& ClassPath) const;
+	void RegisterLandmarkFogReveals();
 	/** Apply hit-test policy so only the map frame eats input. */
 	void ApplyHitTestPolicy();
 	void BindMapPointerEvents();
@@ -219,10 +264,28 @@ protected:
 	TObjectPtr<UBorder> CameraMarker = nullptr;
 
 	UPROPERTY()
+	TObjectPtr<UBorder> CrystalMarker = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> EnemySpawnMarker = nullptr;
+
+	UPROPERTY()
 	TObjectPtr<UCanvasPanelSlot> ChampionSlot = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanelSlot> CameraSlot = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UCanvasPanelSlot> CrystalSlot = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UCanvasPanelSlot> EnemySpawnSlot = nullptr;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> CachedCrystalActor;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> CachedEnemySpawnActor;
 
 	UPROPERTY()
 	TObjectPtr<UTextureRenderTarget2D> RenderTarget = nullptr;
@@ -246,8 +309,10 @@ protected:
 
 	float CaptureTimer = 0.0f;
 	float AutoFitTimer = 0.0f;
+	float LandmarkRefreshTimer = 0.0f;
 	bool bBuilt = false;
 	bool bDragging = false;
 	bool bCaptureReady = false;
 	bool bDidAutoFitBounds = false;
+	bool bLandmarksRegistered = false;
 };

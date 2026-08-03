@@ -11,6 +11,8 @@
 ;   Default Pawn Class      = BP_TopDownCharacter (controller re-possesses free camera at BeginPlay)
 ;   Optional free-cam path: Default Pawn = AMobaCameraPawn + ChampionClass on controller
 ; Character sky drop: SetDropMode(true/false) on AMobaPlayerController (not BP_TopDownController)
+; Freefall camera: Warzone-style 3rd person on champion (bUseWarzoneDropCamera), then blend to
+; free MOBA camera on land (DropToMobaCameraBlendTime). Framing: DropCameraArmLength / Pitch.
 ; Run Content/Python/set_moba_player_controller.py after template merges to re-assert settings.
 ;
 ; Enhanced Input assets (optional - runtime defaults exist if missing):

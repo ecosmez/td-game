@@ -165,8 +165,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview")
 	FVector PreviewOrigin = FVector(0.f, 0.f, -80000.f);
 
+	/** Scene-capture rate for the rotating preview (lower = smoother). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview")
-	float CaptureInterval = 0.06f;
+	float CaptureInterval = 0.033f;
+
+	/** Degrees per second the hover tower spins. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview")
+	float PreviewSpinSpeed = 48.f;
+
+	/**
+	 * When false (default), show the real tower mesh + colors (ApplyTowerColor).
+	 * When true, recolor with construction hologram material.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview")
+	bool bUseHoloPreviewMaterial = false;
 
 	/** Soft path to translucent silhouette material (matches construction holo). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview")
@@ -177,7 +189,7 @@ public:
 
 	/** Extra UI alpha on the hover projection (0–1). Lower = more see-through. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Preview", meta = (ClampMin = "0.15", ClampMax = "1.0"))
-	float HoverProjectionOpacity = 0.72f;
+	float HoverProjectionOpacity = 1.f;
 
 	UFUNCTION(BlueprintCallable, Category = "Tower Store")
 	void SetStoreOpen(bool bOpen);
@@ -205,12 +217,16 @@ protected:
 
 	void EnsureHoverPreview();
 	void DestroyHoverPreview();
+	void DestroyHoverTowerActor();
 	void UpdateHoverPreview(float DeltaTime);
 	void CaptureHoverPreview();
+	void FrameHoverCamera();
+	void ConfigurePreviewComponents(AActor* TowerActor);
 	void SetHoveredCard(int32 CardIndex);
 	void ApplyHoverMesh(const FTowerStoreEntryDef& Def);
 	void ShowHoverPanel(bool bShow);
 
+	UClass* ResolveTowerClass(const FTowerStoreEntryDef& Def) const;
 	UStaticMesh* ResolveMeshForEntry(const FTowerStoreEntryDef& Def) const;
 	UMaterialInterface* ResolveHoloMaterial() const;
 	void ApplyTranslucentPreviewMaterial(UStaticMeshComponent* MeshComp, const FTowerStoreEntryDef& Def) const;
@@ -220,9 +236,6 @@ protected:
 	bool CallBuildManagerSelect(const FName& FunctionName);
 	void RefreshResourceLabel();
 	void RefreshCardAffordability(float Resource);
-
-	UFUNCTION()
-	void OnCloseClicked();
 
 	FString FormatStats(const FTowerStoreEntryDef& Def) const;
 	FString FormatDetailedStats(const FTowerStoreEntryDef& Def) const;
@@ -265,9 +278,6 @@ protected:
 	TObjectPtr<UTextBlock> ResourceText = nullptr;
 
 	UPROPERTY()
-	TObjectPtr<UButton> CloseButton = nullptr;
-
-	UPROPERTY()
 	TObjectPtr<UScrollBox> CardScroll = nullptr;
 
 	UPROPERTY()
@@ -279,10 +289,15 @@ protected:
 	UPROPERTY()
 	TArray<FTowerStoreEntryDef> Catalog;
 
-	/** Single off-screen stage used for hover mesh projection. */
+	/** Capture stage (camera/RT) kept off-screen. */
 	UPROPERTY()
 	TObjectPtr<AActor> HoverPreviewActor = nullptr;
 
+	/** Live instance of the hovered tower class (actual mesh + color). */
+	UPROPERTY()
+	TObjectPtr<AActor> HoverTowerActor = nullptr;
+
+	/** Fallback mesh when class spawn fails. */
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> HoverPreviewMesh = nullptr;
 

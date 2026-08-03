@@ -63,6 +63,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
 	void RevealAtWorldLocation(const FVector& WorldLocation);
 
+	/**
+	 * Permanently clear fog in a radius around a world point (crystal, first spawn, etc.).
+	 * Survives ResetDiscovery / texture rebuild; reapplied automatically.
+	 * RadiusWorldCm <= 0 uses DiscoveryRadius.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
+	void RegisterPermanentReveal(const FVector& WorldLocation, float RadiusWorldCm = 0.f);
+
+	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
+	void ClearPermanentReveals();
+
 	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
 	void ResetDiscovery();
 
@@ -94,8 +105,9 @@ protected:
 	void EnsureFogTexture();
 	void ClearFogTexture();
 	void FlushFogTexture();
-	void StampAtNormalized(const FVector2D& NormalizedUV);
+	void StampAtNormalized(const FVector2D& NormalizedUV, float RadiusWorldCm);
 	void UpdateFromExplorer();
+	void ApplyPermanentReveals(bool bFlush);
 
 	/** Grow XY bounds so the explorer always sits inside the fog UV domain. */
 	void EnsureExplorerInsideBounds(const FVector& WorldLocation);
@@ -106,6 +118,13 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<AActor> Explorer = nullptr;
 
+	struct FPermanentReveal
+	{
+		FVector Location = FVector::ZeroVector;
+		float RadiusCm = 0.f;
+	};
+
+	TArray<FPermanentReveal> PermanentReveals;
 	TArray<FColor> FogPixels;
 	FVector LastStampLocation = FVector(ForceInitToZero);
 	bool bHasStamp = false;

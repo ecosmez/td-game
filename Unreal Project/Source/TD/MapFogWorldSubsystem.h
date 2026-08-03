@@ -32,6 +32,7 @@ public:
 protected:
 	void EnsureOnLocalPlayer();
 	AActor* ResolveExplorer(APlayerController* PC) const;
+	void RegisterLandmarkReveals(UMapDiscoveryComponent* Discovery);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMapDiscoveryComponent> BoundDiscovery = nullptr;

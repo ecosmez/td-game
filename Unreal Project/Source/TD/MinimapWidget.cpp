@@ -171,6 +171,34 @@ void UMinimapWidget::BuildDefaultUI()
 		CameraSlot = CamSlot;
 	}
 
+	// Crystal — green, above fog, below champion.
+	CrystalMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CrystalMarker"));
+	CrystalMarker->SetBrushColor(CrystalMarkerColor);
+	CrystalMarker->SetPadding(FMargin(0.f));
+	CrystalMarker->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* CrystalPanelSlot = MapCanvas->AddChildToCanvas(CrystalMarker))
+	{
+		CrystalPanelSlot->SetAnchors(FAnchors(0.f, 0.f));
+		CrystalPanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		CrystalPanelSlot->SetSize(FVector2D(14.f, 14.f));
+		CrystalPanelSlot->SetZOrder(4);
+		CrystalSlot = CrystalPanelSlot;
+	}
+
+	// First enemy spawn — red.
+	EnemySpawnMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("EnemySpawnMarker"));
+	EnemySpawnMarker->SetBrushColor(EnemySpawnMarkerColor);
+	EnemySpawnMarker->SetPadding(FMargin(0.f));
+	EnemySpawnMarker->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* SpawnPanelSlot = MapCanvas->AddChildToCanvas(EnemySpawnMarker))
+	{
+		SpawnPanelSlot->SetAnchors(FAnchors(0.f, 0.f));
+		SpawnPanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		SpawnPanelSlot->SetSize(FVector2D(14.f, 14.f));
+		SpawnPanelSlot->SetZOrder(4);
+		EnemySpawnSlot = SpawnPanelSlot;
+	}
+
 	ApplyHitTestPolicy();
 	BindMapPointerEvents();
 }
@@ -279,6 +307,8 @@ void UMinimapWidget::SetDiscoverySource(UMapDiscoveryComponent* InDiscovery)
 		{
 			DiscoverySource->SetExplorer(Champ);
 		}
+		// Cache landmarks + punch FOW (shared mask → minimap + world FOW).
+		RefreshLandmarks();
 	}
 }
 
@@ -1011,6 +1041,105 @@ void UMinimapWidget::UpdateMarkers()
 	{
 		CameraMarker->SetVisibility(ESlateVisibility::Collapsed);
 	}
+
+	// Crystal (green)
+	if (bShowCrystalMarker && CrystalMarker && CrystalSlot)
+	{
+		if (AActor* Crystal = CachedCrystalActor.Get())
+		{
+			PlaceMarker(CrystalMarker, CrystalSlot, WorldToNormalized(Crystal->GetActorLocation()), CrystalMarkerHalfSize);
+			CrystalMarker->SetBrushColor(CrystalMarkerColor);
+		}
+		else
+		{
+			CrystalMarker->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	else if (CrystalMarker)
+	{
+		CrystalMarker->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	// First enemy spawn (red)
+	if (bShowEnemySpawnMarker && EnemySpawnMarker && EnemySpawnSlot)
+	{
+		if (AActor* Spawn = CachedEnemySpawnActor.Get())
+		{
+			PlaceMarker(EnemySpawnMarker, EnemySpawnSlot, WorldToNormalized(Spawn->GetActorLocation()), EnemySpawnMarkerHalfSize);
+			EnemySpawnMarker->SetBrushColor(EnemySpawnMarkerColor);
+		}
+		else
+		{
+			EnemySpawnMarker->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	else if (EnemySpawnMarker)
+	{
+		EnemySpawnMarker->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+AActor* UMinimapWidget::FindFirstActorOfSoftClass(const FSoftClassPath& ClassPath) const
+{
+	UWorld* World = GetWorld();
+	if (!World || !ClassPath.IsValid())
+	{
+		return nullptr;
+	}
+
+	UClass* Cls = ClassPath.TryLoadClass<AActor>();
+	if (!Cls)
+	{
+		return nullptr;
+	}
+
+	AActor* First = nullptr;
+	for (TActorIterator<AActor> It(World, Cls); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor) || Actor->IsActorBeingDestroyed())
+		{
+			continue;
+		}
+		// Prefer non-hidden game instances; first by iteration order for "first spawn".
+		if (!First)
+		{
+			First = Actor;
+		}
+		// Keep the earliest-spawned / lowest name as a stable "first" pick.
+		if (Actor->GetName() < First->GetName())
+		{
+			First = Actor;
+		}
+	}
+	return First;
+}
+
+void UMinimapWidget::RegisterLandmarkFogReveals()
+{
+	if (!DiscoverySource)
+	{
+		return;
+	}
+
+	const float Radius = FMath::Max(100.f, LandmarkRevealRadius);
+
+	if (AActor* Crystal = CachedCrystalActor.Get())
+	{
+		DiscoverySource->RegisterPermanentReveal(Crystal->GetActorLocation(), Radius);
+	}
+	if (AActor* Spawn = CachedEnemySpawnActor.Get())
+	{
+		DiscoverySource->RegisterPermanentReveal(Spawn->GetActorLocation(), Radius);
+	}
+}
+
+void UMinimapWidget::RefreshLandmarks()
+{
+	CachedCrystalActor = FindFirstActorOfSoftClass(CrystalActorClass);
+	CachedEnemySpawnActor = FindFirstActorOfSoftClass(EnemySpawnerActorClass);
+	RegisterLandmarkFogReveals();
+	bLandmarksRegistered = CachedCrystalActor.IsValid() || CachedEnemySpawnActor.IsValid();
 }
 
 APawn* UMinimapWidget::ResolveChampion() const
@@ -1311,5 +1440,17 @@ void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	UpdateCapture(InDeltaTime);
 	UpdateMapDiscovery();
+
+	// Landmarks may appear after the widget (level streaming) — retry while missing.
+	LandmarkRefreshTimer += InDeltaTime;
+	const bool bMissingLandmark =
+		(bShowCrystalMarker && !CachedCrystalActor.IsValid())
+		|| (bShowEnemySpawnMarker && !CachedEnemySpawnActor.IsValid());
+	if (!bLandmarksRegistered || (bMissingLandmark && LandmarkRefreshTimer >= 1.0f))
+	{
+		RefreshLandmarks();
+		LandmarkRefreshTimer = 0.f;
+	}
+
 	UpdateMarkers();
 }

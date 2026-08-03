@@ -54,11 +54,14 @@
           (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollDown")
             (Class|SpringArmComponent|SetTargetArmLength (select (> (+ targetarmlength zoomspeed) (Variables|Default|GetMaxZoom)) (Variables|Default|GetMaxZoom) (+ targetarmlength zoomspeed)) arm)))))))
 
-; Landing camera: LoLCameraComponent auto-plays land zoom when bIsDropping goes false
-; (arm punch-in + pitch -90 -> TopDownArmPitch settle). Do NOT snap SpringArm here.
+; Landing camera: AMobaPlayerController Warzone freefall view (3rd person on champion)
+; while bIsDropping, then blends to free MOBA camera on land.
+; LoLCameraComponent land zoom only matters if still viewing the champion cam.
 ; Land cleanup lives in CompleteDropLanding; EventOnLanded just calls it.
 ; Skip during freefall: Enter -> AMobaPlayerController::TrySkipSkyDrop (C++)
 ;   prefer BP SkipSkyDrop / CompleteDropLanding if present, else reflection fallback.
+; Camera notes for freefall BP arm: C++ overrides to DropCameraPitch / DropCameraArmLength
+; each tick while dropping (do not rely on -90 pitch for player silhouette).
 (event EventOnLanded (Hit)
   (CallFunction|CompleteDropLanding))
 

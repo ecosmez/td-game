@@ -193,6 +193,51 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Moba|Sky Drop")
 	bool IsDropMode() const { return bDropMode; }
 
+	/**
+	 * Overhead freefall: pure top-down view of the landing area while dropping
+	 * (mouse aims steer target on the ground), then blend to free MOBA camera on land.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera")
+	bool bUseWarzoneDropCamera = true;
+
+	/**
+	 * Spring-arm length while freefalling (cm).
+	 * Longer boom = more of the landing field in frame for mouse guidance.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera", meta = (ClampMin = "100.0"))
+	float DropCameraArmLength = 2800.0f;
+
+	/**
+	 * Spring-arm pitch while freefalling (degrees).
+	 * -90 = dead top-down so the ground under the cursor is the landing aim.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera")
+	float DropCameraPitch = -90.0f;
+
+	/** Fixed world yaw for the overhead drop cam (stable map orientation for mouse aim). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera")
+	float DropCameraYaw = 0.0f;
+
+	/** Socket Z lift (usually 0 for pure top-down). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera")
+	float DropCameraSocketOffsetZ = 0.0f;
+
+	/** Blend time when switching from freefall view to free MOBA camera. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop|Camera", meta = (ClampMin = "0.0"))
+	float DropToMobaCameraBlendTime = 0.85f;
+
+	/** True while the player is viewing the champion freefall camera. */
+	UFUNCTION(BlueprintPure, Category = "Moba|Sky Drop|Camera")
+	bool IsInDropCamera() const { return bInDropCamera; }
+
+	/** Manually enter freefall 3rd-person view (also called automatically while bIsDropping). */
+	UFUNCTION(BlueprintCallable, Category = "Moba|Sky Drop|Camera")
+	void EnterDropCameraMode();
+
+	/** Manually leave freefall view and switch to free MOBA camera. */
+	UFUNCTION(BlueprintCallable, Category = "Moba|Sky Drop|Camera")
+	void ExitDropCameraMode();
+
 protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
@@ -201,10 +246,21 @@ protected:
 	void HandleToggleFogOfWarInput();
 	void ApplyFogOfWarVisualState();
 	void EnsureChampionHasAIController(APawn* Champion);
+	void UpdateSkyDropCamera(float DeltaTime);
+	void ApplyWarzoneDropFraming(APawn* Champion, float DeltaTime);
+	void SwitchViewToMobaCamera(bool bBlend);
 
 	UPROPERTY(Transient)
 	TObjectPtr<AMobaCameraPawn> CachedCameraPawn;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMinimapWidget> MinimapWidget;
+
+	/** Runtime: freefall view is active. */
+	UPROPERTY(Transient)
+	bool bInDropCamera = false;
+
+	/** Last-frame drop flag for edge detection. */
+	UPROPERTY(Transient)
+	bool bWasChampionDropping = false;
 };

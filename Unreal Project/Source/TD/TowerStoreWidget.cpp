@@ -143,7 +143,7 @@ void UTowerStoreWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 
 	if (bStoreOpen && HoveredCardIndex != INDEX_NONE)
 	{
-		PreviewYaw = FMath::Fmod(PreviewYaw + InDeltaTime * 36.f, 360.f);
+		PreviewYaw = FMath::Fmod(PreviewYaw + InDeltaTime * PreviewSpinSpeed, 360.f);
 		UpdateHoverPreview(InDeltaTime);
 	}
 }
@@ -173,7 +173,6 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 	};
 
 	const TCHAR* MeshBase = TEXT("/Game/TD/Assets/Towers/TowerBase.TowerBase");
-	const TCHAR* MeshCyl = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 
 	Add(TEXT("Trap"), TEXT("Trap"), TEXT("SelectTrapTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Trap.BP_Tower_Trap_C"),
@@ -187,7 +186,7 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 
 	Add(TEXT("Arrow"), TEXT("Combat"), TEXT("SelectArrowTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Arrow.BP_Tower_Arrow_C"),
-		MeshCyl, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Arrow.MI_Tower_Arrow"),
+		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Arrow.MI_Tower_Arrow"),
 		60, 2.5f, 3.0f, 6.f, 1600.f, TEXT("High ROF volley"));
 
 	Add(TEXT("Economy"), TEXT("Economy"), TEXT("SelectEconomyTower"),
@@ -207,12 +206,12 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 
 	Add(TEXT("Sniper"), TEXT("Combat"), TEXT("SelectSniperTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Sniper.BP_Tower_Sniper_C"),
-		MeshCyl, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
+		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
 		140, 4.5f, 0.45f, 80.f, 2800.f, TEXT("Long-range single"));
 
 	Add(TEXT("Magic"), TEXT("Combat"), TEXT("SelectMagicTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Magic.BP_Tower_Magic_C"),
-		MeshCyl, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Magic.MI_Tower_Magic"),
+		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Magic.MI_Tower_Magic"),
 		200, 5.0f, 1.2f, 55.f, 2000.f, TEXT("Multi-shot beam"));
 }
 
@@ -289,20 +288,6 @@ void UTowerStoreWidget::BuildDefaultUI()
 	{
 		ResSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
 		ResSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseStoreBtn"));
-	CloseButton->SetBackgroundColor(FLinearColor(0.25f, 0.12f, 0.12f, 0.95f));
-	CloseButton->OnClicked.AddDynamic(this, &UTowerStoreWidget::OnCloseClicked);
-	UTextBlock* CloseLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CloseLbl"));
-	CloseLbl->SetText(FText::FromString(TEXT("X")));
-	CloseLbl->SetJustification(ETextJustify::Center);
-	TowerStorePrivate::SetTextStyle(CloseLbl, TowerStorePrivate::TextMain, 12.f, true);
-	CloseButton->SetContent(CloseLbl);
-	if (UHorizontalBoxSlot* CloseSlot = Header->AddChildToHorizontalBox(CloseButton))
-	{
-		CloseSlot->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
-		CloseSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
 	// Horizontal tower strip only — no hover inside this chrome.
@@ -637,11 +622,6 @@ void UTowerStoreWidget::ToggleStore()
 	SetStoreOpen(!bStoreOpen);
 }
 
-void UTowerStoreWidget::OnCloseClicked()
-{
-	SetStoreOpen(false);
-}
-
 void UTowerStoreWidget::OnCardClicked(int32 CardIndex)
 {
 	if (!Cards.IsValidIndex(CardIndex))
@@ -662,6 +642,7 @@ void UTowerStoreWidget::OnCardClicked(int32 CardIndex)
 	{
 		UE_LOG(LogTemp, Display, TEXT("TowerStore: selected %s via %s"),
 			*Def.DisplayName, *Def.SelectFunctionName.ToString());
+		SetStoreOpen(false);
 	}
 	else
 	{
@@ -827,43 +808,70 @@ void UTowerStoreWidget::RefreshCardAffordability(float Resource)
 	}
 }
 
+UClass* UTowerStoreWidget::ResolveTowerClass(const FTowerStoreEntryDef& Def) const
+{
+	if (Def.TowerClassPath.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	const FSoftClassPath SoftPath(Def.TowerClassPath);
+	if (UClass* Loaded = SoftPath.TryLoadClass<AActor>())
+	{
+		return Loaded;
+	}
+
+	if (UClass* AsClass = LoadObject<UClass>(nullptr, *Def.TowerClassPath))
+	{
+		return AsClass;
+	}
+
+	return LoadClass<AActor>(nullptr, *Def.TowerClassPath);
+}
+
 UStaticMesh* UTowerStoreWidget::ResolveMeshForEntry(const FTowerStoreEntryDef& Def) const
 {
-	if (!Def.TowerClassPath.IsEmpty())
+	// Prefer TowerMesh property template on the tower CDO (BP_Tower hierarchy).
+	if (UClass* TowerClass = ResolveTowerClass(Def))
 	{
-		UClass* TowerClass = LoadObject<UClass>(nullptr, *Def.TowerClassPath);
-		if (!TowerClass)
+		if (AActor* CDO = Cast<AActor>(TowerClass->GetDefaultObject()))
 		{
-			TowerClass = LoadClass<AActor>(nullptr, *Def.TowerClassPath);
-		}
-		if (TowerClass)
-		{
-			if (AActor* CDO = Cast<AActor>(TowerClass->GetDefaultObject()))
+			// Named blueprint component variable (most reliable for BP_Tower children).
+			if (const FObjectProperty* MeshProp = FindFProperty<FObjectProperty>(TowerClass, TEXT("TowerMesh")))
 			{
-				TArray<UStaticMeshComponent*> Meshes;
-				CDO->GetComponents<UStaticMeshComponent>(Meshes);
-				for (UStaticMeshComponent* SMC : Meshes)
+				if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(
+					MeshProp->GetObjectPropertyValue_InContainer(CDO)))
 				{
-					if (!SMC || !SMC->GetStaticMesh())
+					if (UStaticMesh* Mesh = SMC->GetStaticMesh())
 					{
-						continue;
-					}
-					const FString CompName = SMC->GetName();
-					if (CompName.Contains(TEXT("Holo")))
-					{
-						continue;
-					}
-					if (CompName.Contains(TEXT("Tower")) || CompName.Contains(TEXT("Mesh")))
-					{
-						return SMC->GetStaticMesh();
+						return Mesh;
 					}
 				}
-				for (UStaticMeshComponent* SMC : Meshes)
+			}
+
+			TArray<UStaticMeshComponent*> Meshes;
+			CDO->GetComponents<UStaticMeshComponent>(Meshes);
+			for (UStaticMeshComponent* SMC : Meshes)
+			{
+				if (!SMC || !SMC->GetStaticMesh())
 				{
-					if (SMC && SMC->GetStaticMesh())
-					{
-						return SMC->GetStaticMesh();
-					}
+					continue;
+				}
+				const FString CompName = SMC->GetName();
+				if (CompName.Contains(TEXT("Holo")))
+				{
+					continue;
+				}
+				if (CompName.Contains(TEXT("Tower")) || CompName.Contains(TEXT("Mesh")))
+				{
+					return SMC->GetStaticMesh();
+				}
+			}
+			for (UStaticMeshComponent* SMC : Meshes)
+			{
+				if (SMC && SMC->GetStaticMesh())
+				{
+					return SMC->GetStaticMesh();
 				}
 			}
 		}
@@ -887,7 +895,7 @@ UMaterialInterface* UTowerStoreWidget::ResolveHoloMaterial() const
 
 void UTowerStoreWidget::ApplyTranslucentPreviewMaterial(UStaticMeshComponent* MeshComp, const FTowerStoreEntryDef& Def) const
 {
-	if (!MeshComp)
+	if (!MeshComp || !bUseHoloPreviewMaterial)
 	{
 		return;
 	}
@@ -911,9 +919,82 @@ void UTowerStoreWidget::ApplyTranslucentPreviewMaterial(UStaticMeshComponent* Me
 	}
 }
 
+void UTowerStoreWidget::ConfigurePreviewComponents(AActor* TowerActor)
+{
+	if (!TowerActor || !HoverCapture)
+	{
+		return;
+	}
+
+	HoverCapture->ClearShowOnlyComponents();
+	HoverCapture->ShowOnlyActors.Reset();
+	HoverCapture->ShowOnlyActorComponents(TowerActor);
+
+	TArray<UStaticMeshComponent*> Meshes;
+	TowerActor->GetComponents<UStaticMeshComponent>(Meshes);
+	for (UStaticMeshComponent* SMC : Meshes)
+	{
+		if (!SMC)
+		{
+			continue;
+		}
+
+		const FString CompName = SMC->GetName();
+		const bool bHolo = CompName.Contains(TEXT("Holo"));
+		SMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		SMC->SetCastShadow(false);
+		SMC->bVisibleInSceneCaptureOnly = true;
+		if (bHolo)
+		{
+			SMC->SetVisibility(false, true);
+			continue;
+		}
+
+		// Built look: solid tower mesh (BeginPlay already set scale + ApplyTowerColor).
+		SMC->SetVisibility(true, true);
+		if (bUseHoloPreviewMaterial)
+		{
+			// Def not available here when only reconfiguring; handled after spawn with catalog def.
+		}
+	}
+}
+
+void UTowerStoreWidget::FrameHoverCamera()
+{
+	if (!HoverCapture)
+	{
+		return;
+	}
+
+	FVector Focus = PreviewOrigin;
+	float Radius = 80.f;
+
+	if (HoverTowerActor && IsValid(HoverTowerActor))
+	{
+		FVector Origin;
+		FVector Extent;
+		HoverTowerActor->GetActorBounds(false, Origin, Extent);
+		Focus = Origin;
+		Radius = FMath::Max3(Extent.X, Extent.Y, Extent.Z);
+		Radius = FMath::Max(Radius, 40.f);
+	}
+	else if (HoverPreviewMesh && HoverPreviewMesh->GetStaticMesh())
+	{
+		const FBoxSphereBounds Bounds = HoverPreviewMesh->Bounds;
+		Focus = Bounds.Origin;
+		Radius = FMath::Max(Bounds.SphereRadius, 40.f);
+	}
+
+	const FVector CamOffset(-Radius * 2.9f, Radius * 1.55f, Radius * 1.15f);
+	const FVector CamLoc = Focus + CamOffset;
+	HoverCapture->SetWorldLocation(CamLoc);
+	HoverCapture->SetWorldRotation((Focus - CamLoc).Rotation());
+	HoverCapture->FOVAngle = 30.f;
+}
+
 void UTowerStoreWidget::EnsureHoverPreview()
 {
-	if (bHoverPreviewReady && HoverPreviewActor && IsValid(HoverPreviewActor))
+	if (bHoverPreviewReady && HoverPreviewActor && IsValid(HoverPreviewActor) && HoverCapture)
 	{
 		return;
 	}
@@ -926,7 +1007,7 @@ void UTowerStoreWidget::EnsureHoverPreview()
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	Params.ObjectFlags |= RF_Transient;
 	Params.Owner = GetOwningPlayer();
-	Params.Name = TEXT("TowerStoreHoverPreview");
+	Params.Name = TEXT("TowerStoreHoverStage");
 
 	AActor* Actor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), PreviewOrigin, FRotator::ZeroRotator, Params);
 	if (!Actor)
@@ -934,6 +1015,7 @@ void UTowerStoreWidget::EnsureHoverPreview()
 		return;
 	}
 	Actor->SetActorEnableCollision(false);
+	Actor->SetActorTickEnabled(false);
 
 	USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"));
 	Root->SetMobility(EComponentMobility::Movable);
@@ -941,27 +1023,26 @@ void UTowerStoreWidget::EnsureHoverPreview()
 	Root->RegisterComponent();
 	Root->SetWorldLocation(PreviewOrigin);
 
-	HoverPreviewMesh = NewObject<UStaticMeshComponent>(Actor, TEXT("PreviewMesh"));
+	// Fallback single-mesh renderer (used only if tower class spawn fails).
+	HoverPreviewMesh = NewObject<UStaticMeshComponent>(Actor, TEXT("FallbackPreviewMesh"));
 	HoverPreviewMesh->SetMobility(EComponentMobility::Movable);
 	HoverPreviewMesh->SetupAttachment(Root);
 	HoverPreviewMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	HoverPreviewMesh->SetCastShadow(false);
 	HoverPreviewMesh->bVisibleInSceneCaptureOnly = true;
+	HoverPreviewMesh->SetVisibility(false);
 	HoverPreviewMesh->RegisterComponent();
 
 	HoverCapture = NewObject<USceneCaptureComponent2D>(Actor, TEXT("Capture"));
 	HoverCapture->SetupAttachment(Root);
 	HoverCapture->RegisterComponent();
 	HoverCapture->ProjectionType = ECameraProjectionMode::Perspective;
-	HoverCapture->FOVAngle = 32.f;
+	HoverCapture->FOVAngle = 30.f;
 	HoverCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 	HoverCapture->bCaptureEveryFrame = false;
 	HoverCapture->bCaptureOnMovement = false;
 	HoverCapture->bAlwaysPersistRenderingState = true;
 	HoverCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
-	HoverCapture->ShowOnlyComponent(HoverPreviewMesh);
-	HoverCapture->SetRelativeLocation(FVector(-240.f, 150.f, 120.f));
-	HoverCapture->SetRelativeRotation(FRotator(-18.f, -32.f, 0.f));
 
 	FEngineShowFlags& Flags = HoverCapture->ShowFlags;
 	Flags.SetAtmosphere(false);
@@ -997,34 +1078,147 @@ void UTowerStoreWidget::EnsureHoverPreview()
 
 	HoverPreviewActor = Actor;
 	bHoverPreviewReady = true;
+	FrameHoverCamera();
+}
+
+void UTowerStoreWidget::DestroyHoverTowerActor()
+{
+	if (HoverTowerActor && IsValid(HoverTowerActor))
+	{
+		HoverTowerActor->Destroy();
+	}
+	HoverTowerActor = nullptr;
 }
 
 void UTowerStoreWidget::ApplyHoverMesh(const FTowerStoreEntryDef& Def)
 {
-	if (!HoverPreviewMesh)
+	EnsureHoverPreview();
+	if (!HoverCapture || !GetWorld())
 	{
 		return;
 	}
 
-	if (UStaticMesh* Mesh = ResolveMeshForEntry(Def))
+	DestroyHoverTowerActor();
+	PreviewYaw = 25.f;
+
+	if (HoverPreviewMesh)
 	{
-		HoverPreviewMesh->SetStaticMesh(Mesh);
-		const FBoxSphereBounds Bounds = Mesh->GetBounds();
-		const float Radius = FMath::Max(Bounds.SphereRadius, 20.f);
-		const float Scale = 95.f / Radius;
-		HoverPreviewMesh->SetRelativeScale3D(FVector(Scale));
-		HoverPreviewMesh->SetRelativeLocation(FVector(0.f, 0.f, -Bounds.Origin.Z * Scale));
+		HoverPreviewMesh->SetVisibility(false);
 	}
-	ApplyTranslucentPreviewMaterial(HoverPreviewMesh, Def);
+
+	// Spawn the real tower Blueprint so we get TowerMesh + ApplyTowerColor from BeginPlay.
+	if (UClass* TowerClass = ResolveTowerClass(Def))
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Params.ObjectFlags |= RF_Transient;
+		Params.Owner = GetOwningPlayer();
+
+		AActor* Tower = GetWorld()->SpawnActor<AActor>(
+			TowerClass, PreviewOrigin, FRotator(0.f, PreviewYaw, 0.f), Params);
+		if (Tower)
+		{
+			// BeginPlay already ran: full mesh scale + type color applied.
+			Tower->SetActorEnableCollision(false);
+			Tower->SetActorTickEnabled(false);
+			Tower->SetActorHiddenInGame(false);
+			Tower->SetActorLocation(PreviewOrigin);
+			Tower->SetActorRotation(FRotator(0.f, PreviewYaw, 0.f));
+			Tower->SetActorScale3D(FVector(1.f));
+
+			// Mark ghost-like so construction logic does nothing if something re-enables tick.
+			if (FBoolProperty* GhostProp = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("isGhost")))
+			{
+				GhostProp->SetPropertyValue_InContainer(Tower, true);
+			}
+			else if (FBoolProperty* GhostPropB = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("IsGhost")))
+			{
+				GhostPropB->SetPropertyValue_InContainer(Tower, true);
+			}
+			if (FBoolProperty* BuiltProp = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("isBuilt")))
+			{
+				BuiltProp->SetPropertyValue_InContainer(Tower, true);
+			}
+			else if (FBoolProperty* BuiltPropB = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("IsBuilt")))
+			{
+				BuiltPropB->SetPropertyValue_InContainer(Tower, true);
+			}
+			if (FBoolProperty* ConsProp = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("isConstructing")))
+			{
+				ConsProp->SetPropertyValue_InContainer(Tower, false);
+			}
+			else if (FBoolProperty* ConsPropB = FindFProperty<FBoolProperty>(Tower->GetClass(), TEXT("IsConstructing")))
+			{
+				ConsPropB->SetPropertyValue_InContainer(Tower, false);
+			}
+
+			HoverTowerActor = Tower;
+			ConfigurePreviewComponents(Tower);
+
+			if (bUseHoloPreviewMaterial)
+			{
+				TArray<UStaticMeshComponent*> Meshes;
+				Tower->GetComponents<UStaticMeshComponent>(Meshes);
+				for (UStaticMeshComponent* SMC : Meshes)
+				{
+					if (SMC && !SMC->GetName().Contains(TEXT("Holo")))
+					{
+						ApplyTranslucentPreviewMaterial(SMC, Def);
+					}
+				}
+			}
+
+			FrameHoverCamera();
+			CaptureHoverPreview();
+			return;
+		}
+	}
+
+	// Fallback: single shared mesh on the stage actor.
+	if (HoverPreviewMesh)
+	{
+		if (UStaticMesh* Mesh = ResolveMeshForEntry(Def))
+		{
+			HoverPreviewMesh->SetStaticMesh(Mesh);
+			const FBoxSphereBounds Bounds = Mesh->GetBounds();
+			const float Radius = FMath::Max(Bounds.SphereRadius, 20.f);
+			const float Scale = 95.f / Radius;
+			HoverPreviewMesh->SetRelativeScale3D(FVector(Scale));
+			HoverPreviewMesh->SetRelativeLocation(FVector(0.f, 0.f, -Bounds.Origin.Z * Scale));
+			HoverPreviewMesh->SetVisibility(true);
+		}
+		if (!Def.ColorMaterialPath.IsEmpty())
+		{
+			if (UMaterialInterface* ColorMI = LoadObject<UMaterialInterface>(nullptr, *Def.ColorMaterialPath))
+			{
+				HoverPreviewMesh->SetMaterial(0, ColorMI);
+			}
+		}
+		ApplyTranslucentPreviewMaterial(HoverPreviewMesh, Def);
+		HoverCapture->ClearShowOnlyComponents();
+		HoverCapture->ShowOnlyActors.Reset();
+		HoverCapture->ShowOnlyComponent(HoverPreviewMesh);
+		FrameHoverCamera();
+		CaptureHoverPreview();
+	}
 }
 
 void UTowerStoreWidget::CaptureHoverPreview()
 {
-	if (!HoverCapture || !HoverPreviewMesh)
+	if (!HoverCapture)
 	{
 		return;
 	}
-	HoverPreviewMesh->SetRelativeRotation(FRotator(0.f, PreviewYaw, 0.f));
+
+	if (HoverTowerActor && IsValid(HoverTowerActor))
+	{
+		HoverTowerActor->SetActorRotation(FRotator(0.f, PreviewYaw, 0.f));
+	}
+	else if (HoverPreviewMesh)
+	{
+		HoverPreviewMesh->SetRelativeRotation(FRotator(0.f, PreviewYaw, 0.f));
+	}
+
 	HoverCapture->CaptureScene();
 }
 
@@ -1047,6 +1241,8 @@ void UTowerStoreWidget::UpdateHoverPreview(float DeltaTime)
 
 void UTowerStoreWidget::DestroyHoverPreview()
 {
+	DestroyHoverTowerActor();
+
 	if (HoverPreviewActor && IsValid(HoverPreviewActor))
 	{
 		HoverPreviewActor->Destroy();

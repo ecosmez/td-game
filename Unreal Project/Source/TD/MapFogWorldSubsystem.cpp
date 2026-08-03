@@ -5,8 +5,10 @@
 #include "MobaPlayerController.h"
 
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "UObject/SoftObjectPath.h"
 
 void UMapFogWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -135,5 +137,50 @@ void UMapFogWorldSubsystem::EnsureOnLocalPlayer()
 	if (AActor* Explorer = ResolveExplorer(PC))
 	{
 		BoundDiscovery->SetExplorer(Explorer);
+	}
+
+	// Permanent clear on crystal + first enemy spawner (minimap path also does this).
+	RegisterLandmarkReveals(BoundDiscovery);
+}
+
+void UMapFogWorldSubsystem::RegisterLandmarkReveals(UMapDiscoveryComponent* Discovery)
+{
+	if (!Discovery || !GetWorld())
+	{
+		return;
+	}
+
+	auto FindFirst = [this](const TCHAR* SoftPath) -> AActor*
+	{
+		const FSoftClassPath Path(SoftPath);
+		UClass* Cls = Path.TryLoadClass<AActor>();
+		if (!Cls)
+		{
+			return nullptr;
+		}
+		AActor* First = nullptr;
+		for (TActorIterator<AActor> It(GetWorld(), Cls); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (!IsValid(Actor))
+			{
+				continue;
+			}
+			if (!First || Actor->GetName() < First->GetName())
+			{
+				First = Actor;
+			}
+		}
+		return First;
+	};
+
+	constexpr float LandmarkRadius = 2200.f;
+	if (AActor* Crystal = FindFirst(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C")))
+	{
+		Discovery->RegisterPermanentReveal(Crystal->GetActorLocation(), LandmarkRadius);
+	}
+	if (AActor* Spawn = FindFirst(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C")))
+	{
+		Discovery->RegisterPermanentReveal(Spawn->GetActorLocation(), LandmarkRadius);
 	}
 }

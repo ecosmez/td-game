@@ -160,6 +160,8 @@ void AMobaPlayerController::BeginPlay()
 		{
 			MapDiscovery->SetWorldBounds(MinimapWidget->WorldMin, MinimapWidget->WorldMax);
 		}
+		// Crystal (green) + first spawner (red): markers + permanent FOW clear.
+		MinimapWidget->RefreshLandmarks();
 	}
 }
 
@@ -275,6 +277,7 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 	HandleSkipSkyDropInput();
 	HandleToggleFogOfWarInput();
 	HandleClickToMoveChampion();
+	UpdateSkyDropCamera(DeltaTime);
 }
 
 void AMobaPlayerController::HandleSkipSkyDropInput()
@@ -347,6 +350,10 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 		if (SkipFn->NumParms == 0 && MobaSkipDropPrivate::IsPawnDropping(Champion))
 		{
 			Champion->ProcessEvent(SkipFn, nullptr);
+			if (!MobaSkipDropPrivate::IsPawnDropping(Champion))
+			{
+				ExitDropCameraMode();
+			}
 			return true;
 		}
 	}
@@ -391,6 +398,8 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 		if (CompleteFn->NumParms == 0)
 		{
 			Champion->ProcessEvent(CompleteFn, nullptr);
+			// BP clears drop; force MOBA free cam handoff.
+			ExitDropCameraMode();
 			return true;
 		}
 	}
@@ -424,13 +433,7 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 		Arm->SetRelativeRotation(FRotator(SettlePitch, Rel.Yaw, Rel.Roll));
 	}
 
-	bDropMode = false;
-
-	// Free camera: stay locked on the landed champion (sky-drop can steer XY far from spawn).
-	if (AMobaCameraPawn* Cam = GetMobaCameraPawn())
-	{
-		Cam->RecenterOnChampion(true);
-	}
+	ExitDropCameraMode();
 
 	MobaSkipDropPrivate::CallNoArgFunction(Champion, FName(TEXT("ShowAbilityHUD")));
 
@@ -445,6 +448,175 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 void AMobaPlayerController::SetDropMode(bool bInDropMode)
 {
 	bDropMode = bInDropMode;
+	if (bInDropMode)
+	{
+		EnterDropCameraMode();
+	}
+	else if (bInDropCamera)
+	{
+		ExitDropCameraMode();
+	}
+}
+
+void AMobaPlayerController::UpdateSkyDropCamera(float DeltaTime)
+{
+	if (!bUseWarzoneDropCamera)
+	{
+		return;
+	}
+
+	APawn* Champion = GetControlledChampion();
+	const bool bDropping = MobaSkipDropPrivate::IsPawnDropping(Champion);
+
+	if (bDropping)
+	{
+		if (!bInDropCamera)
+		{
+			EnterDropCameraMode();
+		}
+		else
+		{
+			ApplyWarzoneDropFraming(Champion, DeltaTime);
+		}
+	}
+	else if (bInDropCamera || bWasChampionDropping)
+	{
+		// Natural land (OnLanded / CompleteDropLanding) or drop flag cleared.
+		ExitDropCameraMode();
+	}
+
+	bWasChampionDropping = bDropping;
+}
+
+void AMobaPlayerController::EnterDropCameraMode()
+{
+	if (!bUseWarzoneDropCamera)
+	{
+		return;
+	}
+
+	APawn* Champion = GetControlledChampion();
+	if (!Champion)
+	{
+		return;
+	}
+
+	bInDropCamera = true;
+	bDropMode = true;
+	bEnableClickToMoveChampion = false;
+
+	// Free cam stays possessed for input setup; view switches to the champion's camera.
+	ApplyWarzoneDropFraming(Champion, 0.f);
+	SetViewTarget(Champion);
+
+	// Soften free-cam Space during freefall (Space = plane/glide on the champion BP).
+	if (AMobaCameraPawn* Cam = GetMobaCameraPawn())
+	{
+		Cam->SetLockedToChampion(false);
+		Cam->SetFocusingChampion(false);
+	}
+}
+
+void AMobaPlayerController::ApplyWarzoneDropFraming(APawn* Champion, float DeltaTime)
+{
+	if (!Champion)
+	{
+		return;
+	}
+
+	USpringArmComponent* Arm = Champion->FindComponentByClass<USpringArmComponent>();
+	if (!Arm)
+	{
+		return;
+	}
+
+	// Pure top-down boom follows the player, but WORLD rotation is frozen.
+	// Only the pawn/body may rotate — drop cam orientation never follows yaw.
+	Arm->TargetArmLength = DropCameraArmLength;
+	Arm->bDoCollisionTest = false;
+	Arm->bEnableCameraLag = false;
+	Arm->bEnableCameraRotationLag = false;
+	Arm->bUsePawnControlRotation = false;
+	Arm->bInheritPitch = false;
+	Arm->bInheritYaw = false;
+	Arm->bInheritRoll = false;
+	Arm->SetUsingAbsoluteRotation(true);
+	Arm->SocketOffset = FVector(0.f, 0.f, DropCameraSocketOffsetZ);
+	Arm->TargetOffset = FVector::ZeroVector;
+
+	// Fixed world orientation for the entire freefall / land-aim phase.
+	Arm->SetWorldRotation(FRotator(DropCameraPitch, DropCameraYaw, 0.f));
+
+	// Keep freefall view on the champion (mouse hits the ground via their camera).
+	if (GetViewTarget() != Champion)
+	{
+		SetViewTarget(Champion);
+	}
+}
+
+void AMobaPlayerController::ExitDropCameraMode()
+{
+	if (!bInDropCamera && !bDropMode)
+	{
+		// Still ensure free-cam view if somehow stuck on champion after land.
+		if (GetViewTarget() && GetViewTarget() == GetControlledChampion())
+		{
+			SwitchViewToMobaCamera(true);
+		}
+		bDropMode = false;
+		return;
+	}
+
+	bInDropCamera = false;
+	bDropMode = false;
+	bEnableClickToMoveChampion = true;
+
+	// Restore spring arm to normal relative rotation so character cam is not left absolute.
+	if (APawn* Champion = GetControlledChampion())
+	{
+		if (USpringArmComponent* Arm = Champion->FindComponentByClass<USpringArmComponent>())
+		{
+			Arm->SetUsingAbsoluteRotation(false);
+			Arm->bEnableCameraLag = true;
+		}
+	}
+
+	SwitchViewToMobaCamera(true);
+}
+
+void AMobaPlayerController::SwitchViewToMobaCamera(bool bBlend)
+{
+	AMobaCameraPawn* Cam = GetOrSpawnCameraPawn();
+	if (!Cam)
+	{
+		return;
+	}
+
+	// Keep free cam possessed for Enhanced Input + WASD-off / mouse pan policy.
+	if (bPossessCameraPawn && GetPawn() != Cam)
+	{
+		APawn* Champ = GetControlledChampion();
+		Possess(Cam);
+		if (Champ)
+		{
+			EnsureChampionHasAIController(Champ);
+		}
+	}
+
+	Cam->RecenterOnChampion(true);
+	Cam->SetLockedToChampion(true);
+
+	const float Blend = bBlend ? DropToMobaCameraBlendTime : 0.f;
+	if (Blend > KINDA_SMALL_NUMBER)
+	{
+		SetViewTargetWithBlend(Cam, Blend, VTBlend_EaseInOut, 2.f, false);
+	}
+	else
+	{
+		SetViewTarget(Cam);
+	}
+
+	ApplyMobaInputMode();
 }
 
 void AMobaPlayerController::HandleClickToMoveChampion()
