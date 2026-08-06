@@ -189,6 +189,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Moba Camera")
 	float GetCurrentZoom() const { return CurrentZoom; }
 
+	/** Current interpolated orbit yaw (degrees). Independent of Q/E keyboard rotate. */
+	UFUNCTION(BlueprintPure, Category = "Moba Camera|Rotation")
+	float GetOrbitYaw() const { return CurrentYaw; }
+
+	/** Set orbit yaw around the camera pivot (pitch/height unchanged). */
+	UFUNCTION(BlueprintCallable, Category = "Moba Camera|Rotation")
+	void SetOrbitYaw(float YawDegrees, bool bInstant = false);
+
+	/** Add a yaw delta around the camera pivot (pitch/height unchanged). */
+	UFUNCTION(BlueprintCallable, Category = "Moba Camera|Rotation")
+	void AddOrbitYawDelta(float DeltaDegrees);
+
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void RecenterOnChampion(bool bInstant = false);
 

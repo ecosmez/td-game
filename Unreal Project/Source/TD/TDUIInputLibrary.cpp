@@ -1,6 +1,7 @@
 #include "TDUIInputLibrary.h"
 
 #include "MinimapWidget.h"
+#include "CameraOrbitGizmoWidget.h"
 #include "TowerStoreWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
@@ -46,6 +47,16 @@ bool UTDUIInputLibrary::IsPointerOverHitTestableUI(const UObject* WorldContextOb
 	{
 		UMinimapWidget* Mini = *It;
 		if (Mini && Mini->IsInViewport() && Mini->IsScreenPosOverMap(Cursor))
+		{
+			return true;
+		}
+	}
+
+	// Camera orbit gizmo (circular frame, not an SButton).
+	for (TObjectIterator<UCameraOrbitGizmoWidget> It; It; ++It)
+	{
+		UCameraOrbitGizmoWidget* Gizmo = *It;
+		if (Gizmo && Gizmo->IsInViewport() && Gizmo->IsScreenPosOverGizmo(Cursor))
 		{
 			return true;
 		}

@@ -2,6 +2,7 @@
 
 #include "MobaCameraPawn.h"
 #include "MinimapWidget.h"
+#include "CameraOrbitGizmoWidget.h"
 #include "MapDiscoveryComponent.h"
 #include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
@@ -150,6 +151,11 @@ void AMobaPlayerController::BeginPlay()
 		ShowMinimap();
 	}
 
+	if (bShowCameraOrbitGizmo)
+	{
+		ShowCameraOrbitGizmo();
+	}
+
 	// After minimap auto-fit, seed discovery once if we never got an authored volume.
 	if (MapDiscovery && MinimapWidget)
 	{
@@ -210,6 +216,38 @@ void AMobaPlayerController::HideMinimap()
 	{
 		MinimapWidget->RemoveFromParent();
 		MinimapWidget = nullptr;
+	}
+}
+
+UCameraOrbitGizmoWidget* AMobaPlayerController::ShowCameraOrbitGizmo()
+{
+	if (CameraOrbitGizmoWidget && IsValid(CameraOrbitGizmoWidget))
+	{
+		if (!CameraOrbitGizmoWidget->IsInViewport())
+		{
+			CameraOrbitGizmoWidget->AddToViewport(20);
+		}
+		return CameraOrbitGizmoWidget;
+	}
+
+	UClass* WidgetClass = CameraOrbitGizmoWidgetClass
+		? CameraOrbitGizmoWidgetClass.Get()
+		: UCameraOrbitGizmoWidget::StaticClass();
+
+	CameraOrbitGizmoWidget = CreateWidget<UCameraOrbitGizmoWidget>(this, WidgetClass);
+	if (CameraOrbitGizmoWidget)
+	{
+		CameraOrbitGizmoWidget->AddToViewport(20);
+	}
+	return CameraOrbitGizmoWidget;
+}
+
+void AMobaPlayerController::HideCameraOrbitGizmo()
+{
+	if (CameraOrbitGizmoWidget)
+	{
+		CameraOrbitGizmoWidget->RemoveFromParent();
+		CameraOrbitGizmoWidget = nullptr;
 	}
 }
 

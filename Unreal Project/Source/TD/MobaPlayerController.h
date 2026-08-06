@@ -7,6 +7,7 @@
 
 class AMobaCameraPawn;
 class UMinimapWidget;
+class UCameraOrbitGizmoWidget;
 class UInputMappingContext;
 class UMapDiscoveryComponent;
 class UWorldFogOfWarComponent;
@@ -86,6 +87,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
 	TSubclassOf<UMinimapWidget> MinimapWidgetClass;
 
+	/** Show circular camera-orbit gizmo (bottom-left). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
+	bool bShowCameraOrbitGizmo = true;
+
+	/** Optional custom orbit gizmo class; defaults to UCameraOrbitGizmoWidget. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
+	TSubclassOf<UCameraOrbitGizmoWidget> CameraOrbitGizmoWidgetClass;
+
 	/**
 	 * Persistent map discovery + 3D fog of war (Diablo-style permanent reveal).
 	 * Shared with the minimap fog overlay when enabled.
@@ -133,6 +142,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Moba HUD")
 	UMinimapWidget* GetMinimapWidget() const { return MinimapWidget; }
+
+	UFUNCTION(BlueprintCallable, Category = "Moba HUD")
+	UCameraOrbitGizmoWidget* ShowCameraOrbitGizmo();
+
+	UFUNCTION(BlueprintCallable, Category = "Moba HUD")
+	void HideCameraOrbitGizmo();
+
+	UFUNCTION(BlueprintPure, Category = "Moba HUD")
+	UCameraOrbitGizmoWidget* GetCameraOrbitGizmoWidget() const { return CameraOrbitGizmoWidget; }
 
 	UFUNCTION(BlueprintPure, Category = "Map Discovery")
 	UMapDiscoveryComponent* GetMapDiscovery() const { return MapDiscovery; }
@@ -255,6 +273,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMinimapWidget> MinimapWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCameraOrbitGizmoWidget> CameraOrbitGizmoWidget;
 
 	/** Runtime: freefall view is active. */
 	UPROPERTY(Transient)

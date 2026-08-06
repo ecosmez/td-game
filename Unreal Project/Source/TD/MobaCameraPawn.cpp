@@ -488,6 +488,30 @@ void AMobaCameraPawn::SetTargetZoom(float NewZoom)
 	TargetZoom = FMath::Clamp(NewZoom, MinimumZoom, MaximumZoom);
 }
 
+void AMobaCameraPawn::SetOrbitYaw(float YawDegrees, bool bInstant)
+{
+	TargetYaw = YawDegrees;
+	if (bInstant)
+	{
+		CurrentYaw = YawDegrees;
+		if (SpringArm)
+		{
+			const FRotator Rel = SpringArm->GetRelativeRotation();
+			SpringArm->SetRelativeRotation(FRotator(CameraPitch, CurrentYaw, Rel.Roll));
+		}
+		UpdatePlanarAxes();
+	}
+}
+
+void AMobaCameraPawn::AddOrbitYawDelta(float DeltaDegrees)
+{
+	if (FMath::IsNearlyZero(DeltaDegrees))
+	{
+		return;
+	}
+	SetOrbitYaw(TargetYaw + DeltaDegrees, false);
+}
+
 void AMobaCameraPawn::RecenterOnChampion(bool bInstant)
 {
 	if (APawn* Champion = ResolveFocusChampion())
