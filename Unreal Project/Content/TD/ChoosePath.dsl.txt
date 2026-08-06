@@ -1,0 +1,31 @@
+(fn ChoosePath ()
+  (bind _pathactor (Variables|Default|GetPathActor))
+  (Utilities|Array|Clear (Variables|Default|GetWaypoints))
+  (Variables|Default|SetWaypointIndex 0)
+  (Variables|Default|SetPathStepMax 0)
+  (Utilities|IsValid _pathactor
+    (:"Is Valid"
+      (bind _asbp_enemy_path (Utilities|Casting|CastToBP_EnemyPath _pathactor)
+        (:then
+          (bind _outactors (Actor|GetAllActorsOfClass "/Game/TD/BP_Waypoint.BP_Waypoint_C"))
+          (if (Utilities|Array|IsEmpty _outactors)
+            (Utilities|Array|AppendArray (Variables|Default|GetWaypoints) (Variables|Default|GetWaypoints _asbp_enemy_path))
+            (Development|PrintString "Enemy using path Waypoints array" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)")
+            (else
+              (for _array_element _outactors
+                (bind _asbp_waypoint (Utilities|Casting|CastToBP_Waypoint _array_element))
+                (Variables|Default|SetPathStepMax (Math|Integer|Max(Integer) (Variables|Default|GetPathStepMax) (URigHierarchy|GetIndex _asbp_waypoint))))
+              (for _index (range (+ (Variables|Default|GetPathStepMax) 1))
+                (Utilities|Array|Clear (Variables|Default|GetBranchCandidates))
+                (for _array_element_1 _outactors
+                  (bind _asbp_waypoint (Utilities|Casting|CastToBP_Waypoint _array_element_1))
+                  (if (== (URigHierarchy|GetIndex _asbp_waypoint) _index)
+                    (if (or (not (Variables|Default|GetUseLanePreference)) (== (Class|BPWaypoint|GetOverLane _asbp_waypoint) (Variables|Default|GetPreferOverLane)))
+                      (Utilities|Array|Add (Variables|Default|GetBranchCandidates) _array_element_1))))
+                (if (not (Utilities|Array|IsEmpty (Variables|Default|GetBranchCandidates)))
+                  (Utilities|Array|Add (Variables|Default|GetWaypoints) (Transformation|GetActorLocation (Utilities|Array|RandomArrayItem (Variables|Default|GetBranchCandidates))))))
+              (Development|PrintString "Enemy resolved path (lane preference)" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)"))))
+        (:CastFailed
+          (Development|PrintString "ChoosePath: PathActor is not BP_EnemyPath"))))
+    (:"Is Not Valid"
+      (Development|PrintString "ChoosePath: missing PathActor"))))

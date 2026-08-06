@@ -224,6 +224,7 @@ void UMinimapWidget::ApplyHitTestPolicy()
 	{
 		// Visible leaf so LMB hits the map image directly (not only SObjectWidget bubble).
 		MapImage->SetVisibility(ESlateVisibility::Visible);
+		ApplyCaptureImageFlip();
 	}
 }
 
@@ -387,12 +388,10 @@ void UMinimapWidget::EnsureDiscoveryFog()
 		if (FogImage && SharedFog)
 		{
 			const int32 Size = SharedFog->GetSizeX();
-			FSlateBrush Brush = FogImage->GetBrush();
-			Brush.SetResourceObject(SharedFog);
-			Brush.DrawAs = ESlateBrushDrawType::Image;
-			Brush.ImageSize = FVector2D(static_cast<float>(Size), static_cast<float>(Size));
-			Brush.TintColor = FSlateColor(FLinearColor::White);
-			FogImage->SetBrush(Brush);
+			ApplyCaptureBrush(
+				FogImage,
+				SharedFog,
+				FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
 			FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 			FogImage->SetColorAndOpacity(FLinearColor::White);
 		}
@@ -424,12 +423,10 @@ void UMinimapWidget::EnsureDiscoveryFog()
 
 	if (FogImage && DiscoveryFogTexture)
 	{
-		FSlateBrush Brush = FogImage->GetBrush();
-		Brush.SetResourceObject(DiscoveryFogTexture);
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-		Brush.ImageSize = FVector2D(static_cast<float>(Size), static_cast<float>(Size));
-		Brush.TintColor = FSlateColor(FLinearColor::White);
-		FogImage->SetBrush(Brush);
+		ApplyCaptureBrush(
+			FogImage,
+			DiscoveryFogTexture,
+			FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
 		FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 		FogImage->SetColorAndOpacity(FLinearColor::White);
 	}
@@ -737,13 +734,11 @@ void UMinimapWidget::EnsureCapture()
 
 	if (MapImage && RenderTarget)
 	{
-		FSlateBrush Brush = MapImage->GetBrush();
-		Brush.SetResourceObject(RenderTarget);
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-		Brush.ImageSize = FVector2D(static_cast<float>(Size), static_cast<float>(Size));
-		Brush.TintColor = FSlateColor(FLinearColor::White);
-		MapImage->SetBrush(Brush);
-		MapImage->SetColorAndOpacity(FLinearColor::White);
+		ApplyCaptureBrush(
+			MapImage,
+			RenderTarget,
+			FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
+		ApplyCaptureImageFlip();
 	}
 
 	bCaptureReady = true;
@@ -1283,6 +1278,35 @@ bool UMinimapWidget::IsScreenPosOverMap(FVector2D ScreenPos) const
 	return Local.X >= 0.f && Local.Y >= 0.f && Local.X <= Size.X && Local.Y <= Size.Y;
 }
 
+void UMinimapWidget::ApplyCaptureBrush(UImage* TargetImage, UTexture* Texture, const FVector2D& ImageSize) const
+{
+	if (!TargetImage || !Texture)
+	{
+		return;
+	}
+
+	FSlateBrush Brush = TargetImage->GetBrush();
+	Brush.SetResourceObject(Texture);
+	Brush.DrawAs = ESlateBrushDrawType::Image;
+	Brush.ImageSize = ImageSize;
+	Brush.TintColor = FSlateColor(FLinearColor::White);
+	Brush.SetUVRegion(FBox2D(FVector2D(0.f, 0.f), FVector2D(1.f, 1.f)));
+	TargetImage->SetBrush(Brush);
+	TargetImage->SetColorAndOpacity(FLinearColor::White);
+}
+
+void UMinimapWidget::ApplyCaptureImageFlip() const
+{
+	if (!MapImage)
+	{
+		return;
+	}
+
+	// Mirror capture only (markers/fog stay in WorldToNormalized space).
+	MapImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	MapImage->SetRenderScale(bFlipCaptureImageU ? FVector2D(-1.f, 1.f) : FVector2D(1.f, 1.f));
+}
+
 void UMinimapWidget::PanCameraToWorld(const FVector& WorldLoc)
 {
 	// Strictly camera-only. Never move the champion/view-target character — that was
@@ -1308,9 +1332,39 @@ void UMinimapWidget::PanCameraToWorld(const FVector& WorldLoc)
 	Cam->SnapToWorldXY(WorldLoc);
 }
 
+void UMinimapWidget::MoveChampionToWorld(const FVector& WorldLoc)
+{
+	AMobaPlayerController* MPC = Cast<AMobaPlayerController>(GetOwningPlayer());
+	if (!MPC || !MPC->bEnableClickToMoveChampion)
+	{
+		return;
+	}
+
+	MPC->MoveChampionToLocation(WorldLoc);
+}
+
 FReply UMinimapWidget::HandleMapPointerDown(const FPointerEvent& MouseEvent)
 {
-	if (!bClickToPanCamera || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	const FKey Button = MouseEvent.GetEffectingButton();
+
+	if (Button == EKeys::RightMouseButton)
+	{
+		if (!bClickToMoveChampion)
+		{
+			return FReply::Unhandled();
+		}
+
+		FVector World;
+		if (!TryPointerToWorld(MouseEvent, World))
+		{
+			return FReply::Unhandled();
+		}
+
+		MoveChampionToWorld(World);
+		return FReply::Handled();
+	}
+
+	if (!bClickToPanCamera || Button != EKeys::LeftMouseButton)
 	{
 		return FReply::Unhandled();
 	}

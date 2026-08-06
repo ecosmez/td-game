@@ -1,0 +1,8 @@
+(fn AssignSpawnLane (Enemy)
+  (Class|BPEnemy|SetUseLanePreference true Enemy)
+  (Class|BPEnemy|SetPreferOverLane
+    (select
+      (>= (Variables|Default|GetWaveNumber) (Variables|Default|GetAlternatePathStartWave))
+      (== (Math|Integer|%(Integer) (Variables|Default|GetWaveSpawnedCount) 2) 0)
+      true)
+    Enemy))
