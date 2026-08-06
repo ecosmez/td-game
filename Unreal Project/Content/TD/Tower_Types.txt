@@ -30,11 +30,15 @@ Assets:
   /Game/TD/Towers/BP_Tower_Wall
   /Game/TD/Towers/BP_Tower_Magic
 
+Wired:
+- Pad SpawnAndStartTower spawns selected child class (Arrow/Cannon/…)
+- TryFire uses ShotsPerVolley + DamagePerShot + AttackSpeed/FireInterval + ProjectileMesh
+
 Wire-up next:
-- BuildManager / UI spawn selected child class instead of always BP_Tower
 - Enforce PlacementRule (Path/Crystal vs Pad)
 - Buff tick: apply BuffDamageMult / BuffAttackSpeedMult to towers in BuffRadius
 - Economy tick: GoldPerInterval every EconomyInterval
 - Trap trigger on overlap; Wall as path occupancy
-- Volley (ShotsPerVolley) and AoE radius on projectile hit
+- AoE radius on projectile hit (Cannon)
+- Ghost preview spawns selected child class
 - Merge interaction

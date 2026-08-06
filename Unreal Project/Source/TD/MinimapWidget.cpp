@@ -224,7 +224,6 @@ void UMinimapWidget::ApplyHitTestPolicy()
 	{
 		// Visible leaf so LMB hits the map image directly (not only SObjectWidget bubble).
 		MapImage->SetVisibility(ESlateVisibility::Visible);
-		ApplyCaptureImageFlip();
 	}
 }
 
@@ -392,6 +391,7 @@ void UMinimapWidget::EnsureDiscoveryFog()
 				FogImage,
 				SharedFog,
 				FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
+			ApplyMinimapAxisFlip();
 			FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 			FogImage->SetColorAndOpacity(FLinearColor::White);
 		}
@@ -427,6 +427,7 @@ void UMinimapWidget::EnsureDiscoveryFog()
 			FogImage,
 			DiscoveryFogTexture,
 			FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
+		ApplyMinimapAxisFlip();
 		FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 		FogImage->SetColorAndOpacity(FLinearColor::White);
 	}
@@ -716,8 +717,8 @@ void UMinimapWidget::EnsureCapture()
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		Params.ObjectFlags |= RF_Transient;
 		Params.Owner = GetOwningPlayer();
-		// Top-down: pitch -90 looks at ground. Yaw -90 aligns world +X → image +X,
-		// world +Y → image -Y so capture UVs match WorldToNormalized / LocalToWorld.
+		// Top-down: pitch -90 looks at ground. Yaw -90 for the RT; WorldToNormalized
+		// mirrors X so clicks/markers match the capture (pan left → camera left).
 		CaptureActor = World->SpawnActor<ASceneCapture2D>(
 			ASceneCapture2D::StaticClass(),
 			FVector::ZeroVector,
@@ -738,7 +739,6 @@ void UMinimapWidget::EnsureCapture()
 			MapImage,
 			RenderTarget,
 			FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
-		ApplyCaptureImageFlip();
 	}
 
 	bCaptureReady = true;
@@ -838,7 +838,8 @@ FVector2D UMinimapWidget::WorldToNormalized(const FVector& WorldLoc) const
 	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 	const float Half = Ortho * 0.5f;
 
-	const float U = (WorldLoc.X - CenterX) / Ortho + 0.5f;
+	// Capture yaw -90 mirrors world X on the RT; invert U so markers/clicks match the picture.
+	const float U = 0.5f - (WorldLoc.X - CenterX) / Ortho;
 	// Screen +Y is down; world +Y maps up the image with capture yaw -90.
 	const float V = 0.5f - (WorldLoc.Y - CenterY) / Ortho;
 	return FVector2D(FMath::Clamp(U, 0.f, 1.f), FMath::Clamp(V, 0.f, 1.f));
@@ -1212,7 +1213,8 @@ bool UMinimapWidget::LocalToWorld(const FVector2D& LocalPos, const FGeometry& Ge
 	float Ortho = 1.f;
 	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 
-	const float WorldX = CenterX + (U - 0.5f) * Ortho;
+	// Must match WorldToNormalized (X inverted for SceneCapture yaw -90).
+	const float WorldX = CenterX - (U - 0.5f) * Ortho;
 	const float WorldY = CenterY - (V - 0.5f) * Ortho;
 
 	float Z = 0.f;
@@ -1295,16 +1297,15 @@ void UMinimapWidget::ApplyCaptureBrush(UImage* TargetImage, UTexture* Texture, c
 	TargetImage->SetColorAndOpacity(FLinearColor::White);
 }
 
-void UMinimapWidget::ApplyCaptureImageFlip() const
+void UMinimapWidget::ApplyMinimapAxisFlip() const
 {
-	if (!MapImage)
+	// Markers/clicks use inverted U (SceneCapture yaw -90). Discovery fog stamps use
+	// the unflipped world FOW UV domain — mirror only the fog overlay so holes line up.
+	if (FogImage)
 	{
-		return;
+		FogImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		FogImage->SetRenderScale(FVector2D(-1.f, 1.f));
 	}
-
-	// Mirror capture only (markers/fog stay in WorldToNormalized space).
-	MapImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
-	MapImage->SetRenderScale(bFlipCaptureImageU ? FVector2D(-1.f, 1.f) : FVector2D(1.f, 1.f));
 }
 
 void UMinimapWidget::PanCameraToWorld(const FVector& WorldLoc)

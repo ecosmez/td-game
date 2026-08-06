@@ -12,9 +12,24 @@ Editable stats on BP_Tower (Details panel)
 - AttackSpeed       (shots/sec; BeginPlay sets FireInterval = 1/AttackSpeed when > 0)
 - FireInterval      (seconds between shots)
 - DamagePerShot     (passed into BP_Projectile InitProjectile)
+- ShotsPerVolley    (projectiles spawned per shot; TryFire loops this many times, min 1)
 - Range             (uu)
-- ProjectileMesh    (StaticMesh look for shots; applied via SetDisplayMesh → InitProjectile SetStaticMesh)
-- TowerTypeName     (label for multi-type later)
+- ProjectileMesh    (StaticMesh for shots; child types override, else inherit base Sphere)
+- TowerTypeName     (label)
+
+Combat fire (TryFire)
+1. Gate on CanAttack + AttackSpeed > 0; tick down FireCooldown.
+2. When ready and an enemy is in Range: reset cooldown to FireInterval.
+3. Spawn ShotsPerVolley projectiles (slight X offset), each with tower ProjectileMesh + DamagePerShot.
+
+Placement (BP_TowerPad.SpawnAndStartTower)
+- Spawns the selected child class (Arrow/Cannon/…) from BuildManager.SelectedTowerName
+  so that type’s CDO damage / AS / volley / mesh are used at runtime.
+- Select*Tower also sets SelectedTowerClassPath for reference.
+
+Example type defaults
+- Arrow:  AS 3.0, DMG 6, volley 3, mesh Cylinder
+- Cannon: AS 0.6, DMG 35, volley 1, mesh Cone
 
 Flags: IsConstructing, IsBuilt, ConstructionProgress, MeshMinZ
 
@@ -24,6 +39,4 @@ Materials
 - /Game/TD/Materials/M_TowerHolo — translucent cyan full silhouette during build
 
 Projectile display
-- Tower.ProjectileMesh → projectile.DisplayMesh → projectile StaticMesh component (if DisplayMesh valid)
-
-Next: child BP / DataAsset per tower type + UI selection of type class.
+- Tower.ProjectileMesh → projectile.DisplayMesh → projectile StaticMesh (if DisplayMesh valid; else BP_Projectile default)

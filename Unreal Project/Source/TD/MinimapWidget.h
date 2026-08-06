@@ -96,13 +96,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bClickToMoveChampion = true;
 
-	/**
-	 * SceneCapture top-down RTs are mirrored on X vs world XY mapping.
-	 * When true, mirror the capture image horizontally so it lines up with markers/clicks.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture")
-	bool bFlipCaptureImageU = true;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	FLinearColor FrameColor = FLinearColor(0.04f, 0.07f, 0.10f, 0.94f);
 
@@ -236,8 +229,8 @@ protected:
 	void MoveChampionToWorld(const FVector& WorldLoc);
 	/** Apply texture to a minimap image brush. */
 	void ApplyCaptureBrush(UImage* TargetImage, UTexture* Texture, const FVector2D& ImageSize) const;
-	/** Mirror the scene-capture image so it matches WorldToNormalized markers/clicks. */
-	void ApplyCaptureImageFlip() const;
+	/** Align discovery fog overlay with inverted minimap U mapping. */
+	void ApplyMinimapAxisFlip() const;
 	APawn* ResolveChampion() const;
 	AMobaCameraPawn* ResolveCameraPawn() const;
 	void PlaceMarker(UBorder* Marker, UCanvasPanelSlot* Slot, const FVector2D& Normalized, float HalfSize);

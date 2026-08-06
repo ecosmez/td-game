@@ -1,0 +1,23 @@
+(fn SpawnAndStartTower (SpawnXF)
+  ; Live graph: switch on BuildManager.SelectedTowerName and spawn the matching
+  ; child BP so CDO combat stats apply (DamagePerShot, AttackSpeed, ShotsPerVolley,
+  ; ProjectileMesh). Unknown names fall back to /Game/TD/BP_Tower.
+  (bind managers (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
+  (if (Utilities|Array|IsEmpty managers)
+    (Development|PrintString "No BuildManager")
+    (else
+      (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem managers)))
+      (bind tower_name (Class|BPBuildManager|GetSelectedTowerName mgr))
+      (if (Utilities|String|EqualExactly(String) tower_name "Arrow")
+        ; spawn BP_Tower_Arrow → StartConstruction + FinishTowerPlacement
+        _
+        (elif (Utilities|String|EqualExactly(String) tower_name "Cannon")
+          ; spawn BP_Tower_Cannon
+          _
+          (elif (Utilities|String|EqualExactly(String) tower_name "Sniper")
+            _
+            (elif (Utilities|String|EqualExactly(String) tower_name "Magical Tower")
+              _
+              (else
+                ; Buff/Economy/Trap/Wall + default base BP_Tower
+                _)))))))
