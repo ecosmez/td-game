@@ -1,0 +1,13 @@
+(fn ShowRangePreview ()
+  (bind ring (Variables|Default|GetRangeRing))
+  (bind range (Variables|Combat|GetRange))
+  (Utilities|IsValid ring
+    (:"Is Valid"
+      (if (> range 0.0)
+        (Rendering|SetVisibility ring true false)
+        (Rendering|Material|SetMaterial ring 0 "/Game/TD/Materials/MI_AbilityRange.MI_AbilityRange")
+        (Transformation|SetRelativeLocation ring (Math|Vector|MakeVector 0.0 0.0 -112.0))
+        (Transformation|SetWorldScale3D ring (Math|Vector|MakeVector (/ range 50.0) (/ range 50.0) 0.12))
+        (else
+          (Rendering|SetVisibility ring false false))))
+    (:"Is Not Valid")))

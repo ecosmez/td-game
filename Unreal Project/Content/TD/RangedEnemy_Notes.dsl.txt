@@ -1,0 +1,22 @@
+; Ranged enemies for waves — shipped summary
+; Design: mix targets (crystal/towers/champion); stop-and-fire; mix from wave 2
+;
+; Assets:
+;   /Game/TD/BP_RangedEnemy       child of BP_Enemy (bIsRanged=true)
+;   /Game/TD/BP_EnemyProjectile   hits Crystal / Tower / Champion
+;
+; Behavior:
+;   BP_RangedEnemy EventTick -> TryRangedOrAdvance
+;   In range: stop, face nearest target, FireRangedShot on AttackInterval
+;   Out of range / wall / crystal-melee / stunned: AdvanceAlongPath
+;
+; Spawn mix (SpawnEnemyInner):
+;   Wave >= RangedStartWave (default 2)
+;   Every 3rd trash spawn (WaveSpawnedCount % 3 == 0) -> BP_RangedEnemy
+;
+; New damage receivers:
+;   BP_Tower.ApplyTowerDamage (MaxHealth 80)
+;   BP_TopDownCharacter.ApplyChampionDamage (MaxHealth 150)
+;
+; Tunables on BP_RangedEnemy CDO:
+;   AttackRange 750, ProjectileDamage 8, MoveSpeed 200, MaxHealth 20, AttackInterval 1.5

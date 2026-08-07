@@ -1,6 +1,8 @@
 #include "AbilityBarWidget.h"
 
+#include "CrystalHealthBarWidget.h"
 #include "MinimapWidget.h"
+#include "MobaPlayerController.h"
 #include "TowerStoreWidget.h"
 #include "TDUIInputLibrary.h"
 #include "Blueprint/UserWidget.h"
@@ -13,36 +15,51 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
-#include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Styling/CoreStyle.h"
+#include "Styling/SlateBrush.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 
 namespace AbilityBarPrivate
 {
-	static FLinearColor SlotReadyBg(0.10f, 0.14f, 0.20f, 0.92f);
-	static FLinearColor SlotReadyFrame(0.55f, 0.62f, 0.72f, 1.f);
-	static FLinearColor SlotAimFrame(0.95f, 0.82f, 0.25f, 1.f);
-	static FLinearColor SlotLockedBg(0.05f, 0.05f, 0.07f, 0.95f);
-	static FLinearColor CdOverlay(0.02f, 0.02f, 0.04f, 0.78f);
-	static FLinearColor KeyColor(0.92f, 0.95f, 1.f, 1.f);
-	static FLinearColor CdTextColor(1.f, 0.88f, 0.35f, 1.f);
-	static FLinearColor LockTextColor(0.75f, 0.75f, 0.8f, 1.f);
+	static FLinearColor SlotReadyBg(0.12f, 0.22f, 0.32f, 0.96f);
+	static FLinearColor SlotReadyFrame(0.45f, 0.85f, 0.95f, 1.f);
+	static FLinearColor SlotCdBg(0.06f, 0.08f, 0.12f, 0.96f);
+	static FLinearColor SlotCdFrame(0.35f, 0.40f, 0.48f, 1.f);
+	static FLinearColor SlotAimFrame(0.98f, 0.82f, 0.20f, 1.f);
+	static FLinearColor SlotLockedBg(0.04f, 0.04f, 0.06f, 0.98f);
+	static FLinearColor SlotLockedFrame(0.28f, 0.28f, 0.32f, 1.f);
+	static FLinearColor CdOverlay(0.02f, 0.03f, 0.06f, 0.82f);
+	static FLinearColor KeyColor(0.95f, 0.98f, 1.f, 1.f);
+	static FLinearColor KeyColorDim(0.55f, 0.58f, 0.65f, 1.f);
+	static FLinearColor CdTextColor(1.f, 0.90f, 0.30f, 1.f);
+	static FLinearColor LockTextColor(0.72f, 0.74f, 0.80f, 1.f);
 	static FLinearColor StorePlusBg(0.12f, 0.42f, 0.55f, 0.95f);
 	static FLinearColor StorePlusBgOpen(0.55f, 0.28f, 0.18f, 0.95f);
 	static FLinearColor StorePlusFrame(0.45f, 0.78f, 0.88f, 1.f);
+	static FLinearColor NextWaveBg(0.10f, 0.48f, 0.28f, 0.96f);
+	static FLinearColor NextWaveBgReady(0.12f, 0.58f, 0.34f, 0.98f);
+	static FLinearColor NextWaveBgBusy(0.12f, 0.16f, 0.14f, 0.95f);
+	static FLinearColor NextWaveFrame(0.45f, 0.95f, 0.65f, 1.f);
+	static FLinearColor NextWaveFrameBusy(0.30f, 0.38f, 0.32f, 1.f);
+	static FLinearColor NextWaveIcon(0.95f, 1.f, 0.97f, 1.f);
+	static FLinearColor NextWaveCaption(0.82f, 0.98f, 0.88f, 1.f);
 }
 
 UAbilityBarWidget::UAbilityBarWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	SetIsFocusable(false);
+	// Ensure NativeTick runs even when the Widget BP has no Event Tick node.
+	bHasScriptImplementedTick = true;
 }
 
 void UAbilityBarWidget::NativeOnInitialized()
@@ -61,23 +78,42 @@ void UAbilityBarWidget::NativeConstruct()
 		bBuilt ? 1 : 0,
 		WidgetTree && WidgetTree->RootWidget ? *WidgetTree->RootWidget->GetName() : TEXT("None"));
 
-	// Ensure a bottom-right minimap exists for non-MOBA controllers as well.
+	// Ensure companion HUD pieces exist for non-MOBA controllers as well.
 	if (APlayerController* PC = GetOwningPlayer())
 	{
-		bool bAlready = false;
+		bool bMinimapAlready = false;
 		for (TObjectIterator<UMinimapWidget> It; It; ++It)
 		{
 			if (It->GetOwningPlayer() == PC && It->IsInViewport())
 			{
-				bAlready = true;
+				bMinimapAlready = true;
 				break;
 			}
 		}
-		if (!bAlready)
+		if (!bMinimapAlready)
 		{
 			if (UMinimapWidget* Mini = CreateWidget<UMinimapWidget>(PC, UMinimapWidget::StaticClass()))
 			{
 				Mini->AddToViewport(20);
+			}
+		}
+
+		bool bCrystalBarAlready = false;
+		for (TObjectIterator<UCrystalHealthBarWidget> It; It; ++It)
+		{
+			if (It->GetOwningPlayer() == PC && It->IsInViewport())
+			{
+				bCrystalBarAlready = true;
+				break;
+			}
+		}
+		if (!bCrystalBarAlready)
+		{
+			if (UCrystalHealthBarWidget* CrystalBar =
+				CreateWidget<UCrystalHealthBarWidget>(PC, UCrystalHealthBarWidget::StaticClass()))
+			{
+				// Below ability bar Z=100; top-center so it does not overlap the bar.
+				CrystalBar->AddToViewport(90);
 			}
 		}
 	}
@@ -93,6 +129,7 @@ void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	}
 
 	RefreshStorePlusVisual();
+	RefreshNextWaveVisual();
 
 	if (APawn* Pawn = ResolveChampionPawn())
 	{
@@ -121,9 +158,9 @@ void UAbilityBarWidget::EnsureBuilt()
 	{
 		BuildDefaultUI();
 	}
-	else if (!StorePlusButton)
+	else if (!StorePlusButton || !NextWaveButton || !SlotQ.CooldownClip)
 	{
-		// Hot-reload / older runtime tree had slots without the store opener.
+		// Hot-reload / older runtime tree missing store opener, next-wave, or CD wipe.
 		if (SlotRow)
 		{
 			SlotRow->ClearChildren();
@@ -132,6 +169,7 @@ void UAbilityBarWidget::EnsureBuilt()
 			SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
 			SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
 			SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
+			BuildNextWaveSlot(SlotRow);
 		}
 		else
 		{
@@ -139,7 +177,9 @@ void UAbilityBarWidget::EnsureBuilt()
 		}
 	}
 
-	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr && StorePlusButton != nullptr;
+	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr
+		&& SlotQ.CooldownClip != nullptr
+		&& StorePlusButton != nullptr && NextWaveButton != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
@@ -165,6 +205,10 @@ void UAbilityBarWidget::ApplyHitTestPolicy()
 	if (StorePlusButton)
 	{
 		StorePlusButton->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (NextWaveButton)
+	{
+		NextWaveButton->SetVisibility(ESlateVisibility::Visible);
 	}
 }
 
@@ -222,6 +266,9 @@ void UAbilityBarWidget::BuildDefaultUI()
 	SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
 	SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
 	SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
+
+	// Next-wave force-start sits after R (same as Enter hotkey).
+	BuildNextWaveSlot(SlotRow);
 
 	ApplyHitTestPolicy();
 }
@@ -335,6 +382,177 @@ void UAbilityBarWidget::RefreshStorePlusVisual()
 	}
 }
 
+void UAbilityBarWidget::BuildNextWaveSlot(UHorizontalBox* Parent)
+{
+	if (!Parent || !WidgetTree)
+	{
+		return;
+	}
+
+	// Slightly wider than ability slots so it reads as a play/next control, not another keybind.
+	const float PlayWidth = SlotSize + 10.f;
+
+	NextWaveSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("NextWaveSize"));
+	NextWaveSizeBox->SetWidthOverride(PlayWidth);
+	NextWaveSizeBox->SetHeightOverride(SlotSize);
+
+	NextWaveFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("NextWaveFrame"));
+	NextWaveFrame->SetPadding(FMargin(2.f));
+	NextWaveFrame->SetBrushColor(AbilityBarPrivate::NextWaveFrame);
+	NextWaveSizeBox->SetContent(NextWaveFrame);
+
+	NextWaveButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("NextWaveButton"));
+	NextWaveButton->SetBackgroundColor(AbilityBarPrivate::NextWaveBgReady);
+	NextWaveButton->SetIsEnabled(true);
+	NextWaveButton->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnNextWaveClicked);
+	NextWaveFrame->SetContent(NextWaveButton);
+
+	UVerticalBox* Labels = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("NextWaveLabels"));
+
+	// Large play triangle — primary affordance.
+	NextWaveLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWavePlayIcon"));
+	NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
+	NextWaveLabel->SetJustification(ETextJustify::Center);
+	NextWaveLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveIcon));
+	NextWaveLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+	NextWaveLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.7f));
+	{
+		FSlateFontInfo Font = NextWaveLabel->GetFont();
+		Font.Size = 30.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		NextWaveLabel->SetFont(Font);
+	}
+	if (UVerticalBoxSlot* IconSlot = Labels->AddChildToVerticalBox(NextWaveLabel))
+	{
+		IconSlot->SetHorizontalAlignment(HAlign_Center);
+		IconSlot->SetPadding(FMargin(2.f, 8.f, 0.f, 0.f));
+	}
+
+	// "NEXT" caption under the play icon (media-control style).
+	NextWaveKeyLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWaveCaption"));
+	NextWaveKeyLabel->SetText(FText::FromString(TEXT("NEXT")));
+	NextWaveKeyLabel->SetJustification(ETextJustify::Center);
+	NextWaveKeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveCaption));
+	NextWaveKeyLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+	NextWaveKeyLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.75f));
+	{
+		FSlateFontInfo Font = NextWaveKeyLabel->GetFont();
+		Font.Size = 12.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		NextWaveKeyLabel->SetFont(Font);
+	}
+	if (UVerticalBoxSlot* CaptionSlot = Labels->AddChildToVerticalBox(NextWaveKeyLabel))
+	{
+		CaptionSlot->SetHorizontalAlignment(HAlign_Center);
+		CaptionSlot->SetPadding(FMargin(0.f, -2.f, 0.f, 6.f));
+	}
+
+	NextWaveButton->SetContent(Labels);
+
+	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(NextWaveSizeBox))
+	{
+		RowSlot->SetPadding(FMargin(14.f, 0.f, 8.f, 0.f));
+		RowSlot->SetVerticalAlignment(VAlign_Center);
+	}
+}
+
+void UAbilityBarWidget::OnNextWaveClicked()
+{
+	AActor* Spawner = FindEnemySpawner();
+	if (!Spawner)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AbilityBar NextWave: no BP_EnemySpawner found"));
+		return;
+	}
+
+	if (UFunction* Fn = Spawner->FindFunction(FName(TEXT("ForceStartNextWave"))))
+	{
+		Spawner->ProcessEvent(Fn, nullptr);
+		RefreshNextWaveVisual();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AbilityBar NextWave: ForceStartNextWave missing on %s"),
+			*Spawner->GetName());
+	}
+}
+
+void UAbilityBarWidget::RefreshNextWaveVisual()
+{
+	if (!NextWaveButton || !NextWaveLabel)
+	{
+		return;
+	}
+
+	AActor* Spawner = FindEnemySpawner();
+	bool bBusy = false;
+	float Countdown = 0.f;
+	if (Spawner)
+	{
+		bool bSpawning = false;
+		bool bWaitingClear = false;
+		ReadBoolProp(Spawner, FName(TEXT("IsSpawningWave")), bSpawning);
+		if (!ReadBoolProp(Spawner, FName(TEXT("WaitingforClear")), bWaitingClear))
+		{
+			ReadBoolProp(Spawner, FName(TEXT("WaitingForClear")), bWaitingClear);
+		}
+		if (!ReadFloatProp(Spawner, FName(TEXT("CountdownRemaining")), Countdown))
+		{
+			int32 CountdownInt = 0;
+			if (ReadIntProp(Spawner, FName(TEXT("CountdownRemaining")), CountdownInt))
+			{
+				Countdown = static_cast<float>(CountdownInt);
+			}
+		}
+		bBusy = bSpawning || bWaitingClear;
+	}
+
+	NextWaveButton->SetIsEnabled(!bBusy && Spawner != nullptr);
+	NextWaveButton->SetBackgroundColor(bBusy ? AbilityBarPrivate::NextWaveBgBusy : AbilityBarPrivate::NextWaveBgReady);
+	if (NextWaveFrame)
+	{
+		NextWaveFrame->SetBrushColor(bBusy ? AbilityBarPrivate::NextWaveFrameBusy : AbilityBarPrivate::NextWaveFrame);
+	}
+	if (NextWaveSizeBox)
+	{
+		NextWaveSizeBox->SetRenderOpacity(bBusy ? 0.5f : 1.f);
+	}
+
+	NextWaveLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveIcon));
+	if (NextWaveKeyLabel)
+	{
+		NextWaveKeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveCaption));
+	}
+
+	if (bBusy)
+	{
+		// Pause-style while a wave is active.
+		NextWaveLabel->SetText(FText::FromString(TEXT("❚❚")));
+		if (NextWaveKeyLabel)
+		{
+			NextWaveKeyLabel->SetText(FText::FromString(TEXT("WAIT")));
+		}
+	}
+	else if (Countdown > 0.05f)
+	{
+		// Still a play button — countdown shows you can skip ahead.
+		NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
+		if (NextWaveKeyLabel)
+		{
+			NextWaveKeyLabel->SetText(FText::FromString(
+				FString::Printf(TEXT("%d"), FMath::CeilToInt(Countdown))));
+		}
+	}
+	else
+	{
+		NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
+		if (NextWaveKeyLabel)
+		{
+			NextWaveKeyLabel->SetText(FText::FromString(TEXT("NEXT")));
+		}
+	}
+}
+
 FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId)
 {
 	FAbilityBarSlotWidgets Out;
@@ -343,6 +561,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 		return Out;
 	}
 
+	Out.KeyChar = KeyChar;
 	const FString KeyStr = FString(1, &KeyChar);
 
 	Out.SizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("Size_%s"), *KeyStr));
@@ -350,7 +569,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.SizeBox->SetHeightOverride(SlotSize);
 
 	Out.Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("Frame_%s"), *KeyStr));
-	Out.Frame->SetPadding(FMargin(2.f));
+	Out.Frame->SetPadding(FMargin(3.f));
 	Out.Frame->SetBrushColor(AbilityBarPrivate::SlotReadyFrame);
 	Out.SizeBox->SetContent(Out.Frame);
 
@@ -366,15 +585,32 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 		BtnSlot->SetVerticalAlignment(VAlign_Fill);
 	}
 
-	Out.CooldownBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), *FString::Printf(TEXT("CDBar_%s"), *KeyStr));
-	Out.CooldownBar->SetPercent(0.f);
-	Out.CooldownBar->SetFillColorAndOpacity(AbilityBarPrivate::CdOverlay);
-	Out.CooldownBar->SetBarFillType(EProgressBarFillType::TopToBottom);
-	Out.CooldownBar->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UOverlaySlot* CdSlot = Overlay->AddChildToOverlay(Out.CooldownBar))
+	// LoL-style remaining-CD wipe: SizeBox height shrinks as cooldown ticks down.
+	Out.CooldownClip = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("CDClip_%s"), *KeyStr));
+	Out.CooldownClip->SetWidthOverride(SlotSize);
+	Out.CooldownClip->SetHeightOverride(0.f);
+	Out.CooldownClip->SetVisibility(ESlateVisibility::Collapsed);
+
+	Out.CooldownFill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("CDFill_%s"), *KeyStr));
+	{
+		// Explicit solid brush — BorderColor alone can be invisible without a drawable brush.
+		FSlateBrush FillBrush;
+		FillBrush.DrawAs = ESlateBrushDrawType::Image;
+		if (const FSlateBrush* White = FCoreStyle::Get().GetBrush("GenericWhiteBox"))
+		{
+			FillBrush = *White;
+		}
+		FillBrush.TintColor = FSlateColor(AbilityBarPrivate::CdOverlay);
+		Out.CooldownFill->SetBrush(FillBrush);
+	}
+	Out.CooldownFill->SetBrushColor(AbilityBarPrivate::CdOverlay);
+	Out.CooldownFill->SetPadding(FMargin(0.f));
+	Out.CooldownClip->SetContent(Out.CooldownFill);
+
+	if (UOverlaySlot* CdSlot = Overlay->AddChildToOverlay(Out.CooldownClip))
 	{
 		CdSlot->SetHorizontalAlignment(HAlign_Fill);
-		CdSlot->SetVerticalAlignment(VAlign_Fill);
+		CdSlot->SetVerticalAlignment(VAlign_Top);
 	}
 
 	UVerticalBox* Labels = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), *FString::Printf(TEXT("Labels_%s"), *KeyStr));
@@ -386,21 +622,37 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.KeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
 	Out.KeyLabel->SetShadowOffset(FVector2D(1.f, 1.f));
 	Out.KeyLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
+	{
+		FSlateFontInfo Font = Out.KeyLabel->GetFont();
+		Font.Size = 28.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		Out.KeyLabel->SetFont(Font);
+	}
 	if (UVerticalBoxSlot* KeySlot = Labels->AddChildToVerticalBox(Out.KeyLabel))
 	{
 		KeySlot->SetHorizontalAlignment(HAlign_Center);
-		KeySlot->SetPadding(FMargin(0.f, 12.f, 0.f, 0.f));
+		KeySlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		KeySlot->SetVerticalAlignment(VAlign_Center);
 	}
 
 	Out.CooldownText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("CDText_%s"), *KeyStr));
 	Out.CooldownText->SetText(FText::GetEmpty());
 	Out.CooldownText->SetJustification(ETextJustify::Center);
 	Out.CooldownText->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::CdTextColor));
-	Out.CooldownText->SetShadowOffset(FVector2D(1.f, 1.f));
-	Out.CooldownText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
+	Out.CooldownText->SetShadowOffset(FVector2D(2.f, 2.f));
+	Out.CooldownText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.95f));
+	Out.CooldownText->SetVisibility(ESlateVisibility::Collapsed);
+	{
+		FSlateFontInfo Font = Out.CooldownText->GetFont();
+		Font.Size = 26.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		Out.CooldownText->SetFont(Font);
+	}
 	if (UVerticalBoxSlot* CdTextSlot = Labels->AddChildToVerticalBox(Out.CooldownText))
 	{
 		CdTextSlot->SetHorizontalAlignment(HAlign_Center);
+		CdTextSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		CdTextSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
 	Out.LockText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("Lock_%s"), *KeyStr));
@@ -408,10 +660,16 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.LockText->SetJustification(ETextJustify::Center);
 	Out.LockText->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::LockTextColor));
 	Out.LockText->SetVisibility(ESlateVisibility::Collapsed);
+	{
+		FSlateFontInfo Font = Out.LockText->GetFont();
+		Font.Size = 14.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		Out.LockText->SetFont(Font);
+	}
 	if (UVerticalBoxSlot* LockSlot = Labels->AddChildToVerticalBox(Out.LockText))
 	{
 		LockSlot->SetHorizontalAlignment(HAlign_Center);
-		LockSlot->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
+		LockSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
 	}
 
 	if (UOverlaySlot* LabelSlot = Overlay->AddChildToOverlay(Labels))
@@ -431,11 +689,73 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 
 APawn* UAbilityBarWidget::ResolveChampionPawn() const
 {
-	if (APlayerController* PC = GetOwningPlayer())
+	APlayerController* PC = GetOwningPlayer();
+	if (!PC)
 	{
-		return PC->GetPawn();
+		return GetOwningPlayerPawn();
 	}
-	return GetOwningPlayerPawn();
+
+	// MOBA mode possesses the free camera; ability CDs live on ControlledChampion.
+	if (const AMobaPlayerController* MobaPC = Cast<AMobaPlayerController>(PC))
+	{
+		if (APawn* Champion = MobaPC->GetControlledChampion())
+		{
+			return Champion;
+		}
+	}
+
+	if (APawn* Possessed = PC->GetPawn())
+	{
+		// Prefer a pawn that actually exposes ability CD props.
+		float UnusedCd = 0.f;
+		if (ReadFloatProp(Possessed, FName(TEXT("CD_Q")), UnusedCd))
+		{
+			return Possessed;
+		}
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<APawn> It(World); It; ++It)
+		{
+			APawn* Candidate = *It;
+			if (!IsValid(Candidate))
+			{
+				continue;
+			}
+			float UnusedCd = 0.f;
+			if (ReadFloatProp(Candidate, FName(TEXT("CD_Q")), UnusedCd))
+			{
+				return Candidate;
+			}
+		}
+	}
+
+	return PC->GetPawn();
+}
+
+AActor* UAbilityBarWidget::FindEnemySpawner() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	UClass* SpawnerClass = EnemySpawnerActorClass.TryLoadClass<AActor>();
+	if (!SpawnerClass)
+	{
+		return nullptr;
+	}
+
+	for (TActorIterator<AActor> It(World, SpawnerClass); It; ++It)
+	{
+		if (IsValid(*It))
+		{
+			return *It;
+		}
+	}
+	return nullptr;
 }
 
 void UAbilityBarWidget::RefreshFromPawn(APawn* Pawn)
@@ -466,6 +786,15 @@ void UAbilityBarWidget::RefreshFromPawn(APawn* Pawn)
 	ReadIntProp(Pawn, FName(TEXT("ChampionLevel")), Level);
 	ReadIntProp(Pawn, FName(TEXT("PendingAbility")), Pending);
 
+	static TWeakObjectPtr<APawn> LastLoggedChampion;
+	if (LastLoggedChampion.Get() != Pawn)
+	{
+		LastLoggedChampion = Pawn;
+		UE_LOG(LogTemp, Display,
+			TEXT("AbilityBar bound to champion=%s CD_Q=%.2f Level=%d Dropping=%d Pending=%d"),
+			*Pawn->GetName(), CdQ, Level, bDropping ? 1 : 0, Pending);
+	}
+
 	ApplySlotState(SlotQ, 1, CdQ, MaxQ, bDropping, Level, Pending);
 	ApplySlotState(SlotW, 2, CdW, MaxW, bDropping, Level, Pending);
 	ApplySlotState(SlotE, 3, CdE, MaxE, bDropping, Level, Pending);
@@ -475,69 +804,118 @@ void UAbilityBarWidget::RefreshFromPawn(APawn* Pawn)
 void UAbilityBarWidget::ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 AbilityId, float RemainingCD, float MaxCD,
 	bool bDropping, int32 ChampionLevel, int32 PendingAbility)
 {
-	if (!SlotUI.Button || !SlotUI.CooldownBar || !SlotUI.CooldownText)
+	if (!SlotUI.Button || !SlotUI.CooldownText)
 	{
 		return;
 	}
 
 	const bool bUltLocked = (AbilityId == 4) && (ChampionLevel < UltimateUnlockLevel);
 	const bool bOnCooldown = RemainingCD > 0.05f;
+	const bool bUnavailable = bUltLocked || bDropping;
+	const bool bAvailable = !bUnavailable && !bOnCooldown;
 	const bool bAiming = PendingAbility == AbilityId;
 
 	const float SafeMax = FMath::Max(MaxCD, 0.01f);
 	const float CdPercent = bOnCooldown ? FMath::Clamp(RemainingCD / SafeMax, 0.f, 1.f) : 0.f;
-	SlotUI.CooldownBar->SetPercent(CdPercent);
-	SlotUI.CooldownBar->SetVisibility(bOnCooldown ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
 
-	if (bOnCooldown)
+	// Dark wipe covers remaining CD (shrinks top→bottom as it cools, LoL-style).
+	if (SlotUI.CooldownClip && SlotUI.CooldownFill)
+	{
+		if (bOnCooldown && !bUltLocked)
+		{
+			SlotUI.CooldownClip->SetHeightOverride(SlotSize * CdPercent);
+			SlotUI.CooldownClip->SetVisibility(ESlateVisibility::HitTestInvisible);
+			SlotUI.CooldownFill->SetBrushColor(AbilityBarPrivate::CdOverlay);
+		}
+		else
+		{
+			SlotUI.CooldownClip->SetHeightOverride(0.f);
+			SlotUI.CooldownClip->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	if (bOnCooldown && !bUltLocked)
 	{
 		const FString CdStr = RemainingCD >= 10.f
 			? FString::Printf(TEXT("%d"), FMath::CeilToInt(RemainingCD))
 			: FString::Printf(TEXT("%.1f"), RemainingCD);
 		SlotUI.CooldownText->SetText(FText::FromString(CdStr));
 		SlotUI.CooldownText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (SlotUI.KeyLabel)
+		{
+			SlotUI.KeyLabel->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 	else
 	{
 		SlotUI.CooldownText->SetText(FText::GetEmpty());
 		SlotUI.CooldownText->SetVisibility(ESlateVisibility::Collapsed);
+		if (SlotUI.KeyLabel)
+		{
+			SlotUI.KeyLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
+			SlotUI.KeyLabel->SetColorAndOpacity(FSlateColor(
+				bUnavailable ? AbilityBarPrivate::KeyColorDim : AbilityBarPrivate::KeyColor));
+		}
 	}
 
 	if (SlotUI.LockText)
 	{
-		SlotUI.LockText->SetVisibility(bUltLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		if (bUltLocked)
 		{
 			SlotUI.LockText->SetText(FText::FromString(FString::Printf(TEXT("Lv%d"), UltimateUnlockLevel)));
+			SlotUI.LockText->SetVisibility(ESlateVisibility::HitTestInvisible);
+			if (SlotUI.KeyLabel)
+			{
+				SlotUI.KeyLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+		}
+		else if (bDropping)
+		{
+			SlotUI.LockText->SetText(FText::FromString(TEXT("—")));
+			SlotUI.LockText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			SlotUI.LockText->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
 
 	if (SlotUI.Frame)
 	{
-		SlotUI.Frame->SetBrushColor(bAiming ? AbilityBarPrivate::SlotAimFrame : AbilityBarPrivate::SlotReadyFrame);
+		if (bAiming && bAvailable)
+		{
+			SlotUI.Frame->SetBrushColor(AbilityBarPrivate::SlotAimFrame);
+		}
+		else if (bUnavailable)
+		{
+			SlotUI.Frame->SetBrushColor(AbilityBarPrivate::SlotLockedFrame);
+		}
+		else if (bOnCooldown)
+		{
+			SlotUI.Frame->SetBrushColor(AbilityBarPrivate::SlotCdFrame);
+		}
+		else
+		{
+			SlotUI.Frame->SetBrushColor(AbilityBarPrivate::SlotReadyFrame);
+		}
 	}
 
 	if (SlotUI.SizeBox)
 	{
-		if (bUltLocked)
+		if (bUltLocked || bDropping)
 		{
 			SlotUI.Button->SetBackgroundColor(AbilityBarPrivate::SlotLockedBg);
-			SlotUI.SizeBox->SetRenderOpacity(0.45f);
-		}
-		else if (bDropping)
-		{
-			SlotUI.Button->SetBackgroundColor(AbilityBarPrivate::SlotLockedBg);
-			SlotUI.SizeBox->SetRenderOpacity(0.4f);
+			SlotUI.SizeBox->SetRenderOpacity(0.42f);
 		}
 		else if (bOnCooldown)
 		{
-			SlotUI.Button->SetBackgroundColor(AbilityBarPrivate::SlotReadyBg);
-			SlotUI.SizeBox->SetRenderOpacity(0.85f);
+			SlotUI.Button->SetBackgroundColor(AbilityBarPrivate::SlotCdBg);
+			SlotUI.SizeBox->SetRenderOpacity(0.92f);
 		}
 		else
 		{
 			SlotUI.Button->SetBackgroundColor(AbilityBarPrivate::SlotReadyBg);
-			SlotUI.SizeBox->SetRenderOpacity(bAiming ? 1.f : 0.98f);
+			SlotUI.SizeBox->SetRenderOpacity(1.f);
 		}
 	}
 

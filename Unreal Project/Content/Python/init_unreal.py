@@ -26,3 +26,10 @@ try:
 except Exception as exc:
     import unreal
     unreal.log_warning("init_unreal setup_tower_store_ui failed: {}".format(exc))
+
+try:
+    import setup_crystal_health_bar_ui
+    setup_crystal_health_bar_ui.setup(force=False)
+except Exception as exc:
+    import unreal
+    unreal.log_warning("init_unreal setup_crystal_health_bar_ui failed: {}".format(exc))

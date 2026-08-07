@@ -57,7 +57,10 @@ Example type defaults
 
 Flags: IsConstructing, IsBuilt, ConstructionProgress, MeshMinZ
 
-Ghost preview (BuildManager) leaves tick off so construction does not run until real place.
+Ghost preview (BuildManager)
+- SpawnGhostTower loads SelectedTowerClassPath and spawns that child class (fallback BP_Tower).
+- ConfigureGhostTower: collision/tick off, IsGhost=true, ShowRangePreview, then UpdateGhostTower follows cursor/pads.
+- ShowRangePreview shows RangeRing (cylinder + MI_AbilityRange) scaled XY = Range/50 so the disc matches combat Range.
 
 Materials
 - /Game/TD/Materials/M_TowerHolo — translucent cyan full silhouette during build

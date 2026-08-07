@@ -1,21 +1,19 @@
-﻿"""
-Ensure WBP_AbilityBar subclasses AbilityBarWidget (C++ LoL QWER HUD).
+"""
+Ensure WBP_CrystalHealthBar subclasses CrystalHealthBarWidget (C++ top-center crystal HP).
 
-The C++ parent builds the bottom-center bar (+ | Q W E R | ▶ next wave) and drives:
-  available / on-cooldown / locked (R until ChampionLevel) / aiming highlight
-from BP_TopDownCharacter CD_* / MaxCD_* / bIsDropping / ChampionLevel / PendingAbility.
-The trailing ▶ button calls BP_EnemySpawner.ForceStartNextWave (same as Enter).
+The C++ parent builds a fixed top-center chrome bar and polls BP_Crystal
+CurrentHealth / MaxHealth each tick.
 
 Run from Unreal: File > Execute Python Script, or auto via init_unreal.py after module compile.
 """
 import unreal
 
-DST = "/Game/TD/UI/WBP_AbilityBar"
+DST = "/Game/TD/UI/WBP_CrystalHealthBar"
 DST_DIR = "/Game/TD/UI"
-CPP_PARENT = "/Script/TD.AbilityBarWidget"
+CPP_PARENT = "/Script/TD.CrystalHealthBarWidget"
 
 
-def _ability_bar_class():
+def _crystal_bar_class():
     cls = unreal.load_class(None, CPP_PARENT)
     if cls is None:
         cls = unreal.load_object(None, CPP_PARENT)
@@ -41,17 +39,17 @@ def _create_fresh(parent_cls):
     factory = unreal.WidgetBlueprintFactory()
     factory.set_editor_property("parent_class", parent_cls)
     bp = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-        "WBP_AbilityBar", DST_DIR, unreal.WidgetBlueprint, factory
+        "WBP_CrystalHealthBar", DST_DIR, unreal.WidgetBlueprint, factory
     )
     return bp
 
 
 def setup(force=False):
-    parent_cls = _ability_bar_class()
+    parent_cls = _crystal_bar_class()
     if parent_cls is None:
         unreal.log_warning(
-            "AbilityBarWidget C++ class not loaded yet. "
-            "Compile the TD module, restart the editor, then re-run setup_ability_bar_ui."
+            "CrystalHealthBarWidget C++ class not loaded yet. "
+            "Compile the TD module, restart the editor, then re-run setup_crystal_health_bar_ui."
         )
         return False
 
@@ -66,18 +64,17 @@ def setup(force=False):
             current_parent = bp.parent_class
         except Exception:
             current_parent = None
-        # Old towers-clone tree fights the C++ runtime bar — recreate when parent mismatches.
         if current_parent != parent_cls:
             needs_recreate = True
 
     if needs_recreate:
         bp = _create_fresh(parent_cls)
         if bp is None:
-            unreal.log_error("Failed to create WBP_AbilityBar")
+            unreal.log_error("Failed to create WBP_CrystalHealthBar")
             return False
-        unreal.log("Created fresh WBP_AbilityBar with AbilityBarWidget parent")
+        unreal.log("Created fresh WBP_CrystalHealthBar with CrystalHealthBarWidget parent")
     else:
-        unreal.log("WBP_AbilityBar already subclasses AbilityBarWidget")
+        unreal.log("WBP_CrystalHealthBar already subclasses CrystalHealthBarWidget")
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -85,7 +82,7 @@ def setup(force=False):
         unreal.log_warning("compile: {}".format(exc))
 
     unreal.EditorAssetLibrary.save_asset(DST)
-    unreal.log("WBP_AbilityBar ready (LoL QWER ability HUD)")
+    unreal.log("WBP_CrystalHealthBar ready (top-center crystal HP bar)")
     return True
 
 

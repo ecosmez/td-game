@@ -1,0 +1,14 @@
+(fn ConfigureGhostTower (Ghost)
+  (Utilities|IsValid Ghost
+    (:"Is Valid"
+      (Variables|Default|SetGhostTower Ghost)
+      (Collision|SetActorEnableCollision Ghost false)
+      (Actor|Tick|SetActorTickEnabled Ghost false)
+      (bind as_tower (Utilities|Casting|CastToBP_Tower Ghost)
+        (:then
+          (Class|BPTower|SetIsGhost :IsGhost true :self as_tower)
+          (Class|BPTower|ShowRangePreview as_tower)
+          (CallFunction|UpdateGhostTower))
+        (:CastFailed
+          (CallFunction|UpdateGhostTower))))
+    (:"Is Not Valid")))

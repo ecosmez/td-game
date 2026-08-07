@@ -1,9 +1,14 @@
 (fn SpawnGhostTower ()
   (CallFunction|DestroyGhostTower)
-  (bind ghost (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" (Math|Transform|MakeTransform (Transformation|GetActorLocation)) "AlwaysSpawn" "MultiplyWithRoot"))
-  (Utilities|IsValid ghost
-    (:"Is Valid"
-      (Variables|Default|SetGhostTower ghost)
-      (Collision|SetActorEnableCollision ghost false)
-      (Actor|Tick|SetActorTickEnabled ghost false)
-      (CallFunction|UpdateGhostTower))))
+  (bind spawn_tf (Math|Transform|MakeTransform (Transformation|GetActorLocation)))
+  (bind path (Variables|Store|GetSelectedTowerClassPath))
+  (bind soft_path (Utilities|MakeSoftClassPath path))
+  (bind soft_ref (Utilities|ToSoftClassReference soft_path))
+  (bind cls (Utilities|LoadClassAssetBlocking soft_ref))
+  (bind actor_cls (Utilities|Casting|CastToActorClass cls)
+    (:then
+      (bind ghost_sel (Game|SpawnActorfromClass :Class actor_cls :SpawnTransform spawn_tf :CollisionHandlingOverride "AlwaysSpawn" :TransformScaleMethod "MultiplyWithRoot"))
+      (CallFunction|ConfigureGhostTower :Ghost ghost_sel))
+    (:CastFailed
+      (bind ghost_base (Game|SpawnActorfromClass :Class "/Game/TD/BP_Tower.BP_Tower_C" :SpawnTransform spawn_tf :CollisionHandlingOverride "AlwaysSpawn" :TransformScaleMethod "MultiplyWithRoot"))
+      (CallFunction|ConfigureGhostTower :Ghost ghost_base))))

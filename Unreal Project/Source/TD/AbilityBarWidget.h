@@ -6,7 +6,6 @@
 
 class UHorizontalBox;
 class UButton;
-class UProgressBar;
 class UTextBlock;
 class UBorder;
 class USizeBox;
@@ -26,28 +25,38 @@ struct FAbilityBarSlotWidgets
 	UPROPERTY()
 	TObjectPtr<UButton> Button = nullptr;
 
+	/** Clips the dark remaining-CD wipe (height = SlotSize * Remaining/Max). */
 	UPROPERTY()
-	TObjectPtr<UProgressBar> CooldownBar = nullptr;
+	TObjectPtr<USizeBox> CooldownClip = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> CooldownFill = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> KeyLabel = nullptr;
 
+	/** Large centered countdown while on cooldown (LoL-style). */
 	UPROPERTY()
 	TObjectPtr<UTextBlock> CooldownText = nullptr;
 
+	/** Locked / unavailable badge (e.g. "Lv3", "—"). */
 	UPROPERTY()
 	TObjectPtr<UTextBlock> LockText = nullptr;
+
+	/** Hotkey letter for this slot (Q/W/E/R). Not reflected. */
+	TCHAR KeyChar = TEXT('\0');
 };
 
 /**
- * League-style champion ability bar (+ store | Q W E R).
- * Leading "+" opens the tower store. Ability slots read CD_* from the champion pawn.
+ * League-style champion ability bar (+ store | Q W E R | play/next wave).
+ * Leading "+" opens the tower store. Trailing green ▶ NEXT force-starts the next wave (Enter).
+ * Ability slots read CD_* from the champion pawn.
  *
- * States per ability slot:
- * - Available: full opacity, no CD overlay
- * - On cooldown: dark fill + remaining seconds
- * - Unavailable (dropping / locked ult): dimmed + disabled
- * - Aiming: brighter frame when PendingAbility matches the slot
+ * States per ability slot (LoL-style):
+ * - Available: bright cyan frame, full opacity, key letter
+ * - On cooldown: dark remaining wipe + large gold seconds
+ * - Unavailable (dropping / locked ult): dimmed + Lv# / —
+ * - Aiming: gold frame when PendingAbility matches the slot
  */
 UCLASS()
 class TD_API UAbilityBarWidget : public UUserWidget
@@ -76,19 +85,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar", meta = (ClampMin = "32.0"))
 	float SlotSize = 78.f;
 
+	/** Soft class path for BP_EnemySpawner (next-wave button target). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar")
+	FSoftClassPath EnemySpawnerActorClass =
+		FSoftClassPath(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
+
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
 	void BuildStorePlusSlot(UHorizontalBox* Parent);
+	void BuildNextWaveSlot(UHorizontalBox* Parent);
 	void ApplyHitTestPolicy();
 	void RefreshStorePlusVisual();
+	void RefreshNextWaveVisual();
 
 	UFUNCTION()
 	void OnStorePlusClicked();
 
+	UFUNCTION()
+	void OnNextWaveClicked();
+
 	FAbilityBarSlotWidgets BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId);
 
 	APawn* ResolveChampionPawn() const;
+	AActor* FindEnemySpawner() const;
 	void RefreshFromPawn(APawn* Pawn);
 	void ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 AbilityId, float RemainingCD, float MaxCD,
 		bool bDropping, int32 ChampionLevel, int32 PendingAbility);
@@ -127,6 +147,22 @@ protected:
 
 	UPROPERTY()
 	FAbilityBarSlotWidgets SlotR;
+
+	/** Force-start next wave — last button in the bar, after R. */
+	UPROPERTY()
+	TObjectPtr<USizeBox> NextWaveSizeBox = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> NextWaveFrame = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UButton> NextWaveButton = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> NextWaveLabel = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> NextWaveKeyLabel = nullptr;
 
 	bool bBuilt = false;
 };
