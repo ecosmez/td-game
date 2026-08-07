@@ -1,6 +1,7 @@
 (event EventBeginPlay
   (if (> (Variables|Combat|GetAttackSpeed) 0.0)
     (Variables|Combat|SetFireInterval (/ 1.0 (Variables|Combat|GetAttackSpeed))))
+  (CallFunction|GatherFirePoints)
   (bind (bmin bmax) (Components|StaticMesh|GetLocalBounds (Variables|Default|GetTowerMesh)))
   (Variables|Construction|SetMeshMinZ (.z bmin))
   (Rendering|SetVisibility (Variables|Default|GetHoloMesh) false false)
@@ -8,7 +9,8 @@
   (Transformation|SetRelativeLocation (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 0.0 0.0 0.0))
   (Variables|Construction|SetIsConstructing false)
   (Variables|Construction|SetIsBuilt false)
-  (Variables|Construction|SetConstructionProgress 0.0))
+  (Variables|Construction|SetConstructionProgress 0.0)
+  (CallFunction|ApplyTowerColor))
 
 (event Collision|EventActorBeginOverlap (OtherActor))
 

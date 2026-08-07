@@ -1,0 +1,18 @@
+(fn SpawnVolleyAt (Origin)
+  (bind volley (Math|Integer|Max(Integer) (Variables|Combat|GetShotsPerVolley) 1))
+  (bind dmg (Variables|Combat|GetDamagePerShot))
+  (bind mesh (Variables|Combat|GetProjectileMesh))
+  (bind target (Variables|Combat|GetBestFireTarget))
+  (for s (range volley)
+    (bind ox (+ (.x Origin) (* (Math|Conversions|ToFloat(Integer) s) 40.0)))
+    (bind spawn_loc (Math|Vector|MakeVector ox (.y Origin) (.z Origin)))
+    (bind proj (Game|SpawnActorfromClass
+      :Class "/Game/TD/BP_Projectile.BP_Projectile_C"
+      :SpawnTransform (Math|Transform|MakeTransform spawn_loc)
+      :CollisionHandlingOverride "AlwaysSpawn"
+      :TransformScaleMethod "MultiplyWithRoot"))
+    (bind as_proj (Utilities|Casting|CastToBP_Projectile proj)
+      (:then
+        (Class|BPProjectile|SetDisplayMesh mesh as_proj)
+        (Class|BPProjectile|InitProjectile as_proj target dmg))
+      (:CastFailed))))

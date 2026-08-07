@@ -1,0 +1,6 @@
+(fn SnapToGround (DesiredLocation)
+  (bind (_outhit _returnvalue) (Collision|LineTraceByChannel (Math|Vector|MakeVector (.x DesiredLocation) (.y DesiredLocation) (+ (.z DesiredLocation) 2500.0)) (Math|Vector|MakeVector (.x DesiredLocation) (.y DesiredLocation) (- (.z DesiredLocation) 5000.0)) "TraceTypeQuery1" true))
+  (if _returnvalue
+    (return (Math|Vector|MakeVector (.x DesiredLocation) (.y DesiredLocation) (+ (.z (Collision|BreakHitResult _outhit)) (Variables|Default|GetGroundOffset))))
+    (else
+      (return DesiredLocation))))

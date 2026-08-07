@@ -14,17 +14,23 @@
             (else
               (for _array_element _outactors
                 (bind _asbp_waypoint (Utilities|Casting|CastToBP_Waypoint _array_element))
-                (Variables|Default|SetPathStepMax (Math|Integer|Max(Integer) (Variables|Default|GetPathStepMax) (URigHierarchy|GetIndex _asbp_waypoint))))
+                (if (== (Variables|Default|GetRouteId _asbp_waypoint) (Variables|Default|GetRouteId))
+                  (Variables|Default|SetPathStepMax (Math|Integer|Max(Integer) (Variables|Default|GetPathStepMax) (URigHierarchy|GetIndex _asbp_waypoint)))))
               (for _index (range (+ (Variables|Default|GetPathStepMax) 1))
                 (Utilities|Array|Clear (Variables|Default|GetBranchCandidates))
                 (for _array_element_1 _outactors
                   (bind _asbp_waypoint (Utilities|Casting|CastToBP_Waypoint _array_element_1))
-                  (if (== (URigHierarchy|GetIndex _asbp_waypoint) _index)
-                    (if (or (not (Variables|Default|GetUseLanePreference)) (== (Class|BPWaypoint|GetOverLane _asbp_waypoint) (Variables|Default|GetPreferOverLane)))
+                  (if (and (== (Variables|Default|GetRouteId _asbp_waypoint) (Variables|Default|GetRouteId)) (== (URigHierarchy|GetIndex _asbp_waypoint) _index))
+                    (if (or (not (|GetbUseLanePreference)) (Math|Boolean|equal(Boolean) (|GetbOverLane _asbp_waypoint) (|GetbPreferOverLane)))
                       (Utilities|Array|Add (Variables|Default|GetBranchCandidates) _array_element_1))))
+                (if (Utilities|Array|IsEmpty (Variables|Default|GetBranchCandidates))
+                  (for _array_element_2 _outactors
+                    (bind _asbp_waypoint (Utilities|Casting|CastToBP_Waypoint _array_element_2))
+                    (if (and (== (Variables|Default|GetRouteId _asbp_waypoint) (Variables|Default|GetRouteId)) (== (URigHierarchy|GetIndex _asbp_waypoint) _index))
+                      (Utilities|Array|Add (Variables|Default|GetBranchCandidates) _array_element_2))))
                 (if (not (Utilities|Array|IsEmpty (Variables|Default|GetBranchCandidates)))
                   (Utilities|Array|Add (Variables|Default|GetWaypoints) (Transformation|GetActorLocation (Utilities|Array|RandomArrayItem (Variables|Default|GetBranchCandidates))))))
-              (Development|PrintString "Enemy resolved path (lane preference)" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)"))))
+              (Development|PrintString "Enemy resolved path (route+lane)" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)"))))
         (:CastFailed
           (Development|PrintString "ChoosePath: PathActor is not BP_EnemyPath"))))
     (:"Is Not Valid"

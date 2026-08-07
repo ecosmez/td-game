@@ -1,25 +1,28 @@
+; Per-fire-point combat. See also GatherFirePoints / SelectVisibleTarget / SpawnVolleyAt.
 (fn TryFire ()
   (if (not (Variables|Default|GetCanAttack))
     (return))
   (if (<= (Variables|Combat|GetAttackSpeed) 0.0)
     (return))
-  (Variables|Combat|SetFireCooldown (- (Variables|Combat|GetFireCooldown) (Utilities|Time|GetWorldDeltaSeconds)))
-  (if (<= (Variables|Combat|GetFireCooldown) 0.0)
-    (bind origin (Transformation|GetActorLocation))
-    (bind enemies (Actor|GetAllActorsOfClass "/Game/TD/BP_Enemy.BP_Enemy_C"))
-    (if (not (Utilities|Array|IsEmpty enemies))
-      (bind enemy (Utilities|Array|RandomArrayItem enemies))
-      (bind enemy_loc (Transformation|GetActorLocation enemy))
-      (if (<= (Math|Vector|Distance(Vector) origin enemy_loc) (Variables|Combat|GetRange))
-        (Variables|Combat|SetFireCooldown (Variables|Combat|GetFireInterval))
-        (bind volley (Math|Integer|Max(Integer) (Variables|Default|GetShotsPerVolley) 1))
-        (bind dmg (Variables|Combat|GetDamagePerShot))
-        (bind mesh (Variables|Combat|GetProjectileMesh))
-        (for i (range volley)
-          (bind ox (+ (.x origin) (* (Math|Conversions|ToFloat(Integer) i) 40.0)))
-          (bind spawn_loc (Math|Vector|MakeVector ox (.y origin) (+ (.z origin) 180.0)))
-          (bind spawn_tf (Math|Transform|MakeTransform spawn_loc))
-          (bind proj (Game|SpawnActorfromClass :Class "/Game/TD/BP_Projectile.BP_Projectile_C" :SpawnTransform spawn_tf :CollisionHandlingOverride "AlwaysSpawn" :TransformScaleMethod "MultiplyWithRoot"))
-          (bind as_proj (Utilities|Casting|CastToBP_Projectile proj))
-          (Class|BPProjectile|SetDisplayMesh mesh as_proj)
-          (Class|BPProjectile|InitProjectile as_proj enemy dmg))))))
+  (bind dt (Utilities|Time|GetWorldDeltaSeconds))
+  (bind n (Utilities|Array|Length (Variables|Combat|GetFirePoints)))
+  (for i (range n)
+    (bind cd (- (Utilities|Array|Get(aref) (Variables|Combat|GetFirePointCooldowns) i) dt))
+    (Utilities|Array|SetArrayElem :TargetArray (Variables|Combat|GetFirePointCooldowns) :Index i :Item cd)
+    (if (<= cd 0.0)
+      (bind fp (Utilities|Array|Get(aref) (Variables|Combat|GetFirePoints) i))
+      (Utilities|IsValid fp
+        (:"Is Valid"
+          (bind origin (Transformation|GetWorldLocation fp))
+          (CallFunction|SelectVisibleTarget :Origin origin)
+          (if (Variables|Combat|GetHasFireTarget)
+            (Utilities|Array|SetArrayElem :TargetArray (Variables|Combat|GetFirePointCooldowns) :Index i :Item (Variables|Combat|GetFireInterval))
+            (CallFunction|SpawnVolleyAt :Origin origin)))
+        (:"Is Not Valid")))))
+
+; SelectVisibleTarget(Origin): nearest in-Range enemy with clear Visibility LoS.
+; Trace ActorsToIgnore = all enemies; bIgnoreSelf false (tower body blocks).
+; Sets BestFireTarget / BestFireDist / HasFireTarget.
+
+; SpawnVolleyAt(Origin): for s in 0..max(ShotsPerVolley,1)-1 spawn BP_Projectile at
+; (Origin.X + s*40, Origin.Y, Origin.Z), InitProjectile(BestFireTarget, DamagePerShot).

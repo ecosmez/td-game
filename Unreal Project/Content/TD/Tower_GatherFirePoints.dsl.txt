@@ -1,0 +1,11 @@
+(fn GatherFirePoints ()
+  (Utilities|Array|Clear (Variables|Combat|GetFirePoints))
+  (Utilities|Array|Clear (Variables|Combat|GetFirePointCooldowns))
+  (bind comps (Actor|GetComponentsbyTag :ComponentClass "/Script/Engine.SceneComponent" :Tag "FirePoint"))
+  (for c comps
+    (if (< (Utilities|Array|Length (Variables|Combat|GetFirePoints)) 8)
+      (bind sc (Utilities|Casting|CastToSceneComponent c)
+        (:then
+          (Utilities|Array|Add (Variables|Combat|GetFirePoints) sc)
+          (Utilities|Array|Add (Variables|Combat|GetFirePointCooldowns) 0.0))
+        (:CastFailed)))))

@@ -53,6 +53,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	TEnumAsByte<ECollisionChannel> ClickMoveTraceChannel = ECC_Visibility;
 
+	/**
+	 * If NavMesh has no complete path and the click is at least this much lower (cm),
+	 * steer directly in XY so the champion can walk off a ledge and fall.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float CliffDropFallbackZ = 80.0f;
+
+	/** Stop direct cliff/fall moves when XY distance to the click is within this (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
+	float DirectMoveAcceptanceRadius = 90.0f;
+
 	/** When true, controller possesses the camera pawn and keeps the champion via ControlledChampion. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera")
 	bool bPossessCameraPawn = true;
@@ -182,7 +193,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void ApplyMobaInputMode();
 
-	/** Issue a ground move to the controlled champion (SimpleMoveToLocation). */
+	/**
+	 * Issue a ground move to the controlled champion.
+	 * Uses NavMesh when a complete path exists; otherwise steers in XY toward
+	 * lower ground so the champion can walk off cliffs and fall.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void MoveChampionToLocation(const FVector& WorldLocation);
 
@@ -268,6 +283,17 @@ protected:
 	void ApplyWarzoneDropFraming(APawn* Champion, float DeltaTime);
 	void SwitchViewToMobaCamera(bool bBlend);
 
+	/** True when a complete (non-partial) NavMesh path exists to Dest. */
+	bool HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const;
+
+	/** Abort PathFollowing on the champion's AI controller. */
+	void AbortChampionPathFollowing(APawn* Champion);
+
+	/** Start / stop XY-steer fallback used for cliff drops. */
+	void StartDirectMoveTo(const FVector& WorldLocation);
+	void StopDirectMove();
+	void UpdateDirectMoveChampion(float DeltaTime);
+
 	UPROPERTY(Transient)
 	TObjectPtr<AMobaCameraPawn> CachedCameraPawn;
 
@@ -284,4 +310,11 @@ protected:
 	/** Last-frame drop flag for edge detection. */
 	UPROPERTY(Transient)
 	bool bWasChampionDropping = false;
+
+	/** True while steering in XY toward a click that NavMesh cannot reach (cliff fall). */
+	UPROPERTY(Transient)
+	bool bDirectMoveActive = false;
+
+	UPROPERTY(Transient)
+	FVector DirectMoveTarget = FVector::ZeroVector;
 };

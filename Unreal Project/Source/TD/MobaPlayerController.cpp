@@ -20,6 +20,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "NavigationSystem.h"
+#include "Navigation/PathFollowingComponent.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 
@@ -315,6 +316,7 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 	HandleSkipSkyDropInput();
 	HandleToggleFogOfWarInput();
 	HandleClickToMoveChampion();
+	UpdateDirectMoveChampion(DeltaTime);
 	UpdateSkyDropCamera(DeltaTime);
 }
 
@@ -488,6 +490,7 @@ void AMobaPlayerController::SetDropMode(bool bInDropMode)
 	bDropMode = bInDropMode;
 	if (bInDropMode)
 	{
+		StopDirectMove();
 		EnterDropCameraMode();
 	}
 	else if (bInDropCamera)
@@ -542,6 +545,7 @@ void AMobaPlayerController::EnterDropCameraMode()
 	bInDropCamera = true;
 	bDropMode = true;
 	bEnableClickToMoveChampion = false;
+	StopDirectMove();
 
 	// Free cam stays possessed for input setup; view switches to the champion's camera.
 	ApplyWarzoneDropFraming(Champion, 0.f);
@@ -745,7 +749,147 @@ void AMobaPlayerController::MoveChampionToLocation(const FVector& WorldLocation)
 	}
 
 	EnsureChampionHasAIController(Champion);
+
+	const float DropZ = Champion->GetActorLocation().Z - WorldLocation.Z;
+	const bool bDestinationLower = DropZ >= CliffDropFallbackZ;
+	const bool bNavOk = HasCompleteNavPathTo(Champion, WorldLocation);
+
+	if (bNavOk)
+	{
+		StopDirectMove();
+		UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), WorldLocation);
+		return;
+	}
+
+	// No complete NavMesh path. If the click is lower (cliff / ledge), steer in XY
+	// so CharacterMovement can walk off and fall. Same-height / higher clicks still
+	// go through SimpleMove (partial path / nearest poly) as before.
+	if (bDestinationLower)
+	{
+		StartDirectMoveTo(WorldLocation);
+		return;
+	}
+
+	StopDirectMove();
 	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), WorldLocation);
+}
+
+bool AMobaPlayerController::HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const
+{
+	if (!Champion || !GetWorld())
+	{
+		return false;
+	}
+
+	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!NavSys)
+	{
+		return false;
+	}
+
+	const ANavigationData* NavData = NavSys->GetNavDataForProps(Champion->GetNavAgentPropertiesRef(), Champion->GetNavAgentLocation());
+	if (!NavData)
+	{
+		NavData = NavSys->GetDefaultNavDataInstance();
+	}
+	if (!NavData)
+	{
+		return false;
+	}
+
+	FPathFindingQuery Query(Champion, *NavData, Champion->GetNavAgentLocation(), Dest);
+	Query.SetAllowPartialPaths(false);
+
+	const FPathFindingResult Result = NavSys->FindPathSync(Query);
+	return Result.IsSuccessful() && Result.Path.IsValid() && !Result.IsPartial();
+}
+
+void AMobaPlayerController::AbortChampionPathFollowing(APawn* Champion)
+{
+	if (!Champion)
+	{
+		return;
+	}
+
+	auto AbortOn = [](AActor* Owner)
+	{
+		if (!Owner)
+		{
+			return;
+		}
+		if (UPathFollowingComponent* PathFollow = Owner->FindComponentByClass<UPathFollowingComponent>())
+		{
+			PathFollow->AbortMove(*Owner, FPathFollowingResultFlags::UserAbort);
+		}
+	};
+
+	AbortOn(Champion);
+	AbortOn(Champion->GetController());
+}
+
+void AMobaPlayerController::StartDirectMoveTo(const FVector& WorldLocation)
+{
+	APawn* Champion = GetControlledChampion();
+	AbortChampionPathFollowing(Champion);
+
+	// Ensure walking off ledges is allowed for this order.
+	if (ACharacter* Char = Cast<ACharacter>(Champion))
+	{
+		if (UCharacterMovementComponent* Move = Char->GetCharacterMovement())
+		{
+			Move->bCanWalkOffLedges = true;
+		}
+	}
+
+	DirectMoveTarget = WorldLocation;
+	bDirectMoveActive = true;
+}
+
+void AMobaPlayerController::StopDirectMove()
+{
+	bDirectMoveActive = false;
+	DirectMoveTarget = FVector::ZeroVector;
+}
+
+void AMobaPlayerController::UpdateDirectMoveChampion(float DeltaTime)
+{
+	if (!bDirectMoveActive)
+	{
+		return;
+	}
+
+	if (bDropMode || !bEnableClickToMoveChampion)
+	{
+		StopDirectMove();
+		return;
+	}
+
+	APawn* Champion = GetControlledChampion();
+	if (!Champion || MobaSkipDropPrivate::IsPawnDropping(Champion))
+	{
+		StopDirectMove();
+		return;
+	}
+
+	const FVector Loc = Champion->GetActorLocation();
+	FVector Delta = DirectMoveTarget - Loc;
+	Delta.Z = 0.0f;
+	const float DistSq = Delta.SizeSquared();
+	const float AcceptSq = DirectMoveAcceptanceRadius * DirectMoveAcceptanceRadius;
+	if (DistSq <= AcceptSq)
+	{
+		StopDirectMove();
+		return;
+	}
+
+	const FVector Dir = Delta.GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		StopDirectMove();
+		return;
+	}
+
+	Champion->AddMovementInput(Dir, 1.0f);
 }
 
 void AMobaPlayerController::WireChampionFromPawn(APawn* InPawn)
