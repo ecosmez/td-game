@@ -811,15 +811,15 @@ void AMobaPlayerController::AbortChampionPathFollowing(APawn* Champion)
 		return;
 	}
 
-	auto AbortOn = [](AActor* Owner)
+	auto AbortOn = [](AActor* Target)
 	{
-		if (!Owner)
+		if (!Target)
 		{
 			return;
 		}
-		if (UPathFollowingComponent* PathFollow = Owner->FindComponentByClass<UPathFollowingComponent>())
+		if (UPathFollowingComponent* PathFollow = Target->FindComponentByClass<UPathFollowingComponent>())
 		{
-			PathFollow->AbortMove(*Owner, FPathFollowingResultFlags::UserAbort);
+			PathFollow->AbortMove(*Target, FPathFollowingResultFlags::UserAbort);
 		}
 	};
 
