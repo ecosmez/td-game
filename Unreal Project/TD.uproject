@@ -24,23 +24,38 @@
 		},
 		{
 			"Name": "MCPClientToolset",
-			"Enabled": true
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Mac"
+			]
 		},
 		{
 			"Name": "ModelContextProtocol",
-			"Enabled": true
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Mac"
+			]
 		},
 		{
 			"Name": "Terminal",
-			"Enabled": true
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Mac"
+			]
 		},
 		{
 			"Name": "EditorToolset",
-			"Enabled": true
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Mac"
+			]
 		},
 		{
 			"Name": "AllToolsets",
-			"Enabled": true
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Mac"
+			]
 		}
 	]
 }
