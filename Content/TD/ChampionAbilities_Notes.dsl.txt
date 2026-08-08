@@ -37,8 +37,9 @@
 ;           dimmed while bIsDropping | aiming highlight when PendingAbility matches
 ;   Reads CD_*/MaxCD_*/bIsDropping/ChampionLevel/PendingAbility from owning pawn
 ;   ▶ calls BP_EnemySpawner.ForceStartNextWave (same as Enter hotkey)
-;   Spawned by BP_TopDownCharacter::ShowAbilityHUD on land (EventOnLanded)
-;   CreateWidget class MUST be /Game/TD/UI/WBP_AbilityBar.WBP_AbilityBar_C
+;   Spawned on land (ShowAbilityHUD / CompleteDropLanding) + C++ CreateAndShowAbilityBar safety net
+;   Prefer C++ CreateAndShowAbilityBar (TD|UI) over Create Widget Class pin (often breaks)
+;   CreateAndShowAbilityBar loads WBP_AbilityBar_C, falls back to AbilityBarWidget C++
 ;   Setup: Content/Python/setup_ability_bar_ui.py (also via init_unreal.py)
 ;   On construct also spawns MinimapWidget (Z=20) + CrystalHealthBarWidget (Z=90)
 ; Crystal HP HUD: CrystalHealthBarWidget C++ (/Game/TD/UI/WBP_CrystalHealthBar optional shell)

@@ -42,4 +42,21 @@ public:
 		UObject* WorldContextObject,
 		APlayerController* OwningPlayer = nullptr,
 		int32 ZOrder = 120);
+
+	/**
+	 * Create the ability HUD (WBP_AbilityBar if available, else AbilityBarWidget C++).
+	 * Avoids BP "Create Widget must have a class specified" compile failures on ShowAbilityHUD.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))
+	static UUserWidget* CreateAbilityBarWidget(UObject* WorldContextObject, APlayerController* OwningPlayer = nullptr);
+
+	/**
+	 * Create the ability bar and add it to the viewport (ZOrder default 100).
+	 * Prefer this in BP ShowAbilityHUD / landing flow over Create Widget nodes.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))
+	static UUserWidget* CreateAndShowAbilityBar(
+		UObject* WorldContextObject,
+		APlayerController* OwningPlayer = nullptr,
+		int32 ZOrder = 100);
 };

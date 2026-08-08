@@ -1,12 +1,8 @@
 ﻿"""
 Ensure WBP_AbilityBar subclasses AbilityBarWidget (C++ LoL QWER HUD).
 
-The C++ parent builds the bottom-center bar (+ | Q W E R | ▶ next wave) and drives:
-  available / on-cooldown / locked (R until ChampionLevel) / aiming highlight
-from BP_TopDownCharacter CD_* / MaxCD_* / bIsDropping / ChampionLevel / PendingAbility.
-The trailing ▶ button calls BP_EnemySpawner.ForceStartNextWave (same as Enter).
-
-Run from Unreal: File > Execute Python Script, or auto via init_unreal.py after module compile.
+IMPORTANT: Never delete+recreate an existing WBP unless force=True.
+Recreate wiped Create Widget Class pins on BP_TopDownCharacter every editor start.
 """
 import unreal
 
@@ -57,40 +53,22 @@ def setup(force=False):
 
     _close_editors()
 
-    needs_recreate = force or (not unreal.EditorAssetLibrary.does_asset_exist(DST))
-    bp = None
-
-    if not needs_recreate:
+    if unreal.EditorAssetLibrary.does_asset_exist(DST) and not force:
         bp = unreal.EditorAssetLibrary.load_asset(DST)
+        # Keep existing asset. Parent mismatch is rare after first setup; do not wipe.
         try:
-            current_parent = bp.parent_class
-        except Exception:
-            current_parent = None
-        # Compare by path — pointer identity fails across reloads and caused
-        # delete+recreate every editor start, wiping Create Widget Class refs.
-        current_path = ""
-        parent_path = ""
-        try:
-            if current_parent is not None:
-                current_path = current_parent.get_path_name()
-        except Exception:
-            pass
-        try:
-            if parent_cls is not None:
-                parent_path = parent_cls.get_path_name()
-        except Exception:
-            pass
-        if not current_path or current_path != parent_path:
-            needs_recreate = True
+            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+        except Exception as exc:
+            unreal.log_warning("compile existing WBP_AbilityBar: {}".format(exc))
+        unreal.EditorAssetLibrary.save_asset(DST)
+        unreal.log("WBP_AbilityBar already exists — leave in place (no recreate)")
+        return True
 
-    if needs_recreate:
-        bp = _create_fresh(parent_cls)
-        if bp is None:
-            unreal.log_error("Failed to create WBP_AbilityBar")
-            return False
-        unreal.log("Created fresh WBP_AbilityBar with AbilityBarWidget parent")
-    else:
-        unreal.log("WBP_AbilityBar already subclasses AbilityBarWidget")
+    bp = _create_fresh(parent_cls)
+    if bp is None:
+        unreal.log_error("Failed to create WBP_AbilityBar")
+        return False
+    unreal.log("Created fresh WBP_AbilityBar with AbilityBarWidget parent")
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -100,7 +78,6 @@ def setup(force=False):
     unreal.EditorAssetLibrary.save_asset(DST)
     unreal.log("WBP_AbilityBar ready (LoL QWER ability HUD)")
 
-    # Recreating WBP_AbilityBar clears Create Widget Class on BP_TopDownCharacter.
     try:
         import fix_topdown_character_createwidget
 
@@ -112,4 +89,4 @@ def setup(force=False):
 
 
 if __name__ == "__main__":
-    setup(force=True)
+    setup(force=False)

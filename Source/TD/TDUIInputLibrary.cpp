@@ -1,5 +1,6 @@
 #include "TDUIInputLibrary.h"
 
+#include "AbilityBarWidget.h"
 #include "MinimapWidget.h"
 #include "CameraOrbitGizmoWidget.h"
 #include "TowerStoreWidget.h"
@@ -243,6 +244,74 @@ UUserWidget* UTDUIInputLibrary::CreateAndShowTowerStore(
 	if (UTowerStoreWidget* Store = Cast<UTowerStoreWidget>(Widget))
 	{
 		Store->SetStoreOpen(false);
+	}
+
+	return Widget;
+}
+
+UUserWidget* UTDUIInputLibrary::CreateAbilityBarWidget(UObject* WorldContextObject, APlayerController* OwningPlayer)
+{
+	APlayerController* PC = OwningPlayer;
+	if (!PC)
+	{
+		if (UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr)
+		{
+			PC = World->GetFirstPlayerController();
+		}
+	}
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	// Prefer designed WBP when cooked/loaded; fall back to C++ ability bar implementation.
+	static const FSoftClassPath WbpPath(TEXT("/Game/TD/UI/WBP_AbilityBar.WBP_AbilityBar_C"));
+	UClass* WidgetClass = WbpPath.TryLoadClass<UUserWidget>();
+	if (!WidgetClass)
+	{
+		WidgetClass = UAbilityBarWidget::StaticClass();
+	}
+
+	return CreateWidget<UUserWidget>(PC, WidgetClass);
+}
+
+UUserWidget* UTDUIInputLibrary::CreateAndShowAbilityBar(
+	UObject* WorldContextObject,
+	APlayerController* OwningPlayer,
+	int32 ZOrder)
+{
+	APlayerController* PC = OwningPlayer;
+	if (!PC)
+	{
+		if (UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr)
+		{
+			PC = World->GetFirstPlayerController();
+		}
+	}
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	// Avoid stacking multiple bars if ShowAbilityHUD / land is called more than once.
+	for (TObjectIterator<UAbilityBarWidget> It; It; ++It)
+	{
+		UAbilityBarWidget* Existing = *It;
+		if (Existing && Existing->GetOwningPlayer() == PC && Existing->IsInViewport())
+		{
+			return Existing;
+		}
+	}
+
+	UUserWidget* Widget = CreateAbilityBarWidget(WorldContextObject, PC);
+	if (!Widget)
+	{
+		return nullptr;
+	}
+
+	if (!Widget->IsInViewport())
+	{
+		Widget->AddToViewport(ZOrder);
 	}
 
 	return Widget;

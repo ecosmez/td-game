@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.8",
+	"EngineAssociation": "{7F5F6A80-4845-C39C-8CB1-36BA05260E6E}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -24,38 +24,23 @@
 		},
 		{
 			"Name": "MCPClientToolset",
-			"Enabled": true,
-			"PlatformAllowList": [
-				"Mac"
-			]
+			"Enabled": true
 		},
 		{
 			"Name": "ModelContextProtocol",
-			"Enabled": true,
-			"PlatformAllowList": [
-				"Mac"
-			]
+			"Enabled": true
 		},
 		{
 			"Name": "Terminal",
-			"Enabled": true,
-			"PlatformAllowList": [
-				"Mac"
-			]
+			"Enabled": true
 		},
 		{
 			"Name": "EditorToolset",
-			"Enabled": true,
-			"PlatformAllowList": [
-				"Mac"
-			]
+			"Enabled": true
 		},
 		{
 			"Name": "AllToolsets",
-			"Enabled": true,
-			"PlatformAllowList": [
-				"Mac"
-			]
+			"Enabled": true
 		}
 	]
 }

@@ -678,6 +678,10 @@ void ULoLCameraComponent::TrySkipSkyDropFromHotkey(APlayerController* PC)
 		if (CompleteFn->NumParms == 0)
 		{
 			Pawn->ProcessEvent(CompleteFn, nullptr);
+			if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+			{
+				UTDUIInputLibrary::CreateAndShowAbilityBar(PC, PC, 100);
+			}
 			return;
 		}
 	}
@@ -701,5 +705,9 @@ void ULoLCameraComponent::TrySkipSkyDropFromHotkey(APlayerController* PC)
 		{
 			Pawn->ProcessEvent(HUD, nullptr);
 		}
+	}
+	if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+	{
+		UTDUIInputLibrary::CreateAndShowAbilityBar(PC, PC, 100);
 	}
 }

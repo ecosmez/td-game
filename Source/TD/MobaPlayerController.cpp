@@ -440,6 +440,8 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 			Champion->ProcessEvent(CompleteFn, nullptr);
 			// BP clears drop; force MOBA free cam handoff.
 			ExitDropCameraMode();
+			// Safety net: BP ShowAbilityHUD Create Widget is often broken after WBP recreate.
+			UTDUIInputLibrary::CreateAndShowAbilityBar(this, this, 100);
 			return true;
 		}
 	}
@@ -476,6 +478,7 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 	ExitDropCameraMode();
 
 	MobaSkipDropPrivate::CallNoArgFunction(Champion, FName(TEXT("ShowAbilityHUD")));
+	UTDUIInputLibrary::CreateAndShowAbilityBar(this, this, 100);
 
 	if (GEngine)
 	{
@@ -524,6 +527,11 @@ void AMobaPlayerController::UpdateSkyDropCamera(float DeltaTime)
 	{
 		// Natural land (OnLanded / CompleteDropLanding) or drop flag cleared.
 		ExitDropCameraMode();
+		// Ensure LoL QWER bar appears even if BP ShowAbilityHUD Create Widget is broken.
+		if (bWasChampionDropping && !bDropping)
+		{
+			UTDUIInputLibrary::CreateAndShowAbilityBar(this, this, 100);
+		}
 	}
 
 	bWasChampionDropping = bDropping;
