@@ -66,8 +66,21 @@ def setup(force=False):
             current_parent = bp.parent_class
         except Exception:
             current_parent = None
-        # Old towers-clone tree fights the C++ runtime bar — recreate when parent mismatches.
-        if current_parent != parent_cls:
+        # Compare by path — pointer identity fails across reloads and caused
+        # delete+recreate every editor start, wiping Create Widget Class refs.
+        current_path = ""
+        parent_path = ""
+        try:
+            if current_parent is not None:
+                current_path = current_parent.get_path_name()
+        except Exception:
+            pass
+        try:
+            if parent_cls is not None:
+                parent_path = parent_cls.get_path_name()
+        except Exception:
+            pass
+        if not current_path or current_path != parent_path:
             needs_recreate = True
 
     if needs_recreate:

@@ -129,7 +129,14 @@ def _find_create_widget_nodes(bp):
 def _find_graph_by_name(bp, name):
     for graph in _all_graphs(bp):
         try:
-            if graph.get_name() == name:
+            gname = graph.get_name()
+            if gname == name or gname.endswith(name) or name in gname:
+                return graph
+        except Exception:
+            pass
+        try:
+            path = graph.get_path_name()
+            if path.endswith(":" + name) or path.endswith("." + name):
                 return graph
         except Exception:
             pass
@@ -270,6 +277,29 @@ def _set_widget_class(node, widget_cls):
             return True
         except Exception:
             pass
+    # Fallback: set the Class input pin default object (matches editor Class dropdown).
+    try:
+        for pin in list(node.pins):
+            try:
+                pname = str(pin.pin_name)
+            except Exception:
+                continue
+            if pname.lower() != "class":
+                continue
+            try:
+                pin.default_object = widget_cls
+            except Exception:
+                try:
+                    pin.set_editor_property("default_object", widget_cls)
+                except Exception:
+                    continue
+            try:
+                node.reconstruct_node()
+            except Exception:
+                pass
+            return True
+    except Exception as exc:
+        unreal.log_warning("Class pin fallback failed: {}".format(exc))
     return False
 
 

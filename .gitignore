@@ -16,6 +16,14 @@
 *.VC.db-shm
 *.VC.db-wal
 
+# Python
+**/__pycache__/
+*.pyc
+
+# Python
+**/__pycache__/
+*.pyc
+
 # OS
 Thumbs.db
 Desktop.ini
