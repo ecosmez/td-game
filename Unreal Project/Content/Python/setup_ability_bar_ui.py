@@ -86,6 +86,15 @@ def setup(force=False):
 
     unreal.EditorAssetLibrary.save_asset(DST)
     unreal.log("WBP_AbilityBar ready (LoL QWER ability HUD)")
+
+    # Recreating WBP_AbilityBar clears Create Widget Class on BP_TopDownCharacter.
+    try:
+        import fix_topdown_character_createwidget
+
+        fix_topdown_character_createwidget.setup()
+    except Exception as exc:
+        unreal.log_warning("fix_topdown_character_createwidget failed: {}".format(exc))
+
     return True
 
 

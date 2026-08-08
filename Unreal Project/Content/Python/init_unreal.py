@@ -21,6 +21,14 @@ except Exception as exc:
     unreal.log_warning("init_unreal setup_ability_bar_ui failed: {}".format(exc))
 
 try:
+    # Ensure ShowAbilityHUD Create Widget still points at WBP_AbilityBar after setup.
+    import fix_topdown_character_createwidget
+    fix_topdown_character_createwidget.setup()
+except Exception as exc:
+    import unreal
+    unreal.log_warning("init_unreal fix_topdown_character_createwidget failed: {}".format(exc))
+
+try:
     import setup_tower_store_ui
     setup_tower_store_ui.setup(force=False)
 except Exception as exc:
