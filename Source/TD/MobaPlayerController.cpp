@@ -308,8 +308,8 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	// Stop 3D actor click-through (hex pads, world OnClicked) when the cursor is over the store/HUD.
-	// UMG buttons still work via Slate; they do not need bEnableClickEvents.
+	// Stop 3D actor click-through when the cursor is over the store/HUD.
+	// Keep click events on while a tower is selected so pads can receive LMB place.
 	const bool bBlockWorld = ShouldBlockWorldClickInput();
 	bEnableClickEvents = !bBlockWorld;
 
@@ -671,7 +671,7 @@ void AMobaPlayerController::SwitchViewToMobaCamera(bool bBlend)
 
 void AMobaPlayerController::HandleClickToMoveChampion()
 {
-	if (!bEnableClickToMoveChampion || bDropMode || ShouldBlockWorldClickInput())
+	if (!bEnableClickToMoveChampion || bDropMode || UTDUIInputLibrary::ShouldBlockChampionClickToMove(this, bBlockCameraInputOverUI))
 	{
 		return;
 	}

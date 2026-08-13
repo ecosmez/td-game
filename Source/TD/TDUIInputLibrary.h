@@ -5,8 +5,8 @@
 #include "TDUIInputLibrary.generated.h"
 
 /**
- * Shared helpers: block world click / move when the cursor is over UMG (store, HUD)
- * or when a tower drag/selection is active on a BuildManager.
+ * Shared helpers: block world click events over UMG, and block champion
+ * click-to-move over UMG or while a tower is selected/dragging.
  */
 UCLASS()
 class TD_API UTDUIInputLibrary : public UBlueprintFunctionLibrary
@@ -22,9 +22,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TD|Input", meta = (WorldContext = "WorldContextObject"))
 	static bool IsTowerBuildInteractionActive(const UObject* WorldContextObject);
 
-	/** True when world click-to-move / 3D click events should be ignored. */
+	/**
+	 * True when 3D actor click events (pad OnClicked) should be ignored.
+	 * UI under the cursor only — tower selection must keep click events enabled
+	 * so pads can receive LMB place.
+	 */
 	UFUNCTION(BlueprintPure, Category = "TD|Input", meta = (WorldContext = "WorldContextObject"))
 	static bool ShouldBlockWorldClickInput(const UObject* WorldContextObject, bool bCheckUI = true);
+
+	/**
+	 * True when champion click-to-move / set-destination should be ignored.
+	 * Blocks over hit-testable UI and while a tower is selected/dragging so RMB
+	 * can cancel placement without issuing a move order.
+	 */
+	UFUNCTION(BlueprintPure, Category = "TD|Input", meta = (WorldContext = "WorldContextObject"))
+	static bool ShouldBlockChampionClickToMove(const UObject* WorldContextObject, bool bCheckUI = true);
 
 	/**
 	 * Create the tower store HUD (WBP_TowerStore if available, else TowerStoreWidget C++).

@@ -25,4 +25,7 @@
         (CallFunction|UpdateGhostTower))
       (if (or (Variables|Default|GetTowerDragLive) (Variables|Default|GetHasTowerSelected))
         (if (or (Game|Player|WasInputKeyJustPressed pc "Escape") (Game|Player|WasInputKeyJustPressed pc "RightMouseButton"))
-          (CallFunction|CancelTowerSelection))))))
+          (CallFunction|CancelTowerSelection)
+          (else
+            (if (and (Game|Player|WasInputKeyJustPressed pc "LeftMouseButton") (not (Class|TDUIInputLibrary|IsPointerOverHitTestableUI)))
+              (CallFunction|TryDropTower))))))))

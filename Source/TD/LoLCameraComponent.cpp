@@ -372,12 +372,13 @@ void ULoLCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	// Store / HUD hit-test: don't let set-destination path the champion under the UI.
-	// Also suppresses RMB cancel-from-store from double-firing SimpleMoveToLocation.
+	// Store / HUD: don't path the champion under UI. While a tower is selected,
+	// keep pad click events on, but strip click-to-move so RMB cancels instead of moving.
 	if (APlayerController* PC = GetOwnerPlayerController())
 	{
-		const bool bBlock = UTDUIInputLibrary::ShouldBlockWorldClickInput(PC, true);
-		PC->bEnableClickEvents = !bBlock;
+		const bool bBlockClicks = UTDUIInputLibrary::ShouldBlockWorldClickInput(PC, true);
+		const bool bBlockMove = UTDUIInputLibrary::ShouldBlockChampionClickToMove(PC, true);
+		PC->bEnableClickEvents = !bBlockClicks;
 
 		if (ULocalPlayer* LP = PC->GetLocalPlayer())
 		{
@@ -396,17 +397,17 @@ void ULoLCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 					// Sticky flag so we only re-add if we stripped destination mapping ourselves.
 					static bool bStrippedDefaultIMC = false;
 					const bool bHasIMC = Subsys->HasMappingContext(IMC);
-					if (bBlock && bHasIMC)
+					if (bBlockMove && bHasIMC)
 					{
 						Subsys->RemoveMappingContext(IMC);
 						bStrippedDefaultIMC = true;
 					}
-					else if (!bBlock && bStrippedDefaultIMC && !bHasIMC)
+					else if (!bBlockMove && bStrippedDefaultIMC && !bHasIMC)
 					{
 						Subsys->AddMappingContext(IMC, 0);
 						bStrippedDefaultIMC = false;
 					}
-					else if (!bBlock && bHasIMC)
+					else if (!bBlockMove && bHasIMC)
 					{
 						bStrippedDefaultIMC = false;
 					}
@@ -414,7 +415,7 @@ void ULoLCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			}
 		}
 
-		if (bBlock)
+		if (bBlockMove)
 		{
 			auto AbortPath = [PC](AActor* Owner)
 			{

@@ -20,9 +20,9 @@ Fire positions (1–8)
 - Place child Scene Components on the tower (or child tower BPs). Tag each with FirePoint.
 - Base ships with FirePoint_0 at relative (120, 0, 180) so existing towers still shoot.
 - BeginPlay → GatherFirePoints: clears FirePoints / FirePointCooldowns, collects tagged SceneComponents (max 8), one cooldown slot per point (starts at 0).
-- Keep points outside TowerMesh collision so LoS traces do not start embedded.
-  TowerBase local bounds are about X±272, Y±314, Z up to ~1177 (authored 1,1,1 scale).
-  Place FirePoints beyond ~400 uu from the center on X/Y or LoS always hits the tower and never fires.
+- Fire points can sit on the mesh. SelectVisibleTarget ignores the firing tower
+  (bIgnoreSelf true) so LoS does not die inside TowerMesh collision.
+  WorldStatic / other actors still block. Tag each component FirePoint (name alone is not enough).
 
 Combat fire (TryFire)
 1. Gate on CanAttack + AttackSpeed > 0.
@@ -31,7 +31,7 @@ Combat fire (TryFire)
    b. SelectVisibleTarget from that point's world location:
       - Scan BP_Enemy actors; keep those within Range of the fire point.
       - Prefer nearest with clear Visibility line trace (start offset 10uu toward enemy; end at enemy +Z 50).
-      - Trace ignores enemies (they do not block). bIgnoreSelf=false so the tower body blocks opposite-side points.
+      - Trace ignores enemies (they do not block). bIgnoreSelf=true so points on the mesh still fire.
       - WorldStatic / blocking world geometry also blocks.
    c. If HasFireTarget: set cooldown[i] = FireInterval, SpawnVolleyAt from that fire point (ShotsPerVolley, InitProjectile on BestFireTarget).
 

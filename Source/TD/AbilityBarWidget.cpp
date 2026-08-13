@@ -131,7 +131,7 @@ void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 
 bool UAbilityBarWidget::ShouldBlockWorldClickInput(const UObject* WorldContextObject)
 {
-	return UTDUIInputLibrary::ShouldBlockWorldClickInput(WorldContextObject, true);
+	return UTDUIInputLibrary::ShouldBlockChampionClickToMove(WorldContextObject, true);
 }
 
 void UAbilityBarWidget::EnsureBuilt()

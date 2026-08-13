@@ -108,7 +108,7 @@ bool UTDUIInputLibrary::IsPointerOverHitTestableUI(const UObject* WorldContextOb
 
 		// Leave full-screen non-interactable HitAreas alone – they should be
 		// SelfHitTestInvisible so empty map clicks path and tower buttons stay clickable.
-		// Tower build/selection still blocks via IsTowerBuildInteractionActive.
+		// Tower selection keeps pad click events enabled; champion move is blocked separately.
 	}
 
 	return false;
@@ -166,15 +166,20 @@ bool UTDUIInputLibrary::IsTowerBuildInteractionActive(const UObject* WorldContex
 
 bool UTDUIInputLibrary::ShouldBlockWorldClickInput(const UObject* WorldContextObject, bool bCheckUI)
 {
-	if (IsTowerBuildInteractionActive(WorldContextObject))
-	{
-		return true;
-	}
 	if (bCheckUI && IsPointerOverHitTestableUI(WorldContextObject))
 	{
 		return true;
 	}
 	return false;
+}
+
+bool UTDUIInputLibrary::ShouldBlockChampionClickToMove(const UObject* WorldContextObject, bool bCheckUI)
+{
+	if (IsTowerBuildInteractionActive(WorldContextObject))
+	{
+		return true;
+	}
+	return ShouldBlockWorldClickInput(WorldContextObject, bCheckUI);
 }
 
 UUserWidget* UTDUIInputLibrary::CreateTowerStoreWidget(UObject* WorldContextObject, APlayerController* OwningPlayer)

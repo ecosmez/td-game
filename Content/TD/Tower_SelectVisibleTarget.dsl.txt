@@ -17,7 +17,7 @@
             :End end
             :TraceChannel "Visibility"
             :ActorsToIgnore enemies
-            :bIgnoreSelf false
+            :bIgnoreSelf true
             :DrawDebugType "None"))
           (if (not blocked)
             (Variables|Combat|SetBestFireDist dist)

@@ -21,7 +21,7 @@
         (:"Is Not Valid")))))
 
 ; SelectVisibleTarget(Origin): nearest in-Range enemy with clear Visibility LoS.
-; Trace ActorsToIgnore = all enemies; bIgnoreSelf false (tower body blocks).
+; Trace ActorsToIgnore = all enemies; bIgnoreSelf true (tower mesh does not block its own shots).
 ; Sets BestFireTarget / BestFireDist / HasFireTarget.
 
 ; SpawnVolleyAt(Origin): for s in 0..max(ShotsPerVolley,1)-1 spawn BP_Projectile at
