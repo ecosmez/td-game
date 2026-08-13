@@ -1,6 +1,2 @@
-(event EventBeginPlay
-  (Development|PrintString "Y-path Over/Under ready" true true "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)" 3.0))
-
-(event Collision|EventActorBeginOverlap (OtherActor))
-
-(event EventTick (DeltaSeconds))
+; DEPRECATED — BP_EnemyPath BeginPlay is unused.
+; Pathing lives on BP_Waypoint + UTDEnemyPathLibrary.

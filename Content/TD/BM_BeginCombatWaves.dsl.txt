@@ -12,8 +12,9 @@
     (if (Utilities|Array|IsEmpty _outactors)
       (Development|PrintString "No EnemySpawner" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)
       (else
-        (bind _asbp_enemy_spawner (Utilities|Casting|CastToBP_EnemySpawner (Utilities|Array|RandomArrayItem _outactors)
-          (:then
-            (CallFunction|StartWaves _asbp_enemy_spawner))
-          (:CastFailed
-            (Development|PrintString "Spawner cast failed" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0)))))))
+        (for _array_element _outactors
+          (bind _asbp_enemy_spawner (Utilities|Casting|CastToBP_EnemySpawner _array_element)
+            (:then
+              (CallFunction|StartWaves _asbp_enemy_spawner))
+            (:CastFailed
+              (Development|PrintString "Spawner cast failed" true true "(R=1.000000,G=0.200000,B=0.200000,A=1.000000)" 3.0))))))))

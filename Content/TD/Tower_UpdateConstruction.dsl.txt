@@ -6,12 +6,6 @@
     (Variables|Construction|SetIsConstructing false)
     (Variables|Construction|SetIsBuilt true)
     (Rendering|SetVisibility (Variables|Default|GetHoloMesh))
-    (Transformation|SetRelativeScale3D (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 1.2 1.2 2.5))
-    (Transformation|SetRelativeLocation (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 0.0 0.0 0.0))
     (Development|PrintString "Tower ready!" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 1.5)
     (else
-      (Variables|Construction|SetConstructionProgress next)
-      (bind p (select (< next 0.02) 0.02 next))
-      (bind sz (* 2.5 p))
-      (Transformation|SetRelativeScale3D (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 1.2 1.2 sz))
-      (Transformation|SetRelativeLocation (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 0.0 0.0 (* (Variables|Construction|GetMeshMinZ) (- 2.5 sz)))))))
+      (Variables|Construction|SetConstructionProgress next))))

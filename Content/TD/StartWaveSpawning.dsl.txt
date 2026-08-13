@@ -1,7 +1,2 @@
 (fn StartWaveSpawning ()
-  (Variables|Default|SetIsSpawningWave true)
-  (Variables|Default|SetWaveSpawnedCount 0)
-  (Variables|Default|SetWaitingForClear false)
-  (Development|PrintString "Spawning enemies!" true true "(R=0.200000,G=0.800000,B=1.000000,A=1.000000)" 2.0)
-  (Utilities|Time|SetTimerbyFunctionName self "SpawnEnemy" 1.25 true)
-  (CallFunction|SpawnEnemy))
+  (Class|TDEnemyPathLibrary|BeginWaveSpawning self))

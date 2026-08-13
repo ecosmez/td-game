@@ -1,6 +1,2 @@
 (fn CheckWaveClear ()
-  (if (Variables|Default|GetWaitingForClear)
-    (Actor|GetAllActorsOfClass "/Game/TD/BP_Enemy.BP_Enemy_C"
-      (:then
-        (if (Utilities|Array|IsEmpty _outactors)
-          (CallFunction|OnWaveCleared))))))
+  (Class|TDEnemyPathLibrary|CheckWaveEnemiesCleared self))

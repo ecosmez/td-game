@@ -48,8 +48,8 @@ struct FAbilityBarSlotWidgets
 };
 
 /**
- * League-style champion ability bar (+ store | Q W E R | play/next wave).
- * Leading "+" opens the tower store. Trailing green ▶ NEXT force-starts the next wave (Enter).
+ * League-style champion ability bar (+ store | Q W E R).
+ * Leading "+" opens the tower store. Next-wave play lives on the top Base Health HUD.
  * Ability slots read CD_* from the champion pawn.
  *
  * States per ability slot (LoL-style):
@@ -85,30 +85,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar", meta = (ClampMin = "32.0"))
 	float SlotSize = 78.f;
 
-	/** Soft class path for BP_EnemySpawner (next-wave button target). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar")
-	FSoftClassPath EnemySpawnerActorClass =
-		FSoftClassPath(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
-
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
 	void BuildStorePlusSlot(UHorizontalBox* Parent);
-	void BuildNextWaveSlot(UHorizontalBox* Parent);
 	void ApplyHitTestPolicy();
 	void RefreshStorePlusVisual();
-	void RefreshNextWaveVisual();
 
 	UFUNCTION()
 	void OnStorePlusClicked();
 
-	UFUNCTION()
-	void OnNextWaveClicked();
-
 	FAbilityBarSlotWidgets BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId);
 
 	APawn* ResolveChampionPawn() const;
-	AActor* FindEnemySpawner() const;
 	void RefreshFromPawn(APawn* Pawn);
 	void ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 AbilityId, float RemainingCD, float MaxCD,
 		bool bDropping, int32 ChampionLevel, int32 PendingAbility);
@@ -147,22 +136,6 @@ protected:
 
 	UPROPERTY()
 	FAbilityBarSlotWidgets SlotR;
-
-	/** Force-start next wave — last button in the bar, after R. */
-	UPROPERTY()
-	TObjectPtr<USizeBox> NextWaveSizeBox = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UBorder> NextWaveFrame = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UButton> NextWaveButton = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> NextWaveLabel = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> NextWaveKeyLabel = nullptr;
 
 	bool bBuilt = false;
 };

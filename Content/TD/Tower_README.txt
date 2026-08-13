@@ -2,10 +2,9 @@ Tower construction + combat stats (BP_Tower)
 
 Construction flow
 1. BP_TowerPad.TryPlaceTower destroys previous tower on pad (if any), spawns BP_Tower, calls StartConstruction.
-2. StartConstruction shows HoloMesh (M_TowerHolo full silhouette) and starts solid mesh near ground.
+2. StartConstruction shows HoloMesh (M_TowerHolo full silhouette). TowerMesh / HoloMesh keep their authored transforms (no runtime scale or location).
 3. Tick → UpdateConstruction while IsConstructing: progress += dt / ConstructionTime.
-4. Solid mesh Z-scale grows 0→2.5 with foot planted via MeshMinZ offset.
-5. At progress ≥ 1: IsBuilt=true, hide holo, full mesh ("Tower ready!"), then TryFire each tick.
+4. At progress ≥ 1: IsBuilt=true, hide holo ("Tower ready!"), then TryFire each tick.
 
 Editable stats on BP_Tower (Details panel)
 - ConstructionTime  (seconds, default 3)
@@ -22,7 +21,7 @@ Fire positions (1–8)
 - Base ships with FirePoint_0 at relative (120, 0, 180) so existing towers still shoot.
 - BeginPlay → GatherFirePoints: clears FirePoints / FirePointCooldowns, collects tagged SceneComponents (max 8), one cooldown slot per point (starts at 0).
 - Keep points outside TowerMesh collision so LoS traces do not start embedded.
-  TowerBase local bounds are about X±272, Y±314, Z up to ~1177 (plus runtime scale).
+  TowerBase local bounds are about X±272, Y±314, Z up to ~1177 (authored 1,1,1 scale).
   Place FirePoints beyond ~400 uu from the center on X/Y or LoS always hits the tower and never fires.
 
 Combat fire (TryFire)

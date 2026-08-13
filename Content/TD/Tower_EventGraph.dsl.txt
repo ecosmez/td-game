@@ -5,8 +5,6 @@
   (bind (bmin bmax) (Components|StaticMesh|GetLocalBounds (Variables|Default|GetTowerMesh)))
   (Variables|Construction|SetMeshMinZ (.z bmin))
   (Rendering|SetVisibility (Variables|Default|GetHoloMesh) false false)
-  (Transformation|SetRelativeScale3D (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 1.2 1.2 2.5))
-  (Transformation|SetRelativeLocation (Variables|Default|GetTowerMesh) (Math|Vector|MakeVector 0.0 0.0 0.0))
   (Variables|Construction|SetIsConstructing false)
   (Variables|Construction|SetIsBuilt false)
   (Variables|Construction|SetConstructionProgress 0.0)

@@ -1,2 +1,2 @@
-(fn ChoosePath ()
+(fn BuildNavPath ()
   (Class|TDEnemyPathLibrary|ChooseEnemyPath self))

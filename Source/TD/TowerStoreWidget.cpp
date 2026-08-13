@@ -950,7 +950,7 @@ void UTowerStoreWidget::ConfigurePreviewComponents(AActor* TowerActor)
 			continue;
 		}
 
-		// Built look: solid tower mesh (BeginPlay already set scale + ApplyTowerColor).
+		// Built look: solid tower mesh (BeginPlay already applied type color).
 		SMC->SetVisibility(true, true);
 		if (bUseHoloPreviewMaterial)
 		{
@@ -1118,7 +1118,7 @@ void UTowerStoreWidget::ApplyHoverMesh(const FTowerStoreEntryDef& Def)
 			TowerClass, PreviewOrigin, FRotator(0.f, PreviewYaw, 0.f), Params);
 		if (Tower)
 		{
-			// BeginPlay already ran: full mesh scale + type color applied.
+			// BeginPlay already ran: authored mesh transform + type color applied.
 			Tower->SetActorEnableCollision(false);
 			Tower->SetActorTickEnabled(false);
 			Tower->SetActorHiddenInGame(false);

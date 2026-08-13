@@ -4,7 +4,7 @@
   (Variables|Default|SetIsSpawningWave false)
   (Variables|Default|SetWaitingforClear false)
   (Variables|Default|SetNormalEnemiesThisWave (+ 4 (* (Variables|Default|GetWaveNumber) 2)))
-  (Variables|Default|SetIsBossWave (== (Variables|Default|GetWaveNumber) (Variables|Boss|GetBossWaveNumber)))
+  (Variables|Default|SetIsBossWave (and (> (Variables|Boss|GetBossWaveNumber) 0) (== (Math|Integer|%(Integer) (Variables|Default|GetWaveNumber) (Variables|Boss|GetBossWaveNumber)) 0)))
   (Variables|Default|SetEnemiesPerWave (+ (Variables|Default|GetNormalEnemiesThisWave) (select (Variables|Default|GetIsBossWave) 1 0)))
   (if (Variables|Default|GetIsBossWave)
     (Development|PrintString (Utilities|String|BuildString(Integer) "" "=== BOSS WAVE " (Variables|Default|GetWaveNumber) " - SIEGE BRUTE ===") true true "(R=1.000000,G=0.200000,B=0.100000,A=1.000000)" 5.0)

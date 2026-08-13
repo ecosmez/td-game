@@ -45,13 +45,6 @@ namespace AbilityBarPrivate
 	static FLinearColor StorePlusBg(0.12f, 0.42f, 0.55f, 0.95f);
 	static FLinearColor StorePlusBgOpen(0.55f, 0.28f, 0.18f, 0.95f);
 	static FLinearColor StorePlusFrame(0.45f, 0.78f, 0.88f, 1.f);
-	static FLinearColor NextWaveBg(0.10f, 0.48f, 0.28f, 0.96f);
-	static FLinearColor NextWaveBgReady(0.12f, 0.58f, 0.34f, 0.98f);
-	static FLinearColor NextWaveBgBusy(0.12f, 0.16f, 0.14f, 0.95f);
-	static FLinearColor NextWaveFrame(0.45f, 0.95f, 0.65f, 1.f);
-	static FLinearColor NextWaveFrameBusy(0.30f, 0.38f, 0.32f, 1.f);
-	static FLinearColor NextWaveIcon(0.95f, 1.f, 0.97f, 1.f);
-	static FLinearColor NextWaveCaption(0.82f, 0.98f, 0.88f, 1.f);
 }
 
 UAbilityBarWidget::UAbilityBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -123,13 +116,12 @@ void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	if (!bBuilt)
+	if (!bBuilt || (SlotRow && SlotRow->GetChildrenCount() != 5))
 	{
 		EnsureBuilt();
 	}
 
 	RefreshStorePlusVisual();
-	RefreshNextWaveVisual();
 
 	if (APawn* Pawn = ResolveChampionPawn())
 	{
@@ -144,7 +136,7 @@ bool UAbilityBarWidget::ShouldBlockWorldClickInput(const UObject* WorldContextOb
 
 void UAbilityBarWidget::EnsureBuilt()
 {
-	if (bBuilt)
+	if (bBuilt && StorePlusButton && SlotQ.CooldownClip && (!SlotRow || SlotRow->GetChildrenCount() == 5))
 	{
 		return;
 	}
@@ -158,9 +150,9 @@ void UAbilityBarWidget::EnsureBuilt()
 	{
 		BuildDefaultUI();
 	}
-	else if (!StorePlusButton || !NextWaveButton || !SlotQ.CooldownClip)
+	else if (!StorePlusButton || !SlotQ.CooldownClip || (SlotRow && SlotRow->GetChildrenCount() != 5))
 	{
-		// Hot-reload / older runtime tree missing store opener, next-wave, or CD wipe.
+		// Hot-reload / older runtime tree missing store opener, CD wipe, or leftover next-wave slot.
 		if (SlotRow)
 		{
 			SlotRow->ClearChildren();
@@ -169,7 +161,6 @@ void UAbilityBarWidget::EnsureBuilt()
 			SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
 			SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
 			SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
-			BuildNextWaveSlot(SlotRow);
 		}
 		else
 		{
@@ -179,7 +170,7 @@ void UAbilityBarWidget::EnsureBuilt()
 
 	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr
 		&& SlotQ.CooldownClip != nullptr
-		&& StorePlusButton != nullptr && NextWaveButton != nullptr;
+		&& StorePlusButton != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
@@ -205,10 +196,6 @@ void UAbilityBarWidget::ApplyHitTestPolicy()
 	if (StorePlusButton)
 	{
 		StorePlusButton->SetVisibility(ESlateVisibility::Visible);
-	}
-	if (NextWaveButton)
-	{
-		NextWaveButton->SetVisibility(ESlateVisibility::Visible);
 	}
 }
 
@@ -266,9 +253,6 @@ void UAbilityBarWidget::BuildDefaultUI()
 	SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
 	SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
 	SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
-
-	// Next-wave force-start sits after R (same as Enter hotkey).
-	BuildNextWaveSlot(SlotRow);
 
 	ApplyHitTestPolicy();
 }
@@ -379,177 +363,6 @@ void UAbilityBarWidget::RefreshStorePlusVisual()
 		StorePlusFrame->SetBrushColor(bOpen
 			? FLinearColor(0.9f, 0.55f, 0.35f, 1.f)
 			: AbilityBarPrivate::StorePlusFrame);
-	}
-}
-
-void UAbilityBarWidget::BuildNextWaveSlot(UHorizontalBox* Parent)
-{
-	if (!Parent || !WidgetTree)
-	{
-		return;
-	}
-
-	// Slightly wider than ability slots so it reads as a play/next control, not another keybind.
-	const float PlayWidth = SlotSize + 10.f;
-
-	NextWaveSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("NextWaveSize"));
-	NextWaveSizeBox->SetWidthOverride(PlayWidth);
-	NextWaveSizeBox->SetHeightOverride(SlotSize);
-
-	NextWaveFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("NextWaveFrame"));
-	NextWaveFrame->SetPadding(FMargin(2.f));
-	NextWaveFrame->SetBrushColor(AbilityBarPrivate::NextWaveFrame);
-	NextWaveSizeBox->SetContent(NextWaveFrame);
-
-	NextWaveButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("NextWaveButton"));
-	NextWaveButton->SetBackgroundColor(AbilityBarPrivate::NextWaveBgReady);
-	NextWaveButton->SetIsEnabled(true);
-	NextWaveButton->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnNextWaveClicked);
-	NextWaveFrame->SetContent(NextWaveButton);
-
-	UVerticalBox* Labels = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("NextWaveLabels"));
-
-	// Large play triangle — primary affordance.
-	NextWaveLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWavePlayIcon"));
-	NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
-	NextWaveLabel->SetJustification(ETextJustify::Center);
-	NextWaveLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveIcon));
-	NextWaveLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	NextWaveLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.7f));
-	{
-		FSlateFontInfo Font = NextWaveLabel->GetFont();
-		Font.Size = 30.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		NextWaveLabel->SetFont(Font);
-	}
-	if (UVerticalBoxSlot* IconSlot = Labels->AddChildToVerticalBox(NextWaveLabel))
-	{
-		IconSlot->SetHorizontalAlignment(HAlign_Center);
-		IconSlot->SetPadding(FMargin(2.f, 8.f, 0.f, 0.f));
-	}
-
-	// "NEXT" caption under the play icon (media-control style).
-	NextWaveKeyLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWaveCaption"));
-	NextWaveKeyLabel->SetText(FText::FromString(TEXT("NEXT")));
-	NextWaveKeyLabel->SetJustification(ETextJustify::Center);
-	NextWaveKeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveCaption));
-	NextWaveKeyLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	NextWaveKeyLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.75f));
-	{
-		FSlateFontInfo Font = NextWaveKeyLabel->GetFont();
-		Font.Size = 12.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		NextWaveKeyLabel->SetFont(Font);
-	}
-	if (UVerticalBoxSlot* CaptionSlot = Labels->AddChildToVerticalBox(NextWaveKeyLabel))
-	{
-		CaptionSlot->SetHorizontalAlignment(HAlign_Center);
-		CaptionSlot->SetPadding(FMargin(0.f, -2.f, 0.f, 6.f));
-	}
-
-	NextWaveButton->SetContent(Labels);
-
-	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(NextWaveSizeBox))
-	{
-		RowSlot->SetPadding(FMargin(14.f, 0.f, 8.f, 0.f));
-		RowSlot->SetVerticalAlignment(VAlign_Center);
-	}
-}
-
-void UAbilityBarWidget::OnNextWaveClicked()
-{
-	AActor* Spawner = FindEnemySpawner();
-	if (!Spawner)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AbilityBar NextWave: no BP_EnemySpawner found"));
-		return;
-	}
-
-	if (UFunction* Fn = Spawner->FindFunction(FName(TEXT("ForceStartNextWave"))))
-	{
-		Spawner->ProcessEvent(Fn, nullptr);
-		RefreshNextWaveVisual();
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AbilityBar NextWave: ForceStartNextWave missing on %s"),
-			*Spawner->GetName());
-	}
-}
-
-void UAbilityBarWidget::RefreshNextWaveVisual()
-{
-	if (!NextWaveButton || !NextWaveLabel)
-	{
-		return;
-	}
-
-	AActor* Spawner = FindEnemySpawner();
-	bool bBusy = false;
-	float Countdown = 0.f;
-	if (Spawner)
-	{
-		bool bSpawning = false;
-		bool bWaitingClear = false;
-		ReadBoolProp(Spawner, FName(TEXT("IsSpawningWave")), bSpawning);
-		if (!ReadBoolProp(Spawner, FName(TEXT("WaitingforClear")), bWaitingClear))
-		{
-			ReadBoolProp(Spawner, FName(TEXT("WaitingForClear")), bWaitingClear);
-		}
-		if (!ReadFloatProp(Spawner, FName(TEXT("CountdownRemaining")), Countdown))
-		{
-			int32 CountdownInt = 0;
-			if (ReadIntProp(Spawner, FName(TEXT("CountdownRemaining")), CountdownInt))
-			{
-				Countdown = static_cast<float>(CountdownInt);
-			}
-		}
-		bBusy = bSpawning || bWaitingClear;
-	}
-
-	NextWaveButton->SetIsEnabled(!bBusy && Spawner != nullptr);
-	NextWaveButton->SetBackgroundColor(bBusy ? AbilityBarPrivate::NextWaveBgBusy : AbilityBarPrivate::NextWaveBgReady);
-	if (NextWaveFrame)
-	{
-		NextWaveFrame->SetBrushColor(bBusy ? AbilityBarPrivate::NextWaveFrameBusy : AbilityBarPrivate::NextWaveFrame);
-	}
-	if (NextWaveSizeBox)
-	{
-		NextWaveSizeBox->SetRenderOpacity(bBusy ? 0.5f : 1.f);
-	}
-
-	NextWaveLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveIcon));
-	if (NextWaveKeyLabel)
-	{
-		NextWaveKeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::NextWaveCaption));
-	}
-
-	if (bBusy)
-	{
-		// Pause-style while a wave is active.
-		NextWaveLabel->SetText(FText::FromString(TEXT("❚❚")));
-		if (NextWaveKeyLabel)
-		{
-			NextWaveKeyLabel->SetText(FText::FromString(TEXT("WAIT")));
-		}
-	}
-	else if (Countdown > 0.05f)
-	{
-		// Still a play button — countdown shows you can skip ahead.
-		NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
-		if (NextWaveKeyLabel)
-		{
-			NextWaveKeyLabel->SetText(FText::FromString(
-				FString::Printf(TEXT("%d"), FMath::CeilToInt(Countdown))));
-		}
-	}
-	else
-	{
-		NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
-		if (NextWaveKeyLabel)
-		{
-			NextWaveKeyLabel->SetText(FText::FromString(TEXT("NEXT")));
-		}
 	}
 }
 
@@ -732,30 +545,6 @@ APawn* UAbilityBarWidget::ResolveChampionPawn() const
 	}
 
 	return PC->GetPawn();
-}
-
-AActor* UAbilityBarWidget::FindEnemySpawner() const
-{
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return nullptr;
-	}
-
-	UClass* SpawnerClass = EnemySpawnerActorClass.TryLoadClass<AActor>();
-	if (!SpawnerClass)
-	{
-		return nullptr;
-	}
-
-	for (TActorIterator<AActor> It(World, SpawnerClass); It; ++It)
-	{
-		if (IsValid(*It))
-		{
-			return *It;
-		}
-	}
-	return nullptr;
 }
 
 void UAbilityBarWidget::RefreshFromPawn(APawn* Pawn)

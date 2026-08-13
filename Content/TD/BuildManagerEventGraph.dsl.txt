@@ -13,7 +13,7 @@
       (Class|PlayerController|SetShowMouseCursor true pc)
       (Class|PlayerController|SetEnableMouseOverEvents true pc)
       (CallFunction|ShowBuildHUD)
-      (CallFunction|BeginCombatWaves))))
+      (Utilities|Time|SetTimerbyFunctionName self "BeginCombatWaves" 0.25 false))))
 
 (event Collision|EventActorBeginOverlap (OtherActor))
 

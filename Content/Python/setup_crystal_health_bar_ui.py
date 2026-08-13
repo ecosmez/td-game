@@ -1,8 +1,8 @@
 """
-Ensure WBP_CrystalHealthBar subclasses CrystalHealthBarWidget (C++ top-center crystal HP).
+Ensure WBP_CrystalHealthBar subclasses CrystalHealthBarWidget (C++ top-center Base Health HUD).
 
-The C++ parent builds a fixed top-center chrome bar and polls BP_Crystal
-CurrentHealth / MaxHealth each tick.
+The C++ parent builds BASE HEALTH + wave strip (dots, boss icon, play/next, countdown)
+and polls BP_Crystal health + BP_EnemySpawner wave state each tick.
 
 Run from Unreal: File > Execute Python Script, or auto via init_unreal.py after module compile.
 """
@@ -82,7 +82,7 @@ def setup(force=False):
         unreal.log_warning("compile: {}".format(exc))
 
     unreal.EditorAssetLibrary.save_asset(DST)
-    unreal.log("WBP_CrystalHealthBar ready (top-center crystal HP bar)")
+    unreal.log("WBP_CrystalHealthBar ready (top-center Base Health + wave HUD)")
     return True
 
 

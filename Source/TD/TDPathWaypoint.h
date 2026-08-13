@@ -58,10 +58,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Path Preview")
 	TObjectPtr<USplineComponent> PathPreviewSpline;
 
+	UFUNCTION(BlueprintPure, Category = "Path Preview")
+	int32 GetPathIndex() const;
+
+	UFUNCTION(BlueprintPure, Category = "Path Preview")
+	int32 GetRouteId() const;
+
+	UFUNCTION(BlueprintPure, Category = "Path Preview")
+	bool IsOverLane() const;
+
 private:
 	bool TryGetIntProp(FName Name, int32& OutValue) const;
 	bool TryGetBoolProp(FName Name, bool& OutValue) const;
 	bool ShouldShowPathPreview() const;
 	void DrawPlayDebug() const;
 	void GatherNextLocations(TArray<FVector>& OutWorldLocations) const;
+	bool GatherCurveControls(FVector& OutP0, FVector& OutP1, FVector& OutP2, FVector& OutP3) const;
+	FVector FindLaneLocationAtIndex(int32 Index, const FVector& Fallback) const;
 };

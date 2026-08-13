@@ -1,5 +1,6 @@
 #include "TDPathWaypoint.h"
 
+#include "TDEnemyPathLibrary.h"
 #include "Components/SceneComponent.h"
 #include "Components/SplineComponent.h"
 #include "DrawDebugHelpers.h"
@@ -92,6 +93,33 @@ void ATDPathWaypoint::PostEditMove(bool bFinished)
 }
 #endif
 
+int32 ATDPathWaypoint::GetPathIndex() const
+{
+	int32 Value = 0;
+	TryGetIntProp(TEXT("Index"), Value);
+	return Value;
+}
+
+int32 ATDPathWaypoint::GetRouteId() const
+{
+	int32 Value = 0;
+	if (!TryGetIntProp(TEXT("routeId"), Value))
+	{
+		TryGetIntProp(TEXT("RouteId"), Value);
+	}
+	return Value;
+}
+
+bool ATDPathWaypoint::IsOverLane() const
+{
+	bool bValue = true;
+	if (!TryGetBoolProp(TEXT("bOverLane"), bValue))
+	{
+		TryGetBoolProp(TEXT("OverLane"), bValue);
+	}
+	return bValue;
+}
+
 bool ATDPathWaypoint::TryGetIntProp(FName Name, int32& OutValue) const
 {
 	if (const FProperty* Prop = GetClass()->FindPropertyByName(Name))
@@ -99,6 +127,16 @@ bool ATDPathWaypoint::TryGetIntProp(FName Name, int32& OutValue) const
 		if (const FIntProperty* IntProp = CastField<FIntProperty>(Prop))
 		{
 			OutValue = IntProp->GetPropertyValue_InContainer(this);
+			return true;
+		}
+		if (const FInt64Property* Int64Prop = CastField<FInt64Property>(Prop))
+		{
+			OutValue = static_cast<int32>(Int64Prop->GetPropertyValue_InContainer(this));
+			return true;
+		}
+		if (const FByteProperty* ByteProp = CastField<FByteProperty>(Prop))
+		{
+			OutValue = ByteProp->GetPropertyValue_InContainer(this);
 			return true;
 		}
 	}
@@ -144,15 +182,9 @@ void ATDPathWaypoint::GatherNextLocations(TArray<FVector>& OutWorldLocations) co
 		return;
 	}
 
-	int32 MyIndex = 0;
-	int32 MyRouteId = 0;
-	bool bMyOverLane = true;
-	TryGetIntProp(TEXT("Index"), MyIndex);
-	TryGetIntProp(TEXT("routeId"), MyRouteId);
-	if (!TryGetBoolProp(TEXT("bOverLane"), bMyOverLane))
-	{
-		TryGetBoolProp(TEXT("OverLane"), bMyOverLane);
-	}
+	const int32 MyIndex = GetPathIndex();
+	const int32 MyRouteId = GetRouteId();
+	const bool bMyOverLane = IsOverLane();
 
 	const int32 NextIndex = MyIndex + 1;
 	for (TActorIterator<ATDPathWaypoint> It(World); It; ++It)
@@ -163,15 +195,9 @@ void ATDPathWaypoint::GatherNextLocations(TArray<FVector>& OutWorldLocations) co
 			continue;
 		}
 
-		int32 OtherIndex = 0;
-		int32 OtherRouteId = 0;
-		bool bOtherOverLane = true;
-		Other->TryGetIntProp(TEXT("Index"), OtherIndex);
-		Other->TryGetIntProp(TEXT("routeId"), OtherRouteId);
-		if (!Other->TryGetBoolProp(TEXT("bOverLane"), bOtherOverLane))
-		{
-			Other->TryGetBoolProp(TEXT("OverLane"), bOtherOverLane);
-		}
+		const int32 OtherIndex = Other->GetPathIndex();
+		const int32 OtherRouteId = Other->GetRouteId();
+		const bool bOtherOverLane = Other->IsOverLane();
 
 		if (OtherIndex != NextIndex || OtherRouteId != MyRouteId || bOtherOverLane != bMyOverLane)
 		{
@@ -190,15 +216,9 @@ void ATDPathWaypoint::DrawPlayDebug() const
 		return;
 	}
 
-	int32 MyIndex = 0;
-	int32 MyRouteId = 0;
-	bool bMyOverLane = true;
-	TryGetIntProp(TEXT("Index"), MyIndex);
-	TryGetIntProp(TEXT("routeId"), MyRouteId);
-	if (!TryGetBoolProp(TEXT("bOverLane"), bMyOverLane))
-	{
-		TryGetBoolProp(TEXT("OverLane"), bMyOverLane);
-	}
+	const int32 MyIndex = GetPathIndex();
+	const int32 MyRouteId = GetRouteId();
+	const bool bMyOverLane = IsOverLane();
 
 	const FVector Start = GetActorLocation();
 	const FColor DrawColor = (bMyOverLane ? OverLaneColor : UnderLaneColor).ToFColor(true);
@@ -253,13 +273,7 @@ void ATDPathWaypoint::RebuildPathPreview()
 	PathPreviewSpline->SetDrawDebug(true);
 	PathPreviewSpline->SetRelativeLocation(FVector::ZeroVector);
 
-	int32 MyIndex = 0;
-	bool bMyOverLane = true;
-	TryGetIntProp(TEXT("Index"), MyIndex);
-	if (!TryGetBoolProp(TEXT("bOverLane"), bMyOverLane))
-	{
-		TryGetBoolProp(TEXT("OverLane"), bMyOverLane);
-	}
+	const bool bMyOverLane = IsOverLane();
 
 	const FLinearColor Color = bMyOverLane ? OverLaneColor : UnderLaneColor;
 #if WITH_EDITORONLY_DATA
@@ -273,7 +287,24 @@ void ATDPathWaypoint::RebuildPathPreview()
 
 	const FTransform SelfXform = GetActorTransform();
 	PathPreviewSpline->ClearSplinePoints(false);
-	if (NextLocations.Num() > 0)
+
+	FVector P0, P1, P2, P3;
+	if (GatherCurveControls(P0, P1, P2, P3))
+	{
+		constexpr int32 SegSamples = 12;
+		PathPreviewSpline->AddSplinePoint(FVector::ZeroVector, ESplineCoordinateSpace::Local, false);
+		for (int32 S = 1; S <= SegSamples; ++S)
+		{
+			const float T = static_cast<float>(S) / static_cast<float>(SegSamples);
+			const FVector WorldPt = UTDEnemyPathLibrary::CatmullRom(P0, P1, P2, P3, T);
+			PathPreviewSpline->AddSplinePoint(SelfXform.InverseTransformPosition(WorldPt), ESplineCoordinateSpace::Local, false);
+		}
+		for (int32 i = 0; i < PathPreviewSpline->GetNumberOfSplinePoints(); ++i)
+		{
+			PathPreviewSpline->SetSplinePointType(i, ESplinePointType::Linear, false);
+		}
+	}
+	else if (NextLocations.Num() > 0)
 	{
 		PathPreviewSpline->AddSplinePoint(FVector::ZeroVector, ESplineCoordinateSpace::Local, false);
 		for (const FVector& WorldNext : NextLocations)
@@ -291,4 +322,46 @@ void ATDPathWaypoint::RebuildPathPreview()
 	{
 		DrawPlayDebug();
 	}
+}
+
+FVector ATDPathWaypoint::FindLaneLocationAtIndex(int32 Index, const FVector& Fallback) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return Fallback;
+	}
+
+	const int32 MyRouteId = GetRouteId();
+	const bool bMyOverLane = IsOverLane();
+	for (TActorIterator<ATDPathWaypoint> It(World); It; ++It)
+	{
+		ATDPathWaypoint* Other = *It;
+		if (!Other)
+		{
+			continue;
+		}
+		if (Other->GetRouteId() == MyRouteId && Other->GetPathIndex() == Index && Other->IsOverLane() == bMyOverLane)
+		{
+			return Other->GetActorLocation();
+		}
+	}
+	return Fallback;
+}
+
+bool ATDPathWaypoint::GatherCurveControls(FVector& OutP0, FVector& OutP1, FVector& OutP2, FVector& OutP3) const
+{
+	TArray<FVector> NextLocations;
+	GatherNextLocations(NextLocations);
+	if (NextLocations.Num() == 0)
+	{
+		return false;
+	}
+
+	const int32 MyIndex = GetPathIndex();
+	OutP1 = GetActorLocation();
+	OutP2 = NextLocations[0];
+	OutP0 = FindLaneLocationAtIndex(MyIndex - 1, OutP1);
+	OutP3 = FindLaneLocationAtIndex(MyIndex + 2, OutP2);
+	return true;
 }
