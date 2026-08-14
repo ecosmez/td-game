@@ -3,4 +3,6 @@
 ; move on a Catmull-Rom curve (UTDEnemyPathLibrary).
 ;
 ; You can delete BP_EnemyPath instances from the level. Spawners only need
-; RouteId + CrystalActor; spawn location is waypoint Index 0.
+; CrystalActor; spawn location is each route's waypoint Index 0.
+; One primary spawner runs the wave and splits minions across all spawn
+; routes so the player has to cover more than one approach.

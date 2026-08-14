@@ -1,6 +1,7 @@
 #include "TDUIInputLibrary.h"
 
 #include "AbilityBarWidget.h"
+#include "ChampionFrameWidget.h"
 #include "MinimapWidget.h"
 #include "CameraOrbitGizmoWidget.h"
 #include "TowerStoreWidget.h"
@@ -58,6 +59,16 @@ bool UTDUIInputLibrary::IsPointerOverHitTestableUI(const UObject* WorldContextOb
 	{
 		UCameraOrbitGizmoWidget* Gizmo = *It;
 		if (Gizmo && Gizmo->IsInViewport() && Gizmo->IsScreenPosOverGizmo(Cursor))
+		{
+			return true;
+		}
+	}
+
+	// Champion unit frame (avatar + HP chrome, not an SButton).
+	for (TObjectIterator<UChampionFrameWidget> It; It; ++It)
+	{
+		UChampionFrameWidget* Frame = *It;
+		if (Frame && Frame->IsInViewport() && Frame->IsScreenPosOverFrame(Cursor))
 		{
 			return true;
 		}

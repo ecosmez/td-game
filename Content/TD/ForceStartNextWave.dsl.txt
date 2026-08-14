@@ -1,12 +1,2 @@
 (fn ForceStartNextWave ()
-  (if (or (Variables|Default|GetIsSpawningWave) (Variables|Default|GetWaitingforClear))
-    (Development|PrintString "Wave in progress - cannot force start" true true "(R=1.000000,G=0.400000,B=0.200000,A=1.000000)" 2.0)
-    (else
-      (Utilities|Time|ClearTimerbyFunctionName self "TickCountdown")
-      (Utilities|Time|ClearTimerbyFunctionName self "AnnounceWave")
-      (if (<= (Variables|Default|GetCountdownRemaining) 0)
-        (CallFunction|AnnounceWave)
-        (Utilities|Time|ClearTimerbyFunctionName self "TickCountdown"))
-      (Variables|Default|SetCountdownRemaining 0)
-      (Development|PrintString "FORCE START!" true true "(R=1.000000,G=0.500000,B=0.100000,A=1.000000)" 2.0)
-      (CallFunction|StartWaveSpawning))))
+  (Class|TDEnemyPathLibrary|ForceStartNextWave self))

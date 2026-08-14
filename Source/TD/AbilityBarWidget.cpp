@@ -1,5 +1,7 @@
 #include "AbilityBarWidget.h"
 
+#include "CameraOrbitGizmoWidget.h"
+#include "ChampionFrameWidget.h"
 #include "CrystalHealthBarWidget.h"
 #include "MinimapWidget.h"
 #include "MobaPlayerController.h"
@@ -91,6 +93,24 @@ void UAbilityBarWidget::NativeConstruct()
 			}
 		}
 
+		bool bGizmoAlready = false;
+		for (TObjectIterator<UCameraOrbitGizmoWidget> It; It; ++It)
+		{
+			if (It->GetOwningPlayer() == PC && It->IsInViewport())
+			{
+				bGizmoAlready = true;
+				break;
+			}
+		}
+		if (!bGizmoAlready)
+		{
+			if (UCameraOrbitGizmoWidget* Gizmo =
+				CreateWidget<UCameraOrbitGizmoWidget>(PC, UCameraOrbitGizmoWidget::StaticClass()))
+			{
+				Gizmo->AddToViewport(21);
+			}
+		}
+
 		bool bCrystalBarAlready = false;
 		for (TObjectIterator<UCrystalHealthBarWidget> It; It; ++It)
 		{
@@ -107,6 +127,25 @@ void UAbilityBarWidget::NativeConstruct()
 			{
 				// Below ability bar Z=100; top-center so it does not overlap the bar.
 				CrystalBar->AddToViewport(90);
+			}
+		}
+
+		bool bChampionFrameAlready = false;
+		for (TObjectIterator<UChampionFrameWidget> It; It; ++It)
+		{
+			if (It->GetOwningPlayer() == PC && It->IsInViewport())
+			{
+				bChampionFrameAlready = true;
+				break;
+			}
+		}
+		if (!bChampionFrameAlready)
+		{
+			if (UChampionFrameWidget* Frame =
+				CreateWidget<UChampionFrameWidget>(PC, UChampionFrameWidget::StaticClass()))
+			{
+				// Below ability bar Z=100; bottom-left unit frame.
+				Frame->AddToViewport(92);
 			}
 		}
 	}

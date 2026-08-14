@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Templates/SubclassOf.h"
 #include "TDEnemyPathLibrary.generated.h"
 
 /**
@@ -30,16 +31,34 @@ public:
 	static FTransform GetEnemySpawnTransform(const UObject* WorldContextObject, int32 RouteId, bool bPreferOverLane);
 
 	/**
-	 * Replaces BP_EnemySpawner.SpawnEnemyInner: spawn trash / ranged / boss at this
-	 * spawner's route Index 0, then ChooseEnemyPath. No PathActor / BP_EnemyPath.
-	 * Over/Under is chosen once per wave in BeginWaveSpawning.
+	 * Replaces BP_EnemySpawner.SpawnEnemyInner: spawn trash / ranged / boss from
+	 * the current wave's shuffled spawn queue (split across routes), then ChooseEnemyPath.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static AActor* SpawnNextWaveEnemy(AActor* Spawner);
 
-	/** Pick Over/Under for this spawner's route and start the SpawnEnemy timer. */
+	/**
+	 * Split this wave's minions across spawn points and start the SpawnEnemy timer.
+	 * Only the primary spawner (lowest RouteId) runs waves; others no-op.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void BeginWaveSpawning(AActor* Spawner);
+
+	/** True if this is the wave director (lowest RouteId among same-class spawners). */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static bool IsPrimaryWaveSpawner(AActor* Spawner);
+
+	/** Lowest-RouteId enemy spawner of the given class (defaults to the caller's class). */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))
+	static AActor* GetPrimaryWaveSpawner(const UObject* WorldContextObject, TSubclassOf<AActor> SpawnerClass);
+
+	/** Call AnnounceWave only on the primary spawner so extra level spawners stay idle. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void AnnounceWaveIfPrimary(AActor* Spawner);
+
+	/** Replaces BP_EnemySpawner.ForceStartNextWave; ignored on non-primary spawners. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void ForceStartNextWave(AActor* Spawner);
 
 	/** True if any trash / ranged / boss enemy is still alive. */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))

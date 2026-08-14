@@ -15,6 +15,14 @@ struct FTDEnemyPathState
 	bool bReachedNotified = false;
 };
 
+/** One minion spawn assignment (route + lane + Index 0 location). */
+struct FTDWaveSpawnSlot
+{
+	int32 RouteId = 0;
+	bool bOverLane = true;
+	FVector Location = FVector::ZeroVector;
+};
+
 /** Per-world runtime path state for enemies following waypoint curves. */
 UCLASS()
 class TD_API UTDEnemyPathSubsystem : public UWorldSubsystem
@@ -27,13 +35,13 @@ public:
 	void Remove(AActor* Enemy);
 	void Prune();
 
-	/** One randomly chosen spawn (route + lane + location) owns the current wave. */
+	/** Spawner that owns the current wave countdown / spawn timer. */
 	TWeakObjectPtr<AActor> ActiveWaveSpawner;
 	int32 PreparedWaveNumber = INDEX_NONE;
-	int32 WaveRouteId = 0;
-	bool bWavePreferOverLane = true;
-	FVector WaveSpawnLocation = FVector::ZeroVector;
-	bool bWaveSpawnPicked = false;
+
+	/** Shuffled per-minion spawn assignments for the active wave. */
+	TArray<FTDWaveSpawnSlot> WaveSpawnQueue;
+	int32 WaveSpawnQueueIndex = 0;
 
 private:
 	TMap<TWeakObjectPtr<AActor>, FTDEnemyPathState> States;

@@ -3,7 +3,10 @@
 #include "TDEnemyPathSubsystem.h"
 #include "TDPathWaypoint.h"
 
+#include "Algo/RandomShuffle.h"
 #include "CollisionQueryParams.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
@@ -20,6 +23,8 @@ namespace TDEnemyPathPrivate
 	constexpr float CrystalReachDistance = 200.f;
 	constexpr float DefaultLookAhead = 220.f;
 	constexpr int32 DefaultSamplesPerSegment = 12;
+	constexpr float WalkableFloorZ = 0.7f;
+	constexpr float DefaultCapsuleHalfHeight = 90.f;
 
 	static const FSoftClassPath TrashEnemyClass(TEXT("/Game/TD/BP_Enemy.BP_Enemy_C"));
 	static const FSoftClassPath RangedEnemyClass(TEXT("/Game/TD/BP_RangedEnemy.BP_RangedEnemy_C"));
@@ -325,6 +330,59 @@ namespace TDEnemyPathPrivate
 		return World ? World->GetSubsystem<UTDEnemyPathSubsystem>() : nullptr;
 	}
 
+	static float ResolveGroundOffset(const AActor* Enemy)
+	{
+		if (!Enemy)
+		{
+			return DefaultCapsuleHalfHeight;
+		}
+
+		const float ActorZ = Enemy->GetActorLocation().Z;
+		float BestToBottom = 0.f;
+		TArray<UStaticMeshComponent*> Meshes;
+		Enemy->GetComponents<UStaticMeshComponent>(Meshes);
+		for (const UStaticMeshComponent* Mesh : Meshes)
+		{
+			if (!Mesh || !Mesh->GetStaticMesh())
+			{
+				continue;
+			}
+			const FString Name = Mesh->GetName();
+			if (Name.Contains(TEXT("Health")) || Name.Contains(TEXT("Stun")))
+			{
+				continue;
+			}
+			const float ToBottom = ActorZ - Mesh->Bounds.GetBox().Min.Z;
+			BestToBottom = FMath::Max(BestToBottom, ToBottom);
+		}
+		if (BestToBottom > 1.f)
+		{
+			return BestToBottom + 2.f;
+		}
+
+		FVector Origin = FVector::ZeroVector;
+		FVector Extent = FVector::ZeroVector;
+		Enemy->GetActorBounds(false, Origin, Extent);
+		const float ToMeshBottom = ActorZ - (Origin.Z - Extent.Z);
+		if (ToMeshBottom > 1.f)
+		{
+			return ToMeshBottom + 2.f;
+		}
+
+		if (const UCapsuleComponent* Capsule = Enemy->FindComponentByClass<UCapsuleComponent>())
+		{
+			const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+			if (HalfHeight > 1.f)
+			{
+				return HalfHeight;
+			}
+		}
+
+		const float FromProp = ReadFloatOr(Enemy, { TEXT("GroundOffset") }, 0.f);
+		return FromProp > 1.f ? FromProp : DefaultCapsuleHalfHeight;
+	}
+
+	/** Drop onto walkable ground. Ignores wall sides and wall tops so minions cannot pop over obstacles. */
 	static FVector SnapToGround(UWorld* World, const FVector& Desired, float GroundOffset, AActor* Ignore)
 	{
 		if (!World)
@@ -332,14 +390,35 @@ namespace TDEnemyPathPrivate
 			return Desired;
 		}
 
-		FHitResult Hit;
-		FCollisionQueryParams Params(SCENE_QUERY_STAT(TDEnemyPathGround), true, Ignore);
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(TDEnemyPathGround), false, Ignore);
+		Params.bReturnPhysicalMaterial = false;
 		const FVector Start(Desired.X, Desired.Y, Desired.Z + 2500.f);
 		const FVector End(Desired.X, Desired.Y, Desired.Z - 5000.f);
-		if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+
+		TArray<FHitResult> Hits;
+		World->LineTraceMultiByChannel(Hits, Start, End, ECC_WorldStatic, Params);
+		if (Hits.Num() == 0)
 		{
-			return FVector(Desired.X, Desired.Y, Hit.ImpactPoint.Z + GroundOffset);
+			World->LineTraceMultiByChannel(Hits, Start, End, ECC_Visibility, Params);
 		}
+
+		const FHitResult* FloorHit = nullptr;
+		for (const FHitResult& Hit : Hits)
+		{
+			if (!Hit.bBlockingHit || Hit.ImpactNormal.Z < WalkableFloorZ)
+			{
+				continue;
+			}
+			if (!FloorHit || Hit.ImpactPoint.Z < FloorHit->ImpactPoint.Z)
+			{
+				FloorHit = &Hit;
+			}
+		}
+		if (FloorHit)
+		{
+			return FVector(Desired.X, Desired.Y, FloorHit->ImpactPoint.Z + GroundOffset);
+		}
+
 		return Desired;
 	}
 
@@ -490,7 +569,7 @@ namespace TDEnemyPathPrivate
 			SamplesPerSeg = SamplesOverride;
 		}
 
-		const float GroundOffset = ReadFloatOr(Enemy, { TEXT("GroundOffset") }, 0.f);
+		const float GroundOffset = ResolveGroundOffset(Enemy);
 		TArray<FVector> Snapped = Waypoints;
 		for (FVector& Point : Snapped)
 		{
@@ -510,6 +589,11 @@ namespace TDEnemyPathPrivate
 		if (State.Samples.Num() == 0)
 		{
 			return;
+		}
+
+		for (FVector& Sample : State.Samples)
+		{
+			Sample = SnapToGround(World, Sample, GroundOffset, Enemy);
 		}
 
 		State.CumLength.SetNum(State.Samples.Num());
@@ -585,48 +669,6 @@ namespace TDEnemyPathPrivate
 		return false;
 	}
 
-	/** Pick Over/Under at Index 0 for this spawner's route. Does not steal other routes. */
-	static bool PickLaneSpawnForRoute(UWorld* World, int32 RouteId, bool& OutOverLane, FVector& OutLocation)
-	{
-		TArray<FWaypointInfo> All;
-		GatherWaypoints(World, All);
-		if (All.Num() == 0)
-		{
-			return false;
-		}
-
-		int32 MinIndex = MAX_int32;
-		for (const FWaypointInfo& Info : All)
-		{
-			if (Info.RouteId == RouteId)
-			{
-				MinIndex = FMath::Min(MinIndex, Info.Index);
-			}
-		}
-		if (MinIndex == MAX_int32)
-		{
-			return false;
-		}
-
-		TArray<const FWaypointInfo*> Spawns;
-		for (const FWaypointInfo& Info : All)
-		{
-			if (Info.RouteId == RouteId && Info.Index == MinIndex)
-			{
-				Spawns.Add(&Info);
-			}
-		}
-		if (Spawns.Num() == 0)
-		{
-			return false;
-		}
-
-		const FWaypointInfo* Pick = Spawns[FMath::RandRange(0, Spawns.Num() - 1)];
-		OutOverLane = Pick->bOverLane;
-		OutLocation = Pick->Location;
-		return true;
-	}
-
 	static bool IsBossWaveFor(AActor* Spawner, int32 WaveNumber)
 	{
 		if (ReadBoolOr(Spawner, { TEXT("IsBossWave"), TEXT("bIsBossWave") }, false))
@@ -637,7 +679,202 @@ namespace TDEnemyPathPrivate
 		return BossWaveNumber > 0 && WaveNumber > 0 && (WaveNumber % BossWaveNumber) == 0;
 	}
 
-	/** Log this spawner's route; each spawner keeps its own lane. */
+	/** Unique Index-0 (or min-index) spawn points: one per RouteId + Over/Under. */
+	static void GatherSpawnPoints(UWorld* World, TArray<FTDWaveSpawnSlot>& OutPoints)
+	{
+		OutPoints.Reset();
+		TArray<FWaypointInfo> All;
+		GatherWaypoints(World, All);
+		if (All.Num() == 0)
+		{
+			return;
+		}
+
+		TMap<int32, int32> MinIndexByRoute;
+		for (const FWaypointInfo& Info : All)
+		{
+			if (int32* Found = MinIndexByRoute.Find(Info.RouteId))
+			{
+				*Found = FMath::Min(*Found, Info.Index);
+			}
+			else
+			{
+				MinIndexByRoute.Add(Info.RouteId, Info.Index);
+			}
+		}
+
+		for (const FWaypointInfo& Info : All)
+		{
+			const int32* MinIndex = MinIndexByRoute.Find(Info.RouteId);
+			if (!MinIndex || Info.Index != *MinIndex)
+			{
+				continue;
+			}
+
+			bool bExists = false;
+			for (const FTDWaveSpawnSlot& Existing : OutPoints)
+			{
+				if (Existing.RouteId == Info.RouteId && Existing.bOverLane == Info.bOverLane)
+				{
+					bExists = true;
+					break;
+				}
+			}
+			if (bExists)
+			{
+				continue;
+			}
+
+			FTDWaveSpawnSlot Slot;
+			Slot.RouteId = Info.RouteId;
+			Slot.bOverLane = Info.bOverLane;
+			Slot.Location = Info.Location;
+			OutPoints.Add(Slot);
+		}
+
+		OutPoints.Sort([](const FTDWaveSpawnSlot& A, const FTDWaveSpawnSlot& B)
+		{
+			if (A.RouteId != B.RouteId)
+			{
+				return A.RouteId < B.RouteId;
+			}
+			return A.bOverLane && !B.bOverLane;
+		});
+	}
+
+	static AActor* FindPrimaryWaveSpawner(UWorld* World, UClass* SpawnerClass)
+	{
+		if (!World || !SpawnerClass)
+		{
+			return nullptr;
+		}
+
+		AActor* Best = nullptr;
+		int32 BestRoute = MAX_int32;
+		FString BestName;
+		for (TActorIterator<AActor> It(World, SpawnerClass); It; ++It)
+		{
+			AActor* Candidate = *It;
+			if (!IsValid(Candidate))
+			{
+				continue;
+			}
+			const int32 Route = ReadIntOr(Candidate, { TEXT("routeId"), TEXT("RouteId") }, 0);
+			const FString Name = Candidate->GetName();
+			if (!Best || Route < BestRoute || (Route == BestRoute && Name < BestName))
+			{
+				Best = Candidate;
+				BestRoute = Route;
+				BestName = Name;
+			}
+		}
+		return Best;
+	}
+
+	static bool IsPrimarySpawner(AActor* Spawner)
+	{
+		if (!IsValid(Spawner))
+		{
+			return false;
+		}
+		return FindPrimaryWaveSpawner(Spawner->GetWorld(), Spawner->GetClass()) == Spawner;
+	}
+
+	static bool BuildWaveSpawnQueue(AActor* Spawner, TArray<FTDWaveSpawnSlot>& OutQueue)
+	{
+		OutQueue.Reset();
+		UWorld* World = Spawner ? Spawner->GetWorld() : nullptr;
+		if (!World)
+		{
+			return false;
+		}
+
+		TArray<FTDWaveSpawnSlot> Points;
+		GatherSpawnPoints(World, Points);
+		if (Points.Num() == 0)
+		{
+			const int32 RouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
+			FTDWaveSpawnSlot Fallback;
+			Fallback.RouteId = RouteId;
+			Fallback.bOverLane = true;
+			Fallback.Location = SpawnXformFromRoute(World, RouteId, true).GetLocation();
+			if (Fallback.Location.IsNearlyZero())
+			{
+				return false;
+			}
+			Points.Add(Fallback);
+		}
+
+		const int32 WaveNumber = FMath::Max(ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1), 1);
+		int32 EnemyCount = ReadIntOr(Spawner, { TEXT("EnemiesPerWave") }, 0);
+		if (EnemyCount <= 0)
+		{
+			EnemyCount = 4 + WaveNumber * 2;
+			if (IsBossWaveFor(Spawner, WaveNumber))
+			{
+				++EnemyCount;
+			}
+		}
+
+		const int32 NumSpawns = FMath::Clamp(
+			FMath::Min(WaveNumber, EnemyCount), 1, Points.Num());
+
+		TArray<FTDWaveSpawnSlot> Chosen = Points;
+		Algo::RandomShuffle(Chosen);
+		Chosen.SetNum(NumSpawns);
+
+		TArray<int32> Counts;
+		Counts.Init(0, NumSpawns);
+		if (EnemyCount >= NumSpawns)
+		{
+			for (int32 i = 0; i < NumSpawns; ++i)
+			{
+				Counts[i] = 1;
+			}
+			for (int32 Extra = NumSpawns; Extra < EnemyCount; ++Extra)
+			{
+				Counts[FMath::RandRange(0, NumSpawns - 1)]++;
+			}
+		}
+		else
+		{
+			for (int32 i = 0; i < EnemyCount; ++i)
+			{
+				Counts[FMath::RandRange(0, NumSpawns - 1)]++;
+			}
+		}
+
+		for (int32 i = 0; i < NumSpawns; ++i)
+		{
+			for (int32 n = 0; n < Counts[i]; ++n)
+			{
+				OutQueue.Add(Chosen[i]);
+			}
+		}
+		Algo::RandomShuffle(OutQueue);
+
+		TMap<int32, int32> PerRoute;
+		for (int32 i = 0; i < NumSpawns; ++i)
+		{
+			if (Counts[i] > 0)
+			{
+				PerRoute.FindOrAdd(Chosen[i].RouteId) += Counts[i];
+			}
+		}
+		TArray<int32> RouteKeys;
+		PerRoute.GetKeys(RouteKeys);
+		RouteKeys.Sort();
+		FString SplitText = FString::Printf(TEXT("Wave %d split (%d minions):"), WaveNumber, EnemyCount);
+		for (int32 Route : RouteKeys)
+		{
+			SplitText += FString::Printf(TEXT(" %d from spawn %d,"), PerRoute.FindRef(Route), Route);
+		}
+		SplitText.RemoveFromEnd(TEXT(","));
+		ScreenMsg(SplitText, FLinearColor(0.35f, 0.85f, 1.f), 5.f);
+		return OutQueue.Num() > 0;
+	}
+
+	/** Elect primary spawner, then randomly split this wave across spawn points. */
 	static bool PrepareWaveSpawn(AActor* Spawner)
 	{
 		if (!IsValid(Spawner))
@@ -646,27 +883,31 @@ namespace TDEnemyPathPrivate
 		}
 
 		UWorld* World = Spawner->GetWorld();
-		if (!World)
+		UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner);
+		if (!World || !Sys)
 		{
 			return false;
 		}
 
-		const int32 RouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
-		const int32 WaveNumber = ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1);
-		bool bOverLane = true;
-		FVector UnusedLocation = FVector::ZeroVector;
-		if (!PickLaneSpawnForRoute(World, RouteId, bOverLane, UnusedLocation)
-			&& SpawnXformFromRoute(World, RouteId, true).GetLocation().IsNearlyZero())
+		if (!IsPrimarySpawner(Spawner))
 		{
+			return false;
+		}
+
+		TArray<FTDWaveSpawnSlot> Queue;
+		if (!BuildWaveSpawnQueue(Spawner, Queue))
+		{
+			const int32 RouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
 			ScreenMsg(
 				FString::Printf(TEXT("Spawner: no BP_Waypoint actors for RouteId %d"), RouteId),
 				FLinearColor(1.f, 0.3f, 0.2f), 4.f);
 			return false;
 		}
 
-		ScreenMsg(
-			FString::Printf(TEXT("Wave %d spawn: route %d"), WaveNumber, RouteId),
-			FLinearColor(0.35f, 0.85f, 1.f), 3.f);
+		Sys->ActiveWaveSpawner = Spawner;
+		Sys->PreparedWaveNumber = ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1);
+		Sys->WaveSpawnQueue = MoveTemp(Queue);
+		Sys->WaveSpawnQueueIndex = 0;
 		return true;
 	}
 }
@@ -811,7 +1052,7 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	const float MoveSpeed = ReadFloatOr(Enemy, { TEXT("MoveSpeed") }, 300.f);
 	const float SlowFactor = ReadFloatOr(Enemy, { TEXT("SlowFactor") }, 1.f);
-	const float GroundOffset = ReadFloatOr(Enemy, { TEXT("GroundOffset") }, 0.f);
+	const float GroundOffset = ResolveGroundOffset(Enemy);
 	float LookAhead = DefaultLookAhead;
 	ReadFloat(Enemy, { TEXT("PathLookAhead") }, LookAhead);
 
@@ -898,12 +1139,23 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 	const bool bSpawnBoss = bIsBossWave && WaveSpawnedCount == 0;
 	const bool bSpawnRanged = !bSpawnBoss && WaveNumber >= RangedStartWave && (WaveSpawnedCount % 3 == 0);
 
-	const int32 RouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
-	const int32 AlternatePathStartWave = ReadIntOr(Spawner, { TEXT("AlternatePathStartWave") }, 2);
-	const bool bPreferOverLane = (WaveNumber < AlternatePathStartWave)
-		? true
-		: ((WaveSpawnedCount % 2) == 0);
-	FTransform SpawnXform = SpawnXformFromRoute(World, RouteId, bPreferOverLane);
+	FTDWaveSpawnSlot Slot;
+	Slot.RouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
+	Slot.bOverLane = true;
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner))
+	{
+		if (Sys->WaveSpawnQueue.IsValidIndex(Sys->WaveSpawnQueueIndex))
+		{
+			Slot = Sys->WaveSpawnQueue[Sys->WaveSpawnQueueIndex];
+			++Sys->WaveSpawnQueueIndex;
+		}
+	}
+
+	FTransform SpawnXform = FTransform(FRotator::ZeroRotator, Slot.Location);
+	if (SpawnXform.GetLocation().IsNearlyZero())
+	{
+		SpawnXform = SpawnXformFromRoute(World, Slot.RouteId, Slot.bOverLane);
+	}
 	if (SpawnXform.GetLocation().IsNearlyZero())
 	{
 		TArray<FWaypointInfo> All;
@@ -911,7 +1163,7 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 		bool bAnyForRoute = false;
 		for (const FWaypointInfo& Info : All)
 		{
-			if (Info.RouteId == RouteId)
+			if (Info.RouteId == Slot.RouteId)
 			{
 				bAnyForRoute = true;
 				break;
@@ -920,7 +1172,7 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 		if (!bAnyForRoute)
 		{
 			ScreenMsg(
-				FString::Printf(TEXT("Spawner: no BP_Waypoint actors for RouteId %d"), RouteId),
+				FString::Printf(TEXT("Spawner: no BP_Waypoint actors for RouteId %d"), Slot.RouteId),
 				FLinearColor(1.f, 0.3f, 0.2f), 4.f);
 			return nullptr;
 		}
@@ -961,9 +1213,9 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 	}
 
 	WriteActor(Spawned, { TEXT("CrystalActor") }, Crystal);
-	WriteInt(Spawned, { TEXT("routeId"), TEXT("RouteId") }, RouteId);
+	WriteInt(Spawned, { TEXT("routeId"), TEXT("RouteId") }, Slot.RouteId);
 	WriteBool(Spawned, { TEXT("bUseLanePreference"), TEXT("UseLanePreference") }, true);
-	WriteBool(Spawned, { TEXT("bPreferOverLane"), TEXT("PreferOverLane") }, bPreferOverLane);
+	WriteBool(Spawned, { TEXT("bPreferOverLane"), TEXT("PreferOverLane") }, Slot.bOverLane);
 
 	if (!bSpawnBoss)
 	{
@@ -1049,4 +1301,65 @@ void UTDEnemyPathLibrary::CheckWaveEnemiesCleared(AActor* Spawner)
 	}
 
 	CallNoParam(Spawner, TEXT("OnWaveCleared"));
+}
+
+bool UTDEnemyPathLibrary::IsPrimaryWaveSpawner(AActor* Spawner)
+{
+	using namespace TDEnemyPathPrivate;
+	return IsPrimarySpawner(Spawner);
+}
+
+AActor* UTDEnemyPathLibrary::GetPrimaryWaveSpawner(const UObject* WorldContextObject, TSubclassOf<AActor> SpawnerClass)
+{
+	using namespace TDEnemyPathPrivate;
+	UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	UClass* Class = SpawnerClass.Get();
+	if (!Class)
+	{
+		static const FSoftClassPath EnemySpawnerClass(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
+		Class = EnemySpawnerClass.TryLoadClass<AActor>();
+	}
+	return FindPrimaryWaveSpawner(World, Class);
+}
+
+void UTDEnemyPathLibrary::AnnounceWaveIfPrimary(AActor* Spawner)
+{
+	using namespace TDEnemyPathPrivate;
+	if (!IsPrimarySpawner(Spawner))
+	{
+		return;
+	}
+	CallNoParam(Spawner, TEXT("AnnounceWave"));
+}
+
+void UTDEnemyPathLibrary::ForceStartNextWave(AActor* Spawner)
+{
+	using namespace TDEnemyPathPrivate;
+
+	if (!IsValid(Spawner) || !IsPrimarySpawner(Spawner))
+	{
+		return;
+	}
+
+	const bool bSpawning = ReadBoolOr(Spawner, { TEXT("IsSpawningWave"), TEXT("bIsSpawningWave") }, false);
+	const bool bWaiting = ReadBoolOr(Spawner,
+		{ TEXT("WaitingForClear"), TEXT("WaitingforClear"), TEXT("bWaitingForClear") }, false);
+	if (bSpawning || bWaiting)
+	{
+		ScreenMsg(TEXT("Wave in progress - cannot force start"), FLinearColor(1.f, 0.4f, 0.2f), 2.f);
+		return;
+	}
+
+	UKismetSystemLibrary::K2_ClearTimer(Spawner, TEXT("TickCountdown"));
+	UKismetSystemLibrary::K2_ClearTimer(Spawner, TEXT("AnnounceWave"));
+
+	const int32 Remaining = ReadIntOr(Spawner, { TEXT("CountdownRemaining") }, 0);
+	if (Remaining <= 0)
+	{
+		CallNoParam(Spawner, TEXT("AnnounceWave"));
+		UKismetSystemLibrary::K2_ClearTimer(Spawner, TEXT("TickCountdown"));
+	}
+	WriteInt(Spawner, { TEXT("CountdownRemaining") }, 0);
+	ScreenMsg(TEXT("FORCE START!"), FLinearColor(1.f, 0.5f, 0.1f), 2.f);
+	BeginWaveSpawning(Spawner);
 }

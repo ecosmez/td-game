@@ -1,5 +1,6 @@
 #include "CameraOrbitGizmoWidget.h"
 
+#include "MinimapWidget.h"
 #include "MobaCameraPawn.h"
 #include "MobaPlayerController.h"
 #include "Blueprint/WidgetTree.h"
@@ -11,6 +12,7 @@
 #include "Components/SizeBox.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "UObject/UObjectIterator.h"
 
 namespace CameraOrbitGizmoPrivate
 {
@@ -38,6 +40,7 @@ void UCameraOrbitGizmoWidget::NativeConstruct()
 	Super::NativeConstruct();
 	EnsureBuilt();
 	ApplyHitTestPolicy();
+	ApplyDockLayout();
 }
 
 void UCameraOrbitGizmoWidget::EnsureBuilt()
@@ -64,13 +67,12 @@ void UCameraOrbitGizmoWidget::BuildDefaultUI()
 	FrameSizeBox->SetWidthOverride(GizmoSize);
 	FrameSizeBox->SetHeightOverride(GizmoSize);
 
-	if (UCanvasPanelSlot* RootSlot = RootCanvas->AddChildToCanvas(FrameSizeBox))
+	FrameSlot = RootCanvas->AddChildToCanvas(FrameSizeBox);
+	if (FrameSlot)
 	{
-		// Bottom-left, opposite the minimap.
-		RootSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
-		RootSlot->SetAlignment(FVector2D(0.f, 1.f));
-		RootSlot->SetAutoSize(true);
-		RootSlot->SetOffsets(FMargin(ScreenMargin.X, 0.f, 0.f, ScreenMargin.Y));
+		FrameSlot->SetAutoSize(true);
+		FrameSlot->SetZOrder(60);
+		ApplyDockLayout();
 	}
 
 	UOverlay* Overlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("OrbitGizmoOverlay"));
@@ -168,6 +170,61 @@ void UCameraOrbitGizmoWidget::BindPointerEvents()
 	}
 }
 
+void UCameraOrbitGizmoWidget::ApplyDockLayout()
+{
+	if (!FrameSlot)
+	{
+		return;
+	}
+
+	if (bDockToMinimap)
+	{
+		float MiniSize = 220.0f;
+		FVector2D MiniMargin(24.0f, 24.0f);
+		if (const UMinimapWidget* Mini = ResolveMinimap())
+		{
+			MiniSize = Mini->MinimapSize;
+			MiniMargin = Mini->ScreenMargin;
+		}
+
+		const float Overlap = GizmoSize * FMath::Clamp(MinimapCornerInset, 0.0f, 0.75f);
+		const float Right = MiniMargin.X + MiniSize - Overlap;
+		const float Bottom = MiniMargin.Y + MiniSize - Overlap;
+
+		FrameSlot->SetAnchors(FAnchors(1.f, 1.f, 1.f, 1.f));
+		FrameSlot->SetAlignment(FVector2D(1.f, 1.f));
+		FrameSlot->SetOffsets(FMargin(0.f, 0.f, Right, Bottom));
+	}
+	else
+	{
+		FrameSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
+		FrameSlot->SetAlignment(FVector2D(0.f, 1.f));
+		FrameSlot->SetOffsets(FMargin(ScreenMargin.X, 0.f, 0.f, ScreenMargin.Y));
+	}
+}
+
+UMinimapWidget* UCameraOrbitGizmoWidget::ResolveMinimap() const
+{
+	if (const AMobaPlayerController* MPC = Cast<AMobaPlayerController>(GetOwningPlayer()))
+	{
+		if (UMinimapWidget* Mini = MPC->GetMinimapWidget())
+		{
+			return Mini;
+		}
+	}
+
+	APlayerController* OwnerPC = GetOwningPlayer();
+	for (TObjectIterator<UMinimapWidget> It; It; ++It)
+	{
+		UMinimapWidget* Mini = *It;
+		if (Mini && Mini->IsInViewport() && Mini->GetOwningPlayer() == OwnerPC)
+		{
+			return Mini;
+		}
+	}
+	return nullptr;
+}
+
 void UCameraOrbitGizmoWidget::ApplyHitTestPolicy()
 {
 	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
@@ -177,7 +234,8 @@ void UCameraOrbitGizmoWidget::ApplyHitTestPolicy()
 	}
 	if (FrameSizeBox)
 	{
-		FrameSizeBox->SetVisibility(ESlateVisibility::Visible);
+		// Square chrome must not eat hits in the corners; only the circular ring does.
+		FrameSizeBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 	if (RingBorder)
 	{
@@ -368,6 +426,8 @@ void UCameraOrbitGizmoWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 		FrameSizeBox->SetWidthOverride(GizmoSize);
 		FrameSizeBox->SetHeightOverride(GizmoSize);
 	}
+
+	ApplyDockLayout();
 
 	if (!bDragging)
 	{

@@ -226,7 +226,8 @@ UCameraOrbitGizmoWidget* AMobaPlayerController::ShowCameraOrbitGizmo()
 	{
 		if (!CameraOrbitGizmoWidget->IsInViewport())
 		{
-			CameraOrbitGizmoWidget->AddToViewport(20);
+			// Above the minimap so overlapping corner clicks hit the gizmo first.
+			CameraOrbitGizmoWidget->AddToViewport(21);
 		}
 		return CameraOrbitGizmoWidget;
 	}
@@ -238,7 +239,8 @@ UCameraOrbitGizmoWidget* AMobaPlayerController::ShowCameraOrbitGizmo()
 	CameraOrbitGizmoWidget = CreateWidget<UCameraOrbitGizmoWidget>(this, WidgetClass);
 	if (CameraOrbitGizmoWidget)
 	{
-		CameraOrbitGizmoWidget->AddToViewport(20);
+		// Above the minimap so overlapping corner clicks hit the gizmo first.
+		CameraOrbitGizmoWidget->AddToViewport(21);
 	}
 	return CameraOrbitGizmoWidget;
 }

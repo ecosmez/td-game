@@ -14,6 +14,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "TDEnemyPathLibrary.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Styling/SlateBrush.h"
@@ -474,14 +475,27 @@ AActor* UCrystalHealthBarWidget::FindEnemySpawner() const
 		return nullptr;
 	}
 
+	AActor* Best = nullptr;
+	int32 BestRoute = MAX_int32;
 	for (TActorIterator<AActor> It(World, SpawnerClass); It; ++It)
 	{
-		if (IsValid(*It))
+		AActor* Candidate = *It;
+		if (!IsValid(Candidate))
 		{
-			return *It;
+			continue;
+		}
+		int32 Route = 0;
+		if (!ReadIntProp(Candidate, FName(TEXT("routeId")), Route))
+		{
+			ReadIntProp(Candidate, FName(TEXT("RouteId")), Route);
+		}
+		if (!Best || Route < BestRoute)
+		{
+			Best = Candidate;
+			BestRoute = Route;
 		}
 	}
-	return nullptr;
+	return Best;
 }
 
 int32 UCrystalHealthBarWidget::ResolveTotalWaves(const AActor* Spawner) const
@@ -693,16 +707,8 @@ void UCrystalHealthBarWidget::OnNextWaveClicked()
 		return;
 	}
 
-	if (UFunction* Fn = Spawner->FindFunction(FName(TEXT("ForceStartNextWave"))))
-	{
-		Spawner->ProcessEvent(Fn, nullptr);
-		RefreshWaveHud();
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("BaseHealth NextWave: ForceStartNextWave missing on %s"),
-			*Spawner->GetName());
-	}
+	UTDEnemyPathLibrary::ForceStartNextWave(Spawner);
+	RefreshWaveHud();
 }
 
 bool UCrystalHealthBarWidget::ReadFloatProp(const UObject* Obj, FName Name, float& OutValue)

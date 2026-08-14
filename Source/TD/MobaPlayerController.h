@@ -98,7 +98,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
 	TSubclassOf<UMinimapWidget> MinimapWidgetClass;
 
-	/** Show circular camera-orbit gizmo (bottom-left). */
+	/** Show circular camera-orbit gizmo (docked to the minimap). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
 	bool bShowCameraOrbitGizmo = true;
 

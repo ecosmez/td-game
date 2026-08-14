@@ -357,6 +357,8 @@ def setup():
         replace_function_with_call(spawner, "SpawnEnemyInner", "SpawnNextWaveEnemy")
         replace_function_with_call(spawner, "StartWaveSpawning", "BeginWaveSpawning")
         replace_function_with_call(spawner, "CheckWaveClear", "CheckWaveEnemiesCleared")
+        replace_function_with_call(spawner, "StartWaves", "AnnounceWaveIfPrimary")
+        replace_function_with_call(spawner, "ForceStartNextWave", "ForceStartNextWave")
         compile_bp(spawner)
         unreal.EditorAssetLibrary.save_asset(SPAWNER_BP)
     log("done")

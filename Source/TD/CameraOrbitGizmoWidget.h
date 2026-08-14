@@ -10,10 +10,12 @@ class USizeBox;
 class UOverlay;
 class UCanvasPanelSlot;
 class AMobaCameraPawn;
+class UMinimapWidget;
 
 /**
  * Circular on-screen gizmo that orbits the free camera yaw around its current
- * pivot without changing pitch or height.
+ * pivot without changing pitch or height. Docked to the minimap's top-left
+ * corner by default so it sits in the same HUD cluster.
  */
 UCLASS()
 class TD_API UCameraOrbitGizmoWidget : public UUserWidget
@@ -31,12 +33,24 @@ public:
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
 	/** Outer gizmo diameter (slate units). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo", meta = (ClampMin = "64.0"))
-	float GizmoSize = 120.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo", meta = (ClampMin = "48.0"))
+	float GizmoSize = 88.0f;
 
-	/** Distance from bottom-left corner. */
+	/** Fallback margin from screen edges when not docking to the minimap. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo")
 	FVector2D ScreenMargin = FVector2D(24.0f, 24.0f);
+
+	/** Place the gizmo at the minimap's top-left corner instead of bottom-left. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo")
+	bool bDockToMinimap = true;
+
+	/**
+	 * How much of the gizmo overlaps the minimap (0 = touching the top-left
+	 * corner from outside, 0.5 = half the gizmo sits on the map).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo",
+		meta = (ClampMin = "0.0", ClampMax = "0.75", EditCondition = "bDockToMinimap"))
+	float MinimapCornerInset = 0.32f;
 
 	/** Radius of the handle ring as a fraction of half-size (0–1). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo", meta = (ClampMin = "0.2", ClampMax = "0.95"))
@@ -53,10 +67,12 @@ protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
 	void ApplyHitTestPolicy();
+	void ApplyDockLayout();
 	void BindPointerEvents();
 	void UpdateHandleFromYaw(float YawDegrees);
 	bool TryPointerAngle(const FPointerEvent& MouseEvent, float& OutScreenAngleDegrees) const;
 	AMobaCameraPawn* ResolveCameraPawn() const;
+	UMinimapWidget* ResolveMinimap() const;
 
 	UFUNCTION()
 	FEventReply OnGizmoMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
@@ -87,6 +103,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanelSlot> HandleSlot;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanelSlot> FrameSlot;
 
 	bool bBuilt = false;
 	bool bDragging = false;

@@ -1,2 +1,2 @@
 (fn StartWaves ()
-  (CallFunction|AnnounceWave))
+  (Class|TDEnemyPathLibrary|AnnounceWaveIfPrimary self))

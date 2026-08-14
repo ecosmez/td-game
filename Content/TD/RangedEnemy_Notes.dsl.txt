@@ -12,8 +12,12 @@
 ;     (C++ Catmull-Rom along BP_Waypoint; no BP_EnemyPath)
 ;
 ; Spawn mix (SpawnEnemyInner / SpawnNextWaveEnemy):
-;   One random spawn point (route + Over/Under) is chosen per wave; all
-;   enemies that wave come from that spawn.
+;   Wave size still grows with WaveNumber (4 + Wave*2, +1 on boss waves).
+;   Minions are split randomly across spawn points (Index 0 per RouteId).
+;   Wave N uses up to N distinct spawns (wave 3 can use all 3 routes).
+;   Example: 16 minions -> 4 from spawn 0, 8 from spawn 1, 4 from spawn 2.
+;   Only the primary spawner (lowest RouteId) runs the wave; others are
+;   spawn-point markers so the player must cover more than one approach.
 ;   Boss wave (IsBossWave, or WaveNumber % BossWaveNumber == 0): first spawn
 ;   is BP_Boss, then trash / ranged.
 ;   Wave >= RangedStartWave (default 2)
