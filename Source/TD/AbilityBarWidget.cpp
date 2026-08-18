@@ -32,6 +32,11 @@
 
 namespace AbilityBarPrivate
 {
+	static constexpr int32 NumBarSlots = 5; // + Q W E R
+	static constexpr float ChromePadX = 6.f;
+	static constexpr float ChromePadY = 4.f;
+	static constexpr float SlotPadX = 3.f;
+
 	static FLinearColor SlotReadyBg(0.12f, 0.22f, 0.32f, 0.96f);
 	static FLinearColor SlotReadyFrame(0.45f, 0.85f, 0.95f, 1.f);
 	static FLinearColor SlotCdBg(0.06f, 0.08f, 0.12f, 0.96f);
@@ -47,6 +52,18 @@ namespace AbilityBarPrivate
 	static FLinearColor StorePlusBg(0.12f, 0.42f, 0.55f, 0.95f);
 	static FLinearColor StorePlusBgOpen(0.55f, 0.28f, 0.18f, 0.95f);
 	static FLinearColor StorePlusFrame(0.45f, 0.78f, 0.88f, 1.f);
+
+	static void SetBoldFont(UTextBlock* Text, float Size)
+	{
+		if (!Text)
+		{
+			return;
+		}
+		FSlateFontInfo Font = Text->GetFont();
+		Font.Size = Size;
+		Font.TypefaceFontName = TEXT("Bold");
+		Text->SetFont(Font);
+	}
 }
 
 UAbilityBarWidget::UAbilityBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -67,8 +84,9 @@ void UAbilityBarWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	EnsureBuilt();
-	// Root ignores empty space; bar chrome + store plus receive clicks.
+	// Root ignores empty space; bar chrome + store plus + ability slots receive clicks.
 	ApplyHitTestPolicy();
+	ApplyDockLayout();
 	UE_LOG(LogTemp, Display, TEXT("AbilityBarWidget constructed. Built=%d Root=%s"),
 		bBuilt ? 1 : 0,
 		WidgetTree && WidgetTree->RootWidget ? *WidgetTree->RootWidget->GetName() : TEXT("None"));
@@ -144,22 +162,25 @@ void UAbilityBarWidget::NativeConstruct()
 			if (UChampionFrameWidget* Frame =
 				CreateWidget<UChampionFrameWidget>(PC, UChampionFrameWidget::StaticClass()))
 			{
-				// Below ability bar Z=100; bottom-left unit frame.
+				// Below ability bar Z=100; bottom-left unit frame (abilities dock over it).
 				Frame->AddToViewport(92);
 			}
 		}
 	}
+
+	ApplyDockLayout();
 }
 
 void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	if (!bBuilt || (SlotRow && SlotRow->GetChildrenCount() != 5))
+	if (!bBuilt || !BarSizeBox || (SlotRow && SlotRow->GetChildrenCount() != AbilityBarPrivate::NumBarSlots))
 	{
 		EnsureBuilt();
 	}
 
+	ApplyDockLayout();
 	RefreshStorePlusVisual();
 
 	if (APawn* Pawn = ResolveChampionPawn())
@@ -175,7 +196,8 @@ bool UAbilityBarWidget::ShouldBlockWorldClickInput(const UObject* WorldContextOb
 
 void UAbilityBarWidget::EnsureBuilt()
 {
-	if (bBuilt && StorePlusButton && SlotQ.CooldownClip && (!SlotRow || SlotRow->GetChildrenCount() == 5))
+	if (bBuilt && StorePlusButton && BarSizeBox && SlotQ.CooldownClip
+		&& (!SlotRow || SlotRow->GetChildrenCount() == AbilityBarPrivate::NumBarSlots))
 	{
 		return;
 	}
@@ -185,11 +207,12 @@ void UAbilityBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !SlotRow)
+	if (!WidgetTree->RootWidget || !SlotRow || !BarSizeBox)
 	{
 		BuildDefaultUI();
 	}
-	else if (!StorePlusButton || !SlotQ.CooldownClip || (SlotRow && SlotRow->GetChildrenCount() != 5))
+	else if (!StorePlusButton || !SlotQ.CooldownClip
+		|| (SlotRow && SlotRow->GetChildrenCount() != AbilityBarPrivate::NumBarSlots))
 	{
 		// Hot-reload / older runtime tree missing store opener, CD wipe, or leftover next-wave slot.
 		if (SlotRow)
@@ -209,10 +232,12 @@ void UAbilityBarWidget::EnsureBuilt()
 
 	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr
 		&& SlotQ.CooldownClip != nullptr
-		&& StorePlusButton != nullptr;
+		&& StorePlusButton != nullptr
+		&& BarSizeBox != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
+		ApplyDockLayout();
 	}
 }
 
@@ -236,6 +261,18 @@ void UAbilityBarWidget::ApplyHitTestPolicy()
 	{
 		StorePlusButton->SetVisibility(ESlateVisibility::Visible);
 	}
+	auto ShowSlot = [](FAbilityBarSlotWidgets& SlotUI)
+	{
+		if (SlotUI.Button)
+		{
+			SlotUI.Button->SetVisibility(ESlateVisibility::Visible);
+			SlotUI.Button->SetIsEnabled(true);
+		}
+	};
+	ShowSlot(SlotQ);
+	ShowSlot(SlotW);
+	ShowSlot(SlotE);
+	ShowSlot(SlotR);
 }
 
 void UAbilityBarWidget::BuildDefaultUI()
@@ -255,35 +292,33 @@ void UAbilityBarWidget::BuildDefaultUI()
 	if (!BarChrome)
 	{
 		BarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("AbilityBarChrome"));
-		BarChrome->SetPadding(FMargin(16.f, 12.f));
-		BarChrome->SetBrushColor(FLinearColor(0.05f, 0.08f, 0.12f, 0.92f));
+		BarChrome->SetPadding(FMargin(AbilityBarPrivate::ChromePadX, AbilityBarPrivate::ChromePadY));
+		BarChrome->SetBrushColor(FLinearColor(0.05f, 0.08f, 0.12f, 0.72f));
 		if (UCanvasPanelSlot* ChromeSlot = Root->AddChildToCanvas(BarChrome))
 		{
-			ChromeSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
-			ChromeSlot->SetAlignment(FVector2D(0.5f, 1.f));
-			ChromeSlot->SetAutoSize(true);
-			// Non-stretch canvas: Offset.Top lifts from bottom (Alignment Y=1). Bottom is ignored.
-			ChromeSlot->SetOffsets(FMargin(0.f, -40.f, 0.f, 0.f));
 			ChromeSlot->SetZOrder(10);
 		}
 	}
-	else if (UCanvasPanelSlot* ChromeSlot = Cast<UCanvasPanelSlot>(BarChrome->Slot))
+	else
 	{
-		ChromeSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
-		ChromeSlot->SetAlignment(FVector2D(0.5f, 1.f));
-		ChromeSlot->SetAutoSize(true);
-		ChromeSlot->SetOffsets(FMargin(0.f, -40.f, 0.f, 0.f));
+		BarChrome->SetPadding(FMargin(AbilityBarPrivate::ChromePadX, AbilityBarPrivate::ChromePadY));
+	}
+
+	if (!BarSizeBox)
+	{
+		BarSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AbilityBarSize"));
+		BarChrome->SetContent(BarSizeBox);
 	}
 
 	if (!SlotRow)
 	{
 		SlotRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("AbilitySlotRow"));
-		BarChrome->SetContent(SlotRow);
 	}
 	else
 	{
 		SlotRow->ClearChildren();
 	}
+	BarSizeBox->SetContent(SlotRow);
 
 	// Tower store opener is the first button, left of Q.
 	BuildStorePlusSlot(SlotRow);
@@ -294,6 +329,7 @@ void UAbilityBarWidget::BuildDefaultUI()
 	SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
 
 	ApplyHitTestPolicy();
+	ApplyDockLayout();
 }
 
 void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
@@ -304,8 +340,8 @@ void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
 	}
 
 	StorePlusSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StorePlusSize"));
-	StorePlusSizeBox->SetWidthOverride(SlotSize);
-	StorePlusSizeBox->SetHeightOverride(SlotSize);
+	StorePlusSizeBox->SetWidthOverride(EffectiveSlotSize);
+	StorePlusSizeBox->SetHeightOverride(EffectiveSlotSize);
 
 	StorePlusFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StorePlusFrame"));
 	StorePlusFrame->SetPadding(FMargin(2.f));
@@ -324,17 +360,12 @@ void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
 	StorePlusLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
 	StorePlusLabel->SetShadowOffset(FVector2D(1.f, 1.f));
 	StorePlusLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = StorePlusLabel->GetFont();
-		Font.Size = 32.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		StorePlusLabel->SetFont(Font);
-	}
+	AbilityBarPrivate::SetBoldFont(StorePlusLabel, 22.f);
 	StorePlusButton->SetContent(StorePlusLabel);
 
 	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(StorePlusSizeBox))
 	{
-		RowSlot->SetPadding(FMargin(8.f, 0.f, 12.f, 0.f));
+		RowSlot->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
 		RowSlot->SetVerticalAlignment(VAlign_Center);
 	}
 }
@@ -365,7 +396,7 @@ void UAbilityBarWidget::OnStorePlusClicked()
 	{
 		if (UTowerStoreWidget* Store = CreateWidget<UTowerStoreWidget>(PC, UTowerStoreWidget::StaticClass()))
 		{
-			// Above ability bar (Z=100 in ShowAbilityHUD) so strip draws on top.
+			// Above ability bar (Z=100 in ShowAbilityHUD) so the bottom-center strip draws on top.
 			Store->AddToViewport(120);
 			Store->SetStoreOpen(true);
 			RefreshStorePlusVisual();
@@ -414,11 +445,12 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	}
 
 	Out.KeyChar = KeyChar;
+	Out.AbilityId = AbilityId;
 	const FString KeyStr = FString(1, &KeyChar);
 
 	Out.SizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("Size_%s"), *KeyStr));
-	Out.SizeBox->SetWidthOverride(SlotSize);
-	Out.SizeBox->SetHeightOverride(SlotSize);
+	Out.SizeBox->SetWidthOverride(EffectiveSlotSize);
+	Out.SizeBox->SetHeightOverride(EffectiveSlotSize);
 
 	Out.Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("Frame_%s"), *KeyStr));
 	Out.Frame->SetPadding(FMargin(3.f));
@@ -430,7 +462,23 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 
 	Out.Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), *FString::Printf(TEXT("Btn_%s"), *KeyStr));
 	Out.Button->SetBackgroundColor(AbilityBarPrivate::SlotReadyBg);
-	Out.Button->SetIsEnabled(false); // Visual only; casting stays on character keybinds.
+	Out.Button->SetIsEnabled(true);
+	if (AbilityId == 1)
+	{
+		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotQClicked);
+	}
+	else if (AbilityId == 2)
+	{
+		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotWClicked);
+	}
+	else if (AbilityId == 3)
+	{
+		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotEClicked);
+	}
+	else if (AbilityId == 4)
+	{
+		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotRClicked);
+	}
 	if (UOverlaySlot* BtnSlot = Overlay->AddChildToOverlay(Out.Button))
 	{
 		BtnSlot->SetHorizontalAlignment(HAlign_Fill);
@@ -439,7 +487,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 
 	// LoL-style remaining-CD wipe: SizeBox height shrinks as cooldown ticks down.
 	Out.CooldownClip = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("CDClip_%s"), *KeyStr));
-	Out.CooldownClip->SetWidthOverride(SlotSize);
+	Out.CooldownClip->SetWidthOverride(EffectiveSlotSize);
 	Out.CooldownClip->SetHeightOverride(0.f);
 	Out.CooldownClip->SetVisibility(ESlateVisibility::Collapsed);
 
@@ -474,12 +522,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.KeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
 	Out.KeyLabel->SetShadowOffset(FVector2D(1.f, 1.f));
 	Out.KeyLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = Out.KeyLabel->GetFont();
-		Font.Size = 28.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		Out.KeyLabel->SetFont(Font);
-	}
+	AbilityBarPrivate::SetBoldFont(Out.KeyLabel, 18.f);
 	if (UVerticalBoxSlot* KeySlot = Labels->AddChildToVerticalBox(Out.KeyLabel))
 	{
 		KeySlot->SetHorizontalAlignment(HAlign_Center);
@@ -494,12 +537,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.CooldownText->SetShadowOffset(FVector2D(2.f, 2.f));
 	Out.CooldownText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.95f));
 	Out.CooldownText->SetVisibility(ESlateVisibility::Collapsed);
-	{
-		FSlateFontInfo Font = Out.CooldownText->GetFont();
-		Font.Size = 26.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		Out.CooldownText->SetFont(Font);
-	}
+	AbilityBarPrivate::SetBoldFont(Out.CooldownText, 16.f);
 	if (UVerticalBoxSlot* CdTextSlot = Labels->AddChildToVerticalBox(Out.CooldownText))
 	{
 		CdTextSlot->SetHorizontalAlignment(HAlign_Center);
@@ -512,12 +550,7 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 	Out.LockText->SetJustification(ETextJustify::Center);
 	Out.LockText->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::LockTextColor));
 	Out.LockText->SetVisibility(ESlateVisibility::Collapsed);
-	{
-		FSlateFontInfo Font = Out.LockText->GetFont();
-		Font.Size = 14.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		Out.LockText->SetFont(Font);
-	}
+	AbilityBarPrivate::SetBoldFont(Out.LockText, 10.f);
 	if (UVerticalBoxSlot* LockSlot = Labels->AddChildToVerticalBox(Out.LockText))
 	{
 		LockSlot->SetHorizontalAlignment(HAlign_Center);
@@ -532,11 +565,221 @@ FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHA
 
 	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(Out.SizeBox))
 	{
-		RowSlot->SetPadding(FMargin(8.f, 0.f));
+		RowSlot->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
 		RowSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
 	return Out;
+}
+
+void UAbilityBarWidget::OnAbilitySlotClicked(int32 AbilityId)
+{
+	TryBeginAbilityAim(AbilityId);
+}
+
+void UAbilityBarWidget::OnSlotQClicked()
+{
+	OnAbilitySlotClicked(1);
+}
+
+void UAbilityBarWidget::OnSlotWClicked()
+{
+	OnAbilitySlotClicked(2);
+}
+
+void UAbilityBarWidget::OnSlotEClicked()
+{
+	OnAbilitySlotClicked(3);
+}
+
+void UAbilityBarWidget::OnSlotRClicked()
+{
+	OnAbilitySlotClicked(4);
+}
+
+void UAbilityBarWidget::TryBeginAbilityAim(int32 AbilityId)
+{
+	APawn* Pawn = ResolveChampionPawn();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	UFunction* Fn = Pawn->FindFunction(FName(TEXT("BeginAbilityAim")));
+	if (!Fn)
+	{
+		Fn = Pawn->FindFunction(FName(TEXT("beginAbilityAim")));
+	}
+	if (!Fn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AbilityBar: BeginAbilityAim not found on %s"), *Pawn->GetName());
+		return;
+	}
+
+	const int32 ParamsSize = Fn->ParmsSize;
+	TArray<uint8> ParamBuffer;
+	void* Params = nullptr;
+	if (ParamsSize > 0)
+	{
+		ParamBuffer.SetNumZeroed(ParamsSize);
+		Params = ParamBuffer.GetData();
+		for (TFieldIterator<FProperty> It(Fn); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		{
+			if (It->HasAnyPropertyFlags(CPF_OutParm | CPF_ReturnParm))
+			{
+				continue;
+			}
+			if (FIntProperty* IntProp = CastField<FIntProperty>(*It))
+			{
+				IntProp->SetPropertyValue_InContainer(Params, AbilityId);
+				break;
+			}
+			if (FByteProperty* ByteProp = CastField<FByteProperty>(*It))
+			{
+				ByteProp->SetPropertyValue_InContainer(Params, static_cast<uint8>(AbilityId));
+				break;
+			}
+		}
+	}
+
+	Pawn->ProcessEvent(Fn, Params);
+}
+
+UChampionFrameWidget* UAbilityBarWidget::ResolveChampionFrame() const
+{
+	APlayerController* PC = GetOwningPlayer();
+	UWorld* World = GetWorld();
+	for (TObjectIterator<UChampionFrameWidget> It; It; ++It)
+	{
+		UChampionFrameWidget* Frame = *It;
+		if (!IsValid(Frame) || !Frame->IsInViewport())
+		{
+			continue;
+		}
+		if (PC && Frame->GetOwningPlayer() != PC)
+		{
+			continue;
+		}
+		if (World && Frame->GetWorld() != World)
+		{
+			continue;
+		}
+		return Frame;
+	}
+	return nullptr;
+}
+
+void UAbilityBarWidget::ApplyDockLayout()
+{
+	if (!BarChrome)
+	{
+		return;
+	}
+
+	FVector2D Margin(24.f, 24.f);
+	FVector2D FrameSize(324.f, 108.f);
+	if (UChampionFrameWidget* Frame = ResolveChampionFrame())
+	{
+		Margin = Frame->GetChromeScreenMargin();
+		FrameSize = Frame->GetChromeScreenSize();
+	}
+
+	const float TargetWidth = FMath::Max(FrameSize.X, 160.f);
+	const float Inner = FMath::Max(TargetWidth - AbilityBarPrivate::ChromePadX * 2.f, 80.f);
+	const float TotalPad = AbilityBarPrivate::SlotPadX * 2.f * static_cast<float>(AbilityBarPrivate::NumBarSlots);
+	const float Fitted = (Inner - TotalPad) / static_cast<float>(AbilityBarPrivate::NumBarSlots);
+	EffectiveSlotSize = FMath::Clamp(Fitted, 32.f, SlotSize);
+	const float Lift = Margin.Y + FrameSize.Y + AbilityOverFrameGap;
+
+	const bool bLayoutDirty =
+		!FMath::IsNearlyEqual(EffectiveSlotSize, LastAppliedSlotSize, 0.25f)
+		|| !FMath::IsNearlyEqual(TargetWidth, LastAppliedWidth, 0.25f)
+		|| !FMath::IsNearlyEqual(Lift, LastAppliedLift, 0.25f)
+		|| !FMath::IsNearlyEqual(Margin.X, LastAppliedLeft, 0.25f);
+	if (!bLayoutDirty)
+	{
+		return;
+	}
+
+	LastAppliedSlotSize = EffectiveSlotSize;
+	LastAppliedWidth = TargetWidth;
+	LastAppliedLift = Lift;
+	LastAppliedLeft = Margin.X;
+
+	if (BarSizeBox)
+	{
+		BarSizeBox->SetWidthOverride(TargetWidth - AbilityBarPrivate::ChromePadX * 2.f);
+		BarSizeBox->SetHeightOverride(EffectiveSlotSize);
+	}
+
+	if (UCanvasPanelSlot* ChromeSlot = Cast<UCanvasPanelSlot>(BarChrome->Slot))
+	{
+		ChromeSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
+		ChromeSlot->SetAlignment(FVector2D(0.f, 1.f));
+		ChromeSlot->SetAutoSize(true);
+		ChromeSlot->SetOffsets(FMargin(Margin.X, -Lift, 0.f, 0.f));
+		ChromeSlot->SetZOrder(10);
+	}
+
+	ApplySlotMetrics();
+}
+
+void UAbilityBarWidget::ApplySlotMetrics()
+{
+	auto ApplyBox = [this](USizeBox* Box)
+	{
+		if (Box)
+		{
+			Box->SetWidthOverride(EffectiveSlotSize);
+			Box->SetHeightOverride(EffectiveSlotSize);
+		}
+	};
+	ApplyBox(StorePlusSizeBox);
+	ApplyBox(SlotQ.SizeBox);
+	ApplyBox(SlotW.SizeBox);
+	ApplyBox(SlotE.SizeBox);
+	ApplyBox(SlotR.SizeBox);
+
+	auto ApplyClipWidth = [this](USizeBox* Clip)
+	{
+		if (Clip)
+		{
+			Clip->SetWidthOverride(EffectiveSlotSize);
+		}
+	};
+	ApplyClipWidth(SlotQ.CooldownClip);
+	ApplyClipWidth(SlotW.CooldownClip);
+	ApplyClipWidth(SlotE.CooldownClip);
+	ApplyClipWidth(SlotR.CooldownClip);
+
+	auto ApplyPad = [](UWidget* W)
+	{
+		if (W)
+		{
+			if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(W->Slot))
+			{
+				HS->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
+			}
+		}
+	};
+	ApplyPad(StorePlusSizeBox);
+	ApplyPad(SlotQ.SizeBox);
+	ApplyPad(SlotW.SizeBox);
+	ApplyPad(SlotE.SizeBox);
+	ApplyPad(SlotR.SizeBox);
+
+	const float FontScale = FMath::Clamp(EffectiveSlotSize / 56.f, 0.65f, 1.15f);
+	AbilityBarPrivate::SetBoldFont(StorePlusLabel, 22.f * FontScale);
+	auto ApplySlotFonts = [FontScale](FAbilityBarSlotWidgets& SlotUI)
+	{
+		AbilityBarPrivate::SetBoldFont(SlotUI.KeyLabel, 18.f * FontScale);
+		AbilityBarPrivate::SetBoldFont(SlotUI.CooldownText, 16.f * FontScale);
+		AbilityBarPrivate::SetBoldFont(SlotUI.LockText, 10.f * FontScale);
+	};
+	ApplySlotFonts(SlotQ);
+	ApplySlotFonts(SlotW);
+	ApplySlotFonts(SlotE);
+	ApplySlotFonts(SlotR);
 }
 
 APawn* UAbilityBarWidget::ResolveChampionPawn() const
@@ -651,7 +894,7 @@ void UAbilityBarWidget::ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 Abi
 	{
 		if (bOnCooldown && !bUltLocked)
 		{
-			SlotUI.CooldownClip->SetHeightOverride(SlotSize * CdPercent);
+			SlotUI.CooldownClip->SetHeightOverride(EffectiveSlotSize * CdPercent);
 			SlotUI.CooldownClip->SetVisibility(ESlateVisibility::HitTestInvisible);
 			SlotUI.CooldownFill->SetBrushColor(AbilityBarPrivate::CdOverlay);
 		}
@@ -747,8 +990,7 @@ void UAbilityBarWidget::ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 Abi
 		}
 	}
 
-	// Keep buttons non-interactive; hotkeys live on the character.
-	SlotUI.Button->SetIsEnabled(false);
+	SlotUI.Button->SetIsEnabled(true);
 }
 
 bool UAbilityBarWidget::ReadBoolProp(const UObject* Obj, FName Name, bool& OutValue)

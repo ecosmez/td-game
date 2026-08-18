@@ -40,6 +40,8 @@ namespace CrystalHealthBarPrivate
 	static FLinearColor PlayFillBusy(0.06f, 0.07f, 0.09f, 0.95f);
 	static FLinearColor PlayIcon(0.95f, 0.98f, 1.f, 1.f);
 	static FLinearColor TimerDim(0.40f, 0.50f, 0.58f, 1.f);
+	static FLinearColor EnemyCountHot(1.0f, 0.55f, 0.18f, 1.f);
+	static FLinearColor EnemyCountIdle(0.40f, 0.50f, 0.58f, 1.f);
 }
 
 UCrystalHealthBarWidget::UCrystalHealthBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -78,7 +80,7 @@ void UCrystalHealthBarWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 
 void UCrystalHealthBarWidget::EnsureBuilt()
 {
-	if (bBuilt && HealthBar && NextWaveButton)
+	if (bBuilt && HealthBar && NextWaveButton && EnemiesCountLabel)
 	{
 		return;
 	}
@@ -88,12 +90,13 @@ void UCrystalHealthBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !HealthBar || !NextWaveButton)
+	if (!WidgetTree->RootWidget || !HealthBar || !NextWaveButton || !EnemiesCountLabel)
 	{
 		BuildDefaultUI();
 	}
 
-	bBuilt = HealthBar != nullptr && ValueLabel != nullptr && NextWaveButton != nullptr && WaveChrome != nullptr;
+	bBuilt = HealthBar != nullptr && ValueLabel != nullptr && NextWaveButton != nullptr
+		&& WaveChrome != nullptr && EnemiesCountLabel != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
@@ -114,6 +117,14 @@ void UCrystalHealthBarWidget::ApplyHitTestPolicy()
 	if (WaveChrome)
 	{
 		WaveChrome->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	if (EnemiesChrome)
+	{
+		EnemiesChrome->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	if (EnemiesCountLabel)
+	{
+		EnemiesCountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 	if (NextWaveButton)
 	{
@@ -167,6 +178,7 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 
 	BarChrome = nullptr;
 	WaveChrome = nullptr;
+	EnemiesChrome = nullptr;
 	BarSizeBox = nullptr;
 	HealthBar = nullptr;
 	TitleLabel = nullptr;
@@ -180,6 +192,7 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 	NextWaveFrame = nullptr;
 	NextWaveButton = nullptr;
 	NextWaveLabel = nullptr;
+	EnemiesCountLabel = nullptr;
 	TimerLabel = nullptr;
 	BuiltDotCount = 0;
 
@@ -290,6 +303,30 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 	UHorizontalBox* WaveRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("WaveStripRow"));
 	WaveChrome->SetContent(WaveRow);
 	BuildWaveRow(WaveRow);
+
+	EnemiesChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("EnemiesCountChrome"));
+	EnemiesChrome->SetPadding(FMargin(16.f, 8.f));
+	ApplyRoundedBrush(EnemiesChrome, CrystalHealthBarPrivate::ChromeBg, CrystalHealthBarPrivate::EnemyCountHot, 1.8f, false);
+	if (UVerticalBoxSlot* EnemiesSlot = HudColumn->AddChildToVerticalBox(EnemiesChrome))
+	{
+		EnemiesSlot->SetHorizontalAlignment(HAlign_Fill);
+		EnemiesSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f));
+	}
+
+	EnemiesCountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WaveEnemiesCount"));
+	EnemiesCountLabel->SetText(FText::FromString(TEXT("ENEMIES LEFT  0")));
+	EnemiesCountLabel->SetJustification(ETextJustify::Center);
+	EnemiesCountLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::EnemyCountIdle));
+	EnemiesCountLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+	EnemiesCountLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
+	EnemiesCountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
+	{
+		FSlateFontInfo Font = EnemiesCountLabel->GetFont();
+		Font.Size = 22.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		EnemiesCountLabel->SetFont(Font);
+	}
+	EnemiesChrome->SetContent(EnemiesCountLabel);
 
 	ApplyHitTestPolicy();
 }
@@ -685,6 +722,14 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	{
 		NextWaveLabel->SetText(FText::FromString(bBusy ? TEXT("❚❚") : TEXT("▶")));
 		NextWaveLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::PlayIcon));
+	}
+
+	if (EnemiesCountLabel)
+	{
+		const int32 Remaining = UTDEnemyPathLibrary::CountWaveEnemiesRemaining(this);
+		EnemiesCountLabel->SetText(FText::FromString(FString::Printf(TEXT("ENEMIES %d"), Remaining)));
+		EnemiesCountLabel->SetColorAndOpacity(FSlateColor(
+			Remaining > 0 ? CrystalHealthBarPrivate::EnemyCountHot : CrystalHealthBarPrivate::EnemyCountIdle));
 	}
 
 	if (TimerLabel)

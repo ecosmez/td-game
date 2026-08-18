@@ -604,6 +604,23 @@ bool UChampionFrameWidget::IsScreenPosOverFrame(FVector2D ScreenPos) const
 	return Local.X >= 0.f && Local.Y >= 0.f && Local.X <= Size.X && Local.Y <= Size.Y;
 }
 
+FVector2D UChampionFrameWidget::GetChromeScreenSize() const
+{
+	if (FrameChrome)
+	{
+		const FVector2D Size = FrameChrome->GetCachedGeometry().GetLocalSize();
+		if (Size.X > 1.f && Size.Y > 1.f)
+		{
+			return Size;
+		}
+	}
+
+	// Matches BuildDefaultUI: chrome padding (10,8,14,8) + avatar + gap + HP bar.
+	const float Width = 10.f + AvatarSize + 12.f + BarWidth + 14.f;
+	const float Height = 8.f + FMath::Max(AvatarSize, BarHeight + 40.f) + 8.f;
+	return FVector2D(Width, Height);
+}
+
 bool UChampionFrameWidget::ReadFloatProp(const UObject* Obj, FName Name, float& OutValue)
 {
 	if (!Obj)

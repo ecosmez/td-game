@@ -5,6 +5,7 @@
 
 #include "Algo/RandomShuffle.h"
 #include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
@@ -13,6 +14,8 @@
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "NavigationPath.h"
+#include "NavigationSystem.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UnrealType.h"
 
@@ -25,6 +28,11 @@ namespace TDEnemyPathPrivate
 	constexpr int32 DefaultSamplesPerSegment = 12;
 	constexpr float WalkableFloorZ = 0.7f;
 	constexpr float DefaultCapsuleHalfHeight = 90.f;
+	constexpr float MaxGroundStepUp = 90.f;
+	constexpr float PathProbeHeight = 70.f;
+	constexpr float PathClearanceRadius = 36.f;
+	constexpr float DetourRadiusStep = 100.f;
+	constexpr float DetourRadiusMax = 1800.f;
 
 	static const FSoftClassPath TrashEnemyClass(TEXT("/Game/TD/BP_Enemy.BP_Enemy_C"));
 	static const FSoftClassPath RangedEnemyClass(TEXT("/Game/TD/BP_RangedEnemy.BP_RangedEnemy_C"));
@@ -382,9 +390,68 @@ namespace TDEnemyPathPrivate
 		return FromProp > 1.f ? FromProp : DefaultCapsuleHalfHeight;
 	}
 
-	/** Drop onto walkable ground. Ignores wall sides and wall tops so minions cannot pop over obstacles. */
-	static FVector SnapToGround(UWorld* World, const FVector& Desired, float GroundOffset, AActor* Ignore)
+	/** Player walls stay on the lane so minions can attack them instead of pathing around. */
+	static bool IsPlayerDefenseActor(const AActor* Actor)
 	{
+		if (!Actor)
+		{
+			return false;
+		}
+		const FString Name = Actor->GetClass()->GetName();
+		return Name.Contains(TEXT("ShieldWall"))
+			|| Name.Contains(TEXT("Tower_Wall"))
+			|| Name.Contains(TEXT("TowerWall"));
+	}
+
+	static bool IsPathIgnoreActor(const AActor* HitActor, const AActor* Ignore)
+	{
+		if (!HitActor || HitActor == Ignore)
+		{
+			return true;
+		}
+		if (HitActor->IsA(ATDPathWaypoint::StaticClass()))
+		{
+			return true;
+		}
+		if (IsPlayerDefenseActor(HitActor))
+		{
+			return true;
+		}
+		const FString Name = HitActor->GetClass()->GetName();
+		return Name.Contains(TEXT("BP_Enemy"))
+			|| Name.Contains(TEXT("BP_RangedEnemy"))
+			|| Name.Contains(TEXT("BP_Boss"));
+	}
+
+	static bool IsBadTerrainHit(const FHitResult& Hit, const AActor* Ignore)
+	{
+		if (!Hit.bBlockingHit)
+		{
+			return false;
+		}
+		if (IsPathIgnoreActor(Hit.GetActor(), Ignore))
+		{
+			return false;
+		}
+		return Hit.ImpactNormal.Z < WalkableFloorZ;
+	}
+
+	/**
+	 * Drop onto walkable ground near RefZ. Wall tops and other high ledges are ignored
+	 * so minions stay on the lane instead of flicking up over obstacles.
+	 */
+	static FVector SnapToGround(
+		UWorld* World,
+		const FVector& Desired,
+		float GroundOffset,
+		AActor* Ignore,
+		float RefZ = TNumericLimits<float>::Max(),
+		bool* bOutClimbed = nullptr)
+	{
+		if (bOutClimbed)
+		{
+			*bOutClimbed = false;
+		}
 		if (!World)
 		{
 			return Desired;
@@ -402,24 +469,353 @@ namespace TDEnemyPathPrivate
 			World->LineTraceMultiByChannel(Hits, Start, End, ECC_Visibility, Params);
 		}
 
+		const bool bHasRef = RefZ < 1.0e10f;
+		const float TargetZ = bHasRef ? RefZ : Desired.Z;
+
 		const FHitResult* FloorHit = nullptr;
+		float BestAbs = TNumericLimits<float>::Max();
 		for (const FHitResult& Hit : Hits)
 		{
 			if (!Hit.bBlockingHit || Hit.ImpactNormal.Z < WalkableFloorZ)
 			{
 				continue;
 			}
-			if (!FloorHit || Hit.ImpactPoint.Z < FloorHit->ImpactPoint.Z)
+			if (IsPathIgnoreActor(Hit.GetActor(), Ignore) && IsPlayerDefenseActor(Hit.GetActor()))
 			{
+				continue;
+			}
+			const float HitStandZ = Hit.ImpactPoint.Z + GroundOffset;
+			if (bHasRef && HitStandZ > RefZ + MaxGroundStepUp)
+			{
+				continue;
+			}
+			const float AbsDelta = FMath::Abs(HitStandZ - TargetZ);
+			if (AbsDelta < BestAbs)
+			{
+				BestAbs = AbsDelta;
 				FloorHit = &Hit;
 			}
 		}
 		if (FloorHit)
 		{
-			return FVector(Desired.X, Desired.Y, FloorHit->ImpactPoint.Z + GroundOffset);
+			const FVector Result(Desired.X, Desired.Y, FloorHit->ImpactPoint.Z + GroundOffset);
+			if (bOutClimbed && bHasRef && Result.Z > RefZ + MaxGroundStepUp)
+			{
+				*bOutClimbed = true;
+			}
+			return Result;
 		}
 
+		if (bHasRef)
+		{
+			if (bOutClimbed)
+			{
+				*bOutClimbed = true;
+			}
+			return FVector(Desired.X, Desired.Y, RefZ);
+		}
 		return Desired;
+	}
+
+	static bool HasBadTerrainBetween(UWorld* World, const FVector& From, const FVector& To, AActor* Ignore, float GroundOffset)
+	{
+		if (!World)
+		{
+			return false;
+		}
+
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(TDEnemyPathBlock), false, Ignore);
+		Params.bReturnPhysicalMaterial = false;
+
+		const FVector Start(From.X, From.Y, From.Z + PathProbeHeight);
+		const FVector End(To.X, To.Y, To.Z + PathProbeHeight);
+		const FCollisionShape Shape = FCollisionShape::MakeSphere(PathClearanceRadius);
+
+		TArray<FHitResult> Hits;
+		World->SweepMultiByChannel(Hits, Start, End, FQuat::Identity, ECC_WorldStatic, Shape, Params);
+		for (const FHitResult& Hit : Hits)
+		{
+			if (IsBadTerrainHit(Hit, Ignore))
+			{
+				return true;
+			}
+		}
+
+		const float Dist = FVector::Dist2D(From, To);
+		if (Dist < 1.f)
+		{
+			return false;
+		}
+
+		const int32 Steps = FMath::Clamp(FMath::CeilToInt(Dist / 80.f), 1, 24);
+		FVector PrevSnap = From;
+		for (int32 i = 1; i <= Steps; ++i)
+		{
+			const float Alpha = static_cast<float>(i) / static_cast<float>(Steps);
+			const FVector Probe = FMath::Lerp(From, To, Alpha);
+			bool bClimbed = false;
+			const FVector Snapped = SnapToGround(World, Probe, GroundOffset, Ignore, PrevSnap.Z, &bClimbed);
+			if (bClimbed || Snapped.Z > PrevSnap.Z + MaxGroundStepUp)
+			{
+				return true;
+			}
+			PrevSnap = Snapped;
+		}
+		return false;
+	}
+
+	static bool FindNavDetour(
+		UWorld* World,
+		const FVector& From,
+		const FVector& To,
+		AActor* Enemy,
+		float GroundOffset,
+		TArray<FVector>& OutPoints)
+	{
+		OutPoints.Reset();
+		if (!World)
+		{
+			return false;
+		}
+
+		UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(World, From, To, Enemy);
+		if (!NavPath || NavPath->PathPoints.Num() < 3)
+		{
+			return false;
+		}
+
+		const float Straight = FVector::Dist2D(From, To);
+		float NavLen = 0.f;
+		for (int32 i = 1; i < NavPath->PathPoints.Num(); ++i)
+		{
+			NavLen += FVector::Dist2D(NavPath->PathPoints[i - 1], NavPath->PathPoints[i]);
+		}
+		if (Straight > 1.f && NavLen > Straight * 4.f)
+		{
+			return false;
+		}
+
+		FVector Prev = From;
+		for (int32 i = 1; i < NavPath->PathPoints.Num(); ++i)
+		{
+			FVector Point = SnapToGround(World, NavPath->PathPoints[i], GroundOffset, Enemy, Prev.Z);
+			if (FVector::Dist2D(Point, Prev) < 40.f && i < NavPath->PathPoints.Num() - 1)
+			{
+				continue;
+			}
+			if (HasBadTerrainBetween(World, Prev, Point, Enemy, GroundOffset))
+			{
+				OutPoints.Reset();
+				return false;
+			}
+			OutPoints.Add(Point);
+			Prev = Point;
+		}
+		return OutPoints.Num() > 0;
+	}
+
+	static bool FindLateralDetour(
+		UWorld* World,
+		const FVector& From,
+		const FVector& To,
+		AActor* Ignore,
+		float GroundOffset,
+		TArray<FVector>& OutPoints)
+	{
+		OutPoints.Reset();
+		const FVector Delta(To.X - From.X, To.Y - From.Y, 0.f);
+		FVector Forward = Delta.GetSafeNormal();
+		if (Forward.IsNearlyZero())
+		{
+			return false;
+		}
+		const FVector Right(-Forward.Y, Forward.X, 0.f);
+		const FVector Mid = (From + To) * 0.5f;
+
+		auto TryPoints = [&](const TArray<FVector>& Candidates) -> bool
+		{
+			FVector Prev = From;
+			for (const FVector& Raw : Candidates)
+			{
+				const FVector Point = SnapToGround(World, Raw, GroundOffset, Ignore, Prev.Z);
+				if (HasBadTerrainBetween(World, Prev, Point, Ignore, GroundOffset))
+				{
+					return false;
+				}
+				Prev = Point;
+			}
+			if (HasBadTerrainBetween(World, Prev, To, Ignore, GroundOffset))
+			{
+				return false;
+			}
+			OutPoints.Reset();
+			Prev = From;
+			for (const FVector& Raw : Candidates)
+			{
+				const FVector Point = SnapToGround(World, Raw, GroundOffset, Ignore, Prev.Z);
+				OutPoints.Add(Point);
+				Prev = Point;
+			}
+			return true;
+		};
+
+		for (float Radius = DetourRadiusStep; Radius <= DetourRadiusMax; Radius += DetourRadiusStep)
+		{
+			for (int32 Sign : {1, -1})
+			{
+				const FVector Offset = Right * static_cast<float>(Sign) * Radius;
+				if (TryPoints({ Mid + Offset }))
+				{
+					return true;
+				}
+				if (TryPoints({ From + Offset, To + Offset }))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	static void InsertTerrainDetours(
+		UWorld* World,
+		AActor* Enemy,
+		float GroundOffset,
+		TArray<FVector>& Points)
+	{
+		if (!World || Points.Num() < 2)
+		{
+			return;
+		}
+
+		TArray<FVector> Routed;
+		Routed.Reserve(Points.Num() * 2);
+		Routed.Add(Points[0]);
+		for (int32 i = 1; i < Points.Num(); ++i)
+		{
+			const FVector From = Routed.Last();
+			const FVector To = Points[i];
+			if (!HasBadTerrainBetween(World, From, To, Enemy, GroundOffset))
+			{
+				Routed.Add(To);
+				continue;
+			}
+
+			TArray<FVector> Detour;
+			if (FindNavDetour(World, From, To, Enemy, GroundOffset, Detour)
+				|| FindLateralDetour(World, From, To, Enemy, GroundOffset, Detour))
+			{
+				Routed.Append(Detour);
+				if (FVector::Dist2D(Routed.Last(), To) > 40.f)
+				{
+					Routed.Add(To);
+				}
+			}
+			else
+			{
+				Routed.Add(To);
+			}
+		}
+		Points = MoveTemp(Routed);
+	}
+
+	static FVector PushOffBadTerrain(
+		UWorld* World,
+		const FVector& Prev,
+		const FVector& Desired,
+		const FVector& Goal,
+		AActor* Ignore,
+		float GroundOffset,
+		int32& InOutSide)
+	{
+		bool bClimbed = false;
+		FVector Snapped = SnapToGround(World, Desired, GroundOffset, Ignore, Prev.Z, &bClimbed);
+		if (!bClimbed && !HasBadTerrainBetween(World, Prev, Snapped, Ignore, GroundOffset))
+		{
+			InOutSide = 0;
+			return Snapped;
+		}
+
+		FVector Forward(Desired.X - Prev.X, Desired.Y - Prev.Y, 0.f);
+		if (Forward.SizeSquared() < 1.f)
+		{
+			Forward = FVector(Goal.X - Prev.X, Goal.Y - Prev.Y, 0.f);
+		}
+		Forward = Forward.GetSafeNormal();
+		if (Forward.IsNearlyZero())
+		{
+			return FVector(Desired.X, Desired.Y, Prev.Z);
+		}
+		const FVector Right(-Forward.Y, Forward.X, 0.f);
+
+		TArray<int32, TInlineAllocator<2>> Signs;
+		if (InOutSide != 0)
+		{
+			Signs.Add(InOutSide);
+			Signs.Add(-InOutSide);
+		}
+		else
+		{
+			Signs.Add(1);
+			Signs.Add(-1);
+		}
+
+		FVector Best = FVector(Desired.X, Desired.Y, Prev.Z);
+		float BestScore = TNumericLimits<float>::Max();
+		bool bFound = false;
+		int32 BestSign = InOutSide;
+
+		for (float Radius = DetourRadiusStep * 0.5f; Radius <= DetourRadiusMax; Radius += DetourRadiusStep)
+		{
+			for (int32 Sign : Signs)
+			{
+				const FVector CandRaw = Desired + Right * static_cast<float>(Sign) * Radius;
+				bool bCandClimb = false;
+				const FVector Cand = SnapToGround(World, CandRaw, GroundOffset, Ignore, Prev.Z, &bCandClimb);
+				if (bCandClimb || HasBadTerrainBetween(World, Prev, Cand, Ignore, GroundOffset))
+				{
+					continue;
+				}
+				const float Score = FVector::DistSquared2D(Cand, Desired) + 0.2f * FVector::DistSquared2D(Cand, Goal);
+				if (Score < BestScore)
+				{
+					BestScore = Score;
+					Best = Cand;
+					BestSign = Sign;
+					bFound = true;
+				}
+			}
+			if (bFound)
+			{
+				InOutSide = BestSign;
+				return Best;
+			}
+		}
+
+		return Best;
+	}
+
+	static void PushSamplesAroundTerrain(UWorld* World, AActor* Enemy, float GroundOffset, TArray<FVector>& Samples)
+	{
+		if (!World || Samples.Num() < 2)
+		{
+			return;
+		}
+
+		const FVector Goal = Samples.Last();
+		int32 LockedSide = 0;
+		Samples[0] = SnapToGround(World, Samples[0], GroundOffset, Enemy);
+		for (int32 i = 1; i < Samples.Num(); ++i)
+		{
+			Samples[i] = PushOffBadTerrain(
+				World,
+				Samples[i - 1],
+				Samples[i],
+				Goal,
+				Enemy,
+				GroundOffset,
+				LockedSide);
+		}
 	}
 
 	struct FWaypointInfo
@@ -585,16 +981,15 @@ namespace TDEnemyPathPrivate
 			}
 		}
 
+		InsertTerrainDetours(World, Enemy, GroundOffset, Snapped);
+
 		UTDEnemyPathLibrary::TessellateCatmullRom(Snapped, State.Samples, SamplesPerSeg);
 		if (State.Samples.Num() == 0)
 		{
 			return;
 		}
 
-		for (FVector& Sample : State.Samples)
-		{
-			Sample = SnapToGround(World, Sample, GroundOffset, Enemy);
-		}
+		PushSamplesAroundTerrain(World, Enemy, GroundOffset, State.Samples);
 
 		State.CumLength.SetNum(State.Samples.Num());
 		State.CumLength[0] = 0.f;
@@ -667,6 +1062,59 @@ namespace TDEnemyPathPrivate
 			}
 		}
 		return false;
+	}
+
+	static bool IsEnemyStillAlive(AActor* Actor)
+	{
+		if (!IsValid(Actor) || Actor->IsActorBeingDestroyed())
+		{
+			return false;
+		}
+
+		float Health = 0.f;
+		if (ReadFloat(Actor, { TEXT("CurrentHealth") }, Health))
+		{
+			return Health > 0.f;
+		}
+
+		int32 HealthInt = 0;
+		if (ReadInt(Actor, { TEXT("CurrentHealth") }, HealthInt))
+		{
+			return HealthInt > 0;
+		}
+
+		return true;
+	}
+
+	static void CollectAliveOfClass(UWorld* World, const FSoftClassPath& ClassPath, TSet<AActor*>& OutAlive)
+	{
+		UClass* Class = ClassPath.TryLoadClass<AActor>();
+		if (!World || !Class)
+		{
+			return;
+		}
+		for (TActorIterator<AActor> It(World, Class); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (IsEnemyStillAlive(Actor))
+			{
+				OutAlive.Add(Actor);
+			}
+		}
+	}
+
+	static int32 CountAliveEnemies(UWorld* World)
+	{
+		if (!World)
+		{
+			return 0;
+		}
+
+		TSet<AActor*> Alive;
+		CollectAliveOfClass(World, TrashEnemyClass, Alive);
+		CollectAliveOfClass(World, RangedEnemyClass, Alive);
+		CollectAliveOfClass(World, BossEnemyClass, Alive);
+		return Alive.Num();
 	}
 
 	static bool IsBossWaveFor(AActor* Spawner, int32 WaveNumber)
@@ -1060,10 +1508,12 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	FVector Tangent = FVector::ForwardVector;
 	FVector Location = SampleAtDistance(*State, State->Distance, Tangent);
-	Location = SnapToGround(World, Location, GroundOffset, Enemy);
-
+	const FVector PrevLoc = Enemy->GetActorLocation();
+	int32 SteerSide = 0;
 	FVector LookTangent = Tangent;
 	const FVector LookPoint = SampleAtDistance(*State, State->Distance + LookAhead, LookTangent);
+	Location = PushOffBadTerrain(World, PrevLoc, Location, LookPoint, Enemy, GroundOffset, SteerSide);
+
 	FRotator NewRot = (LookPoint - Location).GetSafeNormal().Rotation();
 	if ((LookPoint - Location).SizeSquared() < 1.f)
 	{
@@ -1277,6 +1727,28 @@ bool UTDEnemyPathLibrary::AreWaveEnemiesAlive(const UObject* WorldContextObject)
 	return AnyAliveOfClass(World, TrashEnemyClass)
 		|| AnyAliveOfClass(World, RangedEnemyClass)
 		|| AnyAliveOfClass(World, BossEnemyClass);
+}
+
+int32 UTDEnemyPathLibrary::CountWaveEnemiesAlive(const UObject* WorldContextObject)
+{
+	using namespace TDEnemyPathPrivate;
+	UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	return CountAliveEnemies(World);
+}
+
+int32 UTDEnemyPathLibrary::CountWaveEnemiesRemaining(const UObject* WorldContextObject)
+{
+	using namespace TDEnemyPathPrivate;
+
+	UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	int32 Remaining = CountAliveEnemies(World);
+
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(WorldContextObject))
+	{
+		Remaining += FMath::Max(0, Sys->WaveSpawnQueue.Num() - Sys->WaveSpawnQueueIndex);
+	}
+
+	return Remaining;
 }
 
 void UTDEnemyPathLibrary::CheckWaveEnemiesCleared(AActor* Spawner)

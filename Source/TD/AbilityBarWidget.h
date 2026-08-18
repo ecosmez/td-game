@@ -45,12 +45,15 @@ struct FAbilityBarSlotWidgets
 
 	/** Hotkey letter for this slot (Q/W/E/R). Not reflected. */
 	TCHAR KeyChar = TEXT('\0');
+
+	/** 1=Q, 2=W, 3=E, 4=R. Not reflected. */
+	int32 AbilityId = 0;
 };
 
 /**
- * League-style champion ability bar (+ store | Q W E R).
- * Leading "+" opens the tower store. Next-wave play lives on the top Base Health HUD.
- * Ability slots read CD_* from the champion pawn.
+ * Overwatch-style champion ability bar stacked over the unit-frame HP widget.
+ * Leading "+" opens the tower store at bottom-center. Next-wave play lives on the top Base Health HUD.
+ * Ability slots read CD_* from the champion pawn and click through to BeginAbilityAim.
  *
  * States per ability slot (LoL-style):
  * - Available: bright cyan frame, full opacity, key letter
@@ -81,19 +84,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar")
 	int32 UltimateUnlockLevel = 3;
 
-	/** Slot edge length in slate units. */
+	/** Maximum slot edge length in slate units (shrunk to fit the champion frame). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar", meta = (ClampMin = "32.0"))
-	float SlotSize = 78.f;
+	float SlotSize = 56.f;
+
+	/** Gap between the ability row and the champion HP frame below it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability Bar", meta = (ClampMin = "0.0"))
+	float AbilityOverFrameGap = 6.f;
+
+	void OnAbilitySlotClicked(int32 AbilityId);
 
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();
 	void BuildStorePlusSlot(UHorizontalBox* Parent);
 	void ApplyHitTestPolicy();
+	void ApplyDockLayout();
+	void ApplySlotMetrics();
 	void RefreshStorePlusVisual();
+	class UChampionFrameWidget* ResolveChampionFrame() const;
+	void TryBeginAbilityAim(int32 AbilityId);
 
 	UFUNCTION()
 	void OnStorePlusClicked();
+
+	UFUNCTION()
+	void OnSlotQClicked();
+
+	UFUNCTION()
+	void OnSlotWClicked();
+
+	UFUNCTION()
+	void OnSlotEClicked();
+
+	UFUNCTION()
+	void OnSlotRClicked();
 
 	FAbilityBarSlotWidgets BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId);
 
@@ -111,6 +136,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UBorder> BarChrome = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<USizeBox> BarSizeBox = nullptr;
 
 	/** Tower store toggle — first button in the bar, before Q. */
 	UPROPERTY()
@@ -137,5 +165,10 @@ protected:
 	UPROPERTY()
 	FAbilityBarSlotWidgets SlotR;
 
+	float EffectiveSlotSize = 56.f;
+	float LastAppliedSlotSize = -1.f;
+	float LastAppliedWidth = -1.f;
+	float LastAppliedLift = -1.f;
+	float LastAppliedLeft = -1.f;
 	bool bBuilt = false;
 };

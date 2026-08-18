@@ -32,7 +32,9 @@
 ; Leveling: TickAbilities accumulates LevelTimer; every LevelInterval (45s) Level++ up to 3
 ;
 ; Ability HUD: /Game/TD/UI/WBP_AbilityBar (parent: AbilityBarWidget C++)
-;   Bottom-center LoL bar: + (store) | Q W E R
+;   Overwatch-style: + Q W E R stacked over the bottom-left champion HP/avatar widget
+;   Slots shrink to match the unit-frame width; click a slot to BeginAbilityAim (same as QWER)
+;   "+" opens the tower store at bottom-center
 ;   States: available | on cooldown (dark fill + seconds) | locked (R until ChampionLevel>=3)
 ;           dimmed while bIsDropping | aiming highlight when PendingAbility matches
 ;   Reads CD_*/MaxCD_*/bIsDropping/ChampionLevel/PendingAbility from owning pawn
@@ -41,6 +43,7 @@
 ;   CreateAndShowAbilityBar loads WBP_AbilityBar_C, falls back to AbilityBarWidget C++
 ;   Setup: Content/Python/setup_ability_bar_ui.py (also via init_unreal.py)
 ;   On construct also spawns MinimapWidget (Z=20) + CrystalHealthBarWidget (Z=90)
+;   + ChampionFrameWidget (Z=92) bottom-left
 ; Base Health HUD: CrystalHealthBarWidget C++ (/Game/TD/UI/WBP_CrystalHealthBar optional shell)
 ;   Top-center BASE HEALTH bar + wave strip (dots, boss skull, play/next, countdown)
 ;   Polls BP_Crystal CurrentHealth / MaxHealth and BP_EnemySpawner wave state each tick

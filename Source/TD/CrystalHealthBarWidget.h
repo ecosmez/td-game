@@ -14,7 +14,8 @@ class UTextBlock;
 
 /**
  * Top-center Base Health + wave HUD (replaces the old crystal-only bar).
- * Polls BP_Crystal CurrentHealth / MaxHealth and BP_EnemySpawner wave state each tick.
+ * Polls BP_Crystal CurrentHealth / MaxHealth, BP_EnemySpawner wave state, and
+ * remaining enemies (alive + still queued to spawn) each tick.
  */
 UCLASS()
 class TD_API UCrystalHealthBarWidget : public UUserWidget
@@ -91,6 +92,9 @@ protected:
 	TObjectPtr<UBorder> WaveChrome = nullptr;
 
 	UPROPERTY()
+	TObjectPtr<UBorder> EnemiesChrome = nullptr;
+
+	UPROPERTY()
 	TObjectPtr<USizeBox> BarSizeBox = nullptr;
 
 	UPROPERTY()
@@ -128,6 +132,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> NextWaveLabel = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> EnemiesCountLabel = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> TimerLabel = nullptr;

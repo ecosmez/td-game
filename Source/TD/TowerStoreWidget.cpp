@@ -251,7 +251,7 @@ void UTowerStoreWidget::BuildDefaultUI()
 	}
 
 	// -------------------------------------------------------------------------
-	// 1) Horizontal store strip — solid chrome, clear of the ability bar.
+	// 1) Horizontal store strip — solid chrome, bottom-center.
 	// -------------------------------------------------------------------------
 	StorePanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StorePanel"));
 	StorePanel->SetPadding(FMargin(12.f, 8.f));
@@ -394,8 +394,8 @@ void UTowerStoreWidget::BuildDefaultUI()
 float UTowerStoreWidget::GetStoreStripBottomPad() const
 {
 	// Distance from screen bottom to the *bottom edge* of the store strip.
-	// Ability bar: pad + chrome height, then a clear gap so nothing stacks.
-	return AbilityBarBottomPad + AbilityBarHeight + StoreBottomGap;
+	// Ability bar now sits over the champion frame (bottom-left); store is bottom-center.
+	return StoreScreenBottomPad;
 }
 
 float UTowerStoreWidget::GetHoverFloatBottomPad() const

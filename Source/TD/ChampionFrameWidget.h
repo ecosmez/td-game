@@ -54,6 +54,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Champion Frame")
 	bool IsScreenPosOverFrame(FVector2D ScreenPos) const;
 
+	/** Bottom-left margin used to dock companion HUD (ability bar). */
+	UFUNCTION(BlueprintPure, Category = "Champion Frame")
+	FVector2D GetChromeScreenMargin() const { return ScreenMargin; }
+
+	/** Size of the unit-frame chrome (live geometry when available, else estimated). */
+	UFUNCTION(BlueprintPure, Category = "Champion Frame")
+	FVector2D GetChromeScreenSize() const;
+
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();

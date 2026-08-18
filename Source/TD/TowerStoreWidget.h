@@ -110,7 +110,7 @@ struct FTowerStoreCardUI
 };
 
 /**
- * Tower store HUD docked above the ability bar:
+ * Tower store HUD docked at bottom-center:
  * - Toggle via the ability bar "+" slot (first button before Q)
  * - Horizontal tower strip
  * - Hover projects a translucent tower mesh + stats above the strip
@@ -134,15 +134,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store", meta = (ClampMin = "64"))
 	int32 PreviewRenderSize = 220;
 
-	/** Matches AbilityBarWidget: bottom offset of the QWER chrome. */
+	/** Distance from screen bottom to the store strip (bottom-center). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
+	float StoreScreenBottomPad = 36.f;
+
+	/** Legacy: unused for docking after the ability bar moved over the champion frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
 	float AbilityBarBottomPad = 40.f;
 
-	/** Ability bar chrome height (slot + padding). Includes a little slack so the store never covers it. */
+	/** Legacy: unused for docking after the ability bar moved over the champion frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
 	float AbilityBarHeight = 118.f;
 
-	/** Clear air between ability bar top and store strip bottom. */
+	/** Legacy: unused for docking after the ability bar moved over the champion frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
 	float StoreBottomGap = 28.f;
 

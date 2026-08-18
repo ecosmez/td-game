@@ -23,8 +23,9 @@ Champion abilities:
 Store UI:
 - /Game/TD/UI/WBP_TowerStore (C++ parent: TowerStoreWidget /Script/TD.TowerStoreWidget)
 - Shown by BuildManager.ShowBuildHUD
-- Always-visible PLUS button (bottom-left) toggles the store panel open/closed
-- Panel closed by default; click + to open, − / X to close
+- Ability-bar PLUS button (over champion HP) toggles the store panel open/closed
+- Store strip opens at bottom-center; closed by default
+- Panel closed by default; click + to open, − to close
 - Live resource readout + afford greying
 - Each tower type card:
     • Translucent projection of the real tower mesh (M_TowerHolo scene-capture)

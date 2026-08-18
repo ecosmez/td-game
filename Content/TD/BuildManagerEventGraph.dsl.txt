@@ -1,5 +1,6 @@
 (event EventBeginPlay
   (bind pc (Game|GetPlayerController 0))
+  (Variables|Resource|SetResource (Variables|Resource|GetStartingResource))
   (Variables|Default|SetIsBuildPhase true)
   (Variables|Default|SetWavesStarted false)
   (Variables|Default|SetHasTowerSelected false)
@@ -18,6 +19,7 @@
 (event Collision|EventActorBeginOverlap (OtherActor))
 
 (event EventTick (DeltaSeconds)
+  (Variables|Resource|SetResource (+ (Variables|Resource|GetResource) (* (Variables|Resource|GetResourcePerSecond) (Utilities|Time|GetWorldDeltaSeconds))))
   (bind pc (Game|GetPlayerController 0))
   (Utilities|IsValid pc
     (:"Is Valid"
@@ -25,7 +27,4 @@
         (CallFunction|UpdateGhostTower))
       (if (or (Variables|Default|GetTowerDragLive) (Variables|Default|GetHasTowerSelected))
         (if (or (Game|Player|WasInputKeyJustPressed pc "Escape") (Game|Player|WasInputKeyJustPressed pc "RightMouseButton"))
-          (CallFunction|CancelTowerSelection)
-          (else
-            (if (and (Game|Player|WasInputKeyJustPressed pc "LeftMouseButton") (not (Class|TDUIInputLibrary|IsPointerOverHitTestableUI)))
-              (CallFunction|TryDropTower))))))))
+          (CallFunction|CancelTowerSelection))))))

@@ -64,6 +64,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))
 	static bool AreWaveEnemiesAlive(const UObject* WorldContextObject);
 
+	/** Living trash / ranged / boss enemies (skips CurrentHealth <= 0). */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))
+	static int32 CountWaveEnemiesAlive(const UObject* WorldContextObject);
+
+	/** Alive enemies plus minions still waiting in the current wave spawn queue. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))
+	static int32 CountWaveEnemiesRemaining(const UObject* WorldContextObject);
+
 	/** Replaces BP_EnemySpawner.CheckWaveClear (counts BP_Boss too). */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void CheckWaveEnemiesCleared(AActor* Spawner);
