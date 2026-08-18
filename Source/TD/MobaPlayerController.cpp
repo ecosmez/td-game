@@ -6,6 +6,7 @@
 #include "MapDiscoveryComponent.h"
 #include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
+#include "TowerStoreWidget.h"
 
 #include "AIController.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
@@ -23,6 +24,7 @@
 #include "Navigation/PathFollowingComponent.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectIterator.h"
 
 namespace MobaSkipDropPrivate
 {
@@ -317,6 +319,8 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 
 	HandleSkipSkyDropInput();
 	HandleToggleFogOfWarInput();
+	HandleToggleStoreInput();
+	HandleTowerStoreHotkeys();
 	HandleClickToMoveChampion();
 	UpdateDirectMoveChampion(DeltaTime);
 	UpdateSkyDropCamera(DeltaTime);
@@ -338,6 +342,75 @@ void AMobaPlayerController::HandleToggleFogOfWarInput()
 		return;
 	}
 	ToggleWorldFogOfWar();
+}
+
+UTowerStoreWidget* AMobaPlayerController::FindTowerStoreWidget() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
+	{
+		UTowerStoreWidget* Store = *It;
+		if (IsValid(Store) && Store->GetWorld() == World)
+		{
+			return Store;
+		}
+	}
+	return nullptr;
+}
+
+void AMobaPlayerController::HandleToggleStoreInput()
+{
+	bool bPressed = false;
+	for (const FKey& Key : ToggleStoreKeys)
+	{
+		if (Key.IsValid() && WasInputKeyJustPressed(Key))
+		{
+			bPressed = true;
+			break;
+		}
+	}
+	if (!bPressed)
+	{
+		return;
+	}
+
+	if (UTowerStoreWidget* Store = FindTowerStoreWidget())
+	{
+		Store->ToggleStore();
+		return;
+	}
+
+	// No store widget exists yet (BuildManager hasn't created one) — spawn and open it.
+	if (UUserWidget* Widget = UTDUIInputLibrary::CreateAndShowTowerStore(this, this))
+	{
+		if (UTowerStoreWidget* Store = Cast<UTowerStoreWidget>(Widget))
+		{
+			Store->SetStoreOpen(true);
+		}
+	}
+}
+
+void AMobaPlayerController::HandleTowerStoreHotkeys()
+{
+	UTowerStoreWidget* Store = FindTowerStoreWidget();
+	if (!Store || !Store->IsStoreOpen())
+	{
+		return;
+	}
+
+	for (int32 Index = 0; Index < TowerStoreHotkeys.Num(); ++Index)
+	{
+		const FKey& Key = TowerStoreHotkeys[Index];
+		if (Key.IsValid() && WasInputKeyJustPressed(Key))
+		{
+			Store->OnCardClicked(Index);
+			break;
+		}
+	}
 }
 
 void AMobaPlayerController::ToggleWorldFogOfWar()

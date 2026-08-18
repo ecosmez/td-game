@@ -271,12 +271,29 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Moba|Sky Drop|Camera")
 	void ExitDropCameraMode();
 
+	/** Hotkey(s) that open/close the tower store (default: B and S). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Tower Store")
+	TArray<FKey> ToggleStoreKeys = { EKeys::B, EKeys::S };
+
+	/**
+	 * Hotkeys that buy/select tower store cards left-to-right (default: 1-9, 0 for the 10th).
+	 * Only active while the store is open; out-of-range indices are safely ignored.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Tower Store")
+	TArray<FKey> TowerStoreHotkeys = {
+		EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
+		EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine, EKeys::Zero
+	};
+
 protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
 	void HandleClickToMoveChampion();
 	void HandleSkipSkyDropInput();
 	void HandleToggleFogOfWarInput();
+	void HandleToggleStoreInput();
+	void HandleTowerStoreHotkeys();
+	class UTowerStoreWidget* FindTowerStoreWidget() const;
 	void ApplyFogOfWarVisualState();
 	void EnsureChampionHasAIController(APawn* Champion);
 	void UpdateSkyDropCamera(float DeltaTime);
