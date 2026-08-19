@@ -84,6 +84,10 @@ void AMobaCameraPawn::BeginPlay()
 	RefreshBoundsFromSource();
 	UpdatePlanarAxes();
 	EnsureInputAssets();
+
+	// Starts locked to the champion — don't let a cursor that happens to already be on an
+	// edge unlock the camera on the very first tick.
+	bEdgeScrollArmed = false;
 }
 
 void AMobaCameraPawn::PossessedBy(AController* NewController)
@@ -133,13 +137,17 @@ void AMobaCameraPawn::EnsureInputAssets()
 	{
 		FocusChampionAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/TD/Input/MobaCamera/IA_CameraFocusChampion.IA_CameraFocusChampion"));
 	}
+	if (!ArrowMoveAction)
+	{
+		ArrowMoveAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/TD/Input/MobaCamera/IA_CameraMoveArrows.IA_CameraMoveArrows"));
+	}
 	if (!CameraMappingContext)
 	{
 		CameraMappingContext = LoadObject<UInputMappingContext>(nullptr, TEXT("/Game/TD/Input/MobaCamera/IMC_MobaCamera.IMC_MobaCamera"));
 	}
 
 	const bool bNeedRuntime =
-		!MoveAction || !ZoomAction || !RotateAction || !DragAction || !FocusChampionAction || !CameraMappingContext;
+		!MoveAction || !ZoomAction || !RotateAction || !DragAction || !FocusChampionAction || !ArrowMoveAction || !CameraMappingContext;
 
 	if (!bNeedRuntime)
 	{
@@ -171,6 +179,11 @@ void AMobaCameraPawn::EnsureInputAssets()
 	{
 		FocusChampionAction = NewObject<UInputAction>(this, TEXT("IA_CameraFocusChampion_Runtime"), RF_Transient);
 		FocusChampionAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!ArrowMoveAction)
+	{
+		ArrowMoveAction = NewObject<UInputAction>(this, TEXT("IA_CameraMoveArrows_Runtime"), RF_Transient);
+		ArrowMoveAction->ValueType = EInputActionValueType::Axis2D;
 	}
 
 	if (!CameraMappingContext)
@@ -218,6 +231,32 @@ void AMobaCameraPawn::EnsureInputAssets()
 
 		CameraMappingContext->MapKey(DragAction, EKeys::MiddleMouseButton);
 		CameraMappingContext->MapKey(FocusChampionAction, EKeys::SpaceBar);
+
+		// Arrow keys (Axis2D) — always-active camera pan, independent of the WASD ability-key gate.
+		{
+			FEnhancedActionKeyMapping& Up = CameraMappingContext->MapKey(ArrowMoveAction, EKeys::Up);
+			if (UInputModifierSwizzleAxis* Swizzle = NewObject<UInputModifierSwizzleAxis>(CameraMappingContext))
+			{
+				Swizzle->Order = EInputAxisSwizzle::YXZ; // Up drives Y
+				Up.Modifiers.Add(Swizzle);
+			}
+			FEnhancedActionKeyMapping& Down = CameraMappingContext->MapKey(ArrowMoveAction, EKeys::Down);
+			if (UInputModifierNegate* Neg = NewObject<UInputModifierNegate>(CameraMappingContext))
+			{
+				Down.Modifiers.Add(Neg);
+			}
+			if (UInputModifierSwizzleAxis* Swizzle = NewObject<UInputModifierSwizzleAxis>(CameraMappingContext))
+			{
+				Swizzle->Order = EInputAxisSwizzle::YXZ;
+				Down.Modifiers.Add(Swizzle);
+			}
+			CameraMappingContext->MapKey(ArrowMoveAction, EKeys::Right);
+			FEnhancedActionKeyMapping& Left = CameraMappingContext->MapKey(ArrowMoveAction, EKeys::Left);
+			if (UInputModifierNegate* Neg = NewObject<UInputModifierNegate>(CameraMappingContext))
+			{
+				Left.Modifiers.Add(Neg);
+			}
+		}
 	}
 }
 
@@ -255,6 +294,12 @@ void AMobaCameraPawn::BindEnhancedInput(UEnhancedInputComponent* EIC)
 		EIC->BindAction(FocusChampionAction, ETriggerEvent::Started, this, &AMobaCameraPawn::OnFocusStarted);
 		EIC->BindAction(FocusChampionAction, ETriggerEvent::Completed, this, &AMobaCameraPawn::OnFocusCompleted);
 		EIC->BindAction(FocusChampionAction, ETriggerEvent::Canceled, this, &AMobaCameraPawn::OnFocusCompleted);
+	}
+	if (ArrowMoveAction)
+	{
+		EIC->BindAction(ArrowMoveAction, ETriggerEvent::Triggered, this, &AMobaCameraPawn::OnArrowMove);
+		EIC->BindAction(ArrowMoveAction, ETriggerEvent::Completed, this, &AMobaCameraPawn::OnArrowMove);
+		EIC->BindAction(ArrowMoveAction, ETriggerEvent::Canceled, this, &AMobaCameraPawn::OnArrowMove);
 	}
 
 	bInputBound = true;
@@ -396,8 +441,27 @@ void AMobaCameraPawn::OnFocusStarted(const FInputActionValue& Value)
 	// Space = sticky lock + hold-to-follow (matches LoL recenter + lock).
 	bLockedToChampion = true;
 	bFocusChampionHeld = true;
+	bEdgeScrollArmed = false;
 	CurrentVelocity = FVector::ZeroVector;
 	DesiredVelocity = FVector::ZeroVector;
+}
+
+void AMobaCameraPawn::OnArrowMove(const FInputActionValue& Value)
+{
+	if (ShouldBlockCameraInputForUI())
+	{
+		ArrowMoveInput = FVector2D::ZeroVector;
+		return;
+	}
+	// Arrow keys always pan the camera (WASD is reserved for champion abilities in this MOBA).
+	ArrowMoveInput = Value.Get<FVector2D>();
+	if (bManualMovementCancelsFocus && !ArrowMoveInput.IsNearlyZero() && ShouldFollowChampion())
+	{
+		if (!(bFollowWhileChampionDropping && IsChampionDropping()))
+		{
+			CancelChampionFollow();
+		}
+	}
 }
 
 void AMobaCameraPawn::OnFocusCompleted(const FInputActionValue& Value)
@@ -427,6 +491,7 @@ void AMobaCameraPawn::SetLockedToChampion(bool bLocked)
 	if (bLocked)
 	{
 		bFocusChampionHeld = false;
+		bEdgeScrollArmed = false;
 		CurrentVelocity = FVector::ZeroVector;
 		DesiredVelocity = FVector::ZeroVector;
 	}
@@ -436,6 +501,7 @@ void AMobaCameraPawn::CancelChampionFollow()
 {
 	bLockedToChampion = false;
 	bFocusChampionHeld = false;
+	bMinimapPanning = false;
 }
 
 bool AMobaCameraPawn::ShouldFollowChampion() const
@@ -520,6 +586,7 @@ void AMobaCameraPawn::RecenterOnChampion(bool bInstant)
 		Loc.Z = CachedPawnHeight;
 		ConstrainLocation(Loc);
 		bLockedToChampion = true;
+		bEdgeScrollArmed = false;
 		if (bInstant)
 		{
 			SetActorLocation(Loc);
@@ -552,12 +619,34 @@ void AMobaCameraPawn::SnapToWorldXY(const FVector& WorldLocation)
 	}
 	Loc.Z = CachedPawnHeight;
 	ConstrainLocation(Loc);
-	SetActorLocation(Loc, false, nullptr, ETeleportType::TeleportPhysics);
+
+	// Ease toward the target instead of teleporting — an instant jump feels far too fast
+	// since a small minimap click/drag maps to a large world-space distance.
+	MinimapPanTarget = Loc;
+	bMinimapPanning = true;
 
 	if (FloatingPawnMovement)
 	{
 		FloatingPawnMovement->StopMovementImmediately();
 		FloatingPawnMovement->Velocity = FVector::ZeroVector;
+	}
+}
+
+void AMobaCameraPawn::UpdateMinimapPan(float DeltaTime)
+{
+	if (!bMinimapPanning)
+	{
+		return;
+	}
+
+	const FVector CurrentLoc = GetActorLocation();
+	FVector NewLocation = FMath::VInterpTo(CurrentLoc, MinimapPanTarget, DeltaTime, MinimapPanInterpolationSpeed);
+	ConstrainLocation(NewLocation);
+	SetActorLocation(NewLocation);
+
+	if (FVector::DistSquared2D(NewLocation, MinimapPanTarget) < 1.0f)
+	{
+		bMinimapPanning = false;
 	}
 }
 
@@ -606,12 +695,18 @@ float AMobaCameraPawn::GetZoomSpeedScale() const
 
 void AMobaCameraPawn::UpdateKeyboardMove(float DeltaTime)
 {
-	if (!IsKeyboardCameraMoveEnabled() || MoveInput.IsNearlyZero())
+	// Arrow keys always pan; WASD only when explicitly enabled (it doubles as ability keys).
+	FVector2D CombinedInput = ArrowMoveInput;
+	if (IsKeyboardCameraMoveEnabled())
+	{
+		CombinedInput += MoveInput;
+	}
+	if (CombinedInput.IsNearlyZero())
 	{
 		return;
 	}
 
-	FVector Dir = ForwardPlanar * MoveInput.Y + RightPlanar * MoveInput.X;
+	FVector Dir = ForwardPlanar * CombinedInput.Y + RightPlanar * CombinedInput.X;
 	if (!Dir.Normalize())
 	{
 		return;
@@ -622,7 +717,7 @@ void AMobaCameraPawn::UpdateKeyboardMove(float DeltaTime)
 
 void AMobaCameraPawn::UpdateEdgeScroll(float DeltaTime)
 {
-	if (!bEnableEdgeScrolling || bIsDragging || ShouldFollowChampion())
+	if (!bEnableEdgeScrolling || bIsDragging)
 	{
 		return;
 	}
@@ -674,9 +769,30 @@ void AMobaCameraPawn::UpdateEdgeScroll(float DeltaTime)
 		EdgeDir.Y -= 1.0f;
 	}
 
+	// After a fresh lock (Space / recenter), require the cursor to leave the edge once
+	// before it can pan again — avoids the camera instantly fighting the recenter.
+	if (!bEdgeScrollArmed)
+	{
+		if (EdgeDir.IsNearlyZero())
+		{
+			bEdgeScrollArmed = true;
+		}
+		return;
+	}
+
 	if (EdgeDir.IsNearlyZero())
 	{
 		return;
+	}
+
+	if (ShouldFollowChampion())
+	{
+		// LoL-style: hovering the edge breaks the follow lock, same as WASD/drag input.
+		if (bFollowWhileChampionDropping && IsChampionDropping())
+		{
+			return;
+		}
+		CancelChampionFollow();
 	}
 
 	EdgeDir.Normalize();
@@ -849,22 +965,28 @@ void AMobaCameraPawn::Tick(float DeltaTime)
 
 	UpdateRotation(DeltaTime);
 
-	// While locked, edge scroll is ignored (WASD / MMB / minimap unlock free cam).
+	// Arrow keys / mouse-edge can cancel the follow lock themselves (LoL-style), so poll
+	// them before checking follow state — a same-tick edge hit should pan immediately.
+	if (bIsDragging)
+	{
+		UpdateMiddleMouseDrag(DeltaTime);
+	}
+	else
+	{
+		UpdateKeyboardMove(DeltaTime);
+		UpdateEdgeScroll(DeltaTime);
+	}
+
 	if (ShouldFollowChampion())
 	{
 		UpdateChampionFocus(DeltaTime);
 	}
+	else if (bMinimapPanning)
+	{
+		UpdateMinimapPan(DeltaTime);
+	}
 	else
 	{
-		if (bIsDragging)
-		{
-			UpdateMiddleMouseDrag(DeltaTime);
-		}
-		else
-		{
-			UpdateKeyboardMove(DeltaTime);
-			UpdateEdgeScroll(DeltaTime);
-		}
 		ApplyVelocity(DeltaTime);
 	}
 

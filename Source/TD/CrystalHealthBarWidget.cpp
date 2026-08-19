@@ -185,9 +185,7 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 	ValueLabel = nullptr;
 	WaveDotsBox = nullptr;
 	WaveDots.Reset();
-	BossSizeBox = nullptr;
-	BossFrame = nullptr;
-	BossLabel = nullptr;
+	WaveDotIcons.Reset();
 	NextWaveSizeBox = nullptr;
 	NextWaveFrame = nullptr;
 	NextWaveButton = nullptr;
@@ -347,34 +345,6 @@ void UCrystalHealthBarWidget::BuildWaveRow(UHorizontalBox* Parent)
 	}
 	RebuildWaveDots();
 
-	BossSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("BossIconSize"));
-	BossSizeBox->SetWidthOverride(28.f);
-	BossSizeBox->SetHeightOverride(28.f);
-	BossSizeBox->SetVisibility(ESlateVisibility::Collapsed);
-	if (UHorizontalBoxSlot* BossSlot = Parent->AddChildToHorizontalBox(BossSizeBox))
-	{
-		BossSlot->SetVerticalAlignment(VAlign_Center);
-		BossSlot->SetPadding(FMargin(4.f, 0.f, 8.f, 0.f));
-	}
-
-	BossFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BossIconFrame"));
-	ApplyRoundedBrush(BossFrame, CrystalHealthBarPrivate::BossFill, CrystalHealthBarPrivate::BossOutline, 2.f, false);
-	BossSizeBox->SetContent(BossFrame);
-
-	BossLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BossIconLabel"));
-	BossLabel->SetText(FText::FromString(TEXT("☠")));
-	BossLabel->SetJustification(ETextJustify::Center);
-	BossLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::BossIcon));
-	BossLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	BossLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = BossLabel->GetFont();
-		Font.Size = 16.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		BossLabel->SetFont(Font);
-	}
-	BossFrame->SetContent(BossLabel);
-
 	NextWaveSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("NextWaveSize"));
 	NextWaveSizeBox->SetWidthOverride(PlayButtonSize);
 	NextWaveSizeBox->SetHeightOverride(PlayButtonSize);
@@ -439,6 +409,8 @@ void UCrystalHealthBarWidget::RebuildWaveDots()
 	WaveDotsBox->ClearChildren();
 	WaveDots.Reset();
 	WaveDots.Reserve(Count);
+	WaveDotIcons.Reset();
+	WaveDotIcons.Reserve(Count);
 
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
@@ -453,6 +425,24 @@ void UCrystalHealthBarWidget::RebuildWaveDots()
 		ApplyRoundedBrush(Dot, CrystalHealthBarPrivate::DotEmptyFill, CrystalHealthBarPrivate::DotEmptyOutline, 1.6f, true);
 		DotSize->SetContent(Dot);
 		WaveDots.Add(Dot);
+
+		// Skull glyph shown on top of this dot only when it is the upcoming boss wave.
+		UTextBlock* Icon = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
+			*FString::Printf(TEXT("WaveDotBossIcon_%d"), Index));
+		Icon->SetText(FText::FromString(TEXT("☠")));
+		Icon->SetJustification(ETextJustify::Center);
+		Icon->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::BossIcon));
+		Icon->SetShadowOffset(FVector2D(1.f, 1.f));
+		Icon->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
+		Icon->SetVisibility(ESlateVisibility::Collapsed);
+		{
+			FSlateFontInfo Font = Icon->GetFont();
+			Font.Size = FMath::Max(8.f, CircleSize * 0.6f);
+			Font.TypefaceFontName = TEXT("Bold");
+			Icon->SetFont(Font);
+		}
+		Dot->SetContent(Icon);
+		WaveDotIcons.Add(Icon);
 
 		if (UHorizontalBoxSlot* DotSlot = WaveDotsBox->AddChildToHorizontalBox(DotSize))
 		{
@@ -676,6 +666,13 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		}
 	}
 
+	// The boss dot is whichever wave-dot index matches BossWaveNumber (1-based); it stays marked
+	// red with the skull glyph for as long as the boss wave hasn't been reached/cleared yet
+	// (same condition the old floating icon used), so the icon always sits on the wave it
+	// actually spawns from instead of floating in a fixed spot next to the dot row.
+	const int32 BossIndex = BossWaveNumber > 0 ? (BossWaveNumber - 1) : (bIsBossWave ? WaveNumber - 1 : INDEX_NONE);
+	const bool bBossPending = BossIndex != INDEX_NONE
+		&& (bIsBossWave || (BossWaveNumber > 0 && WaveNumber <= BossWaveNumber));
 	const int32 Filled = FMath::Clamp(WaveNumber, 0, WaveDots.Num());
 	for (int32 Index = 0; Index < WaveDots.Num(); ++Index)
 	{
@@ -685,7 +682,12 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 			continue;
 		}
 		const bool bFilled = Index < Filled;
-		if (bFilled)
+		const bool bIsBossDot = Index == BossIndex && bBossPending;
+		if (bIsBossDot)
+		{
+			ApplyRoundedBrush(Dot, CrystalHealthBarPrivate::BossFill, CrystalHealthBarPrivate::BossOutline, 1.6f, true);
+		}
+		else if (bFilled)
 		{
 			ApplyRoundedBrush(Dot, CrystalHealthBarPrivate::Neon, CrystalHealthBarPrivate::Neon, 1.2f, true);
 		}
@@ -693,13 +695,11 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		{
 			ApplyRoundedBrush(Dot, CrystalHealthBarPrivate::DotEmptyFill, CrystalHealthBarPrivate::DotEmptyOutline, 1.6f, true);
 		}
-	}
 
-	const bool bBossComing = bIsBossWave
-		|| (BossWaveNumber > 0 && WaveNumber <= BossWaveNumber);
-	if (BossSizeBox)
-	{
-		BossSizeBox->SetVisibility(bBossComing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (WaveDotIcons.IsValidIndex(Index) && WaveDotIcons[Index])
+		{
+			WaveDotIcons[Index]->SetVisibility(bIsBossDot ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
 	}
 
 	const bool bBusy = bSpawning || bWaitingClear;

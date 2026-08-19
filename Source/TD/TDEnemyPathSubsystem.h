@@ -13,6 +13,9 @@ struct FTDEnemyPathState
 	float TotalLength = 0.f;
 	bool bValid = false;
 	bool bReachedNotified = false;
+
+	/** True while something (e.g. the champion's melee lock) should freeze path movement this tick. */
+	bool bHeld = false;
 };
 
 /** One minion spawn assignment (route + lane + Index 0 location). */

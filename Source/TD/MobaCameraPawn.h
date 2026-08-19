@@ -91,6 +91,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement", meta = (ClampMin = "0.01"))
 	float RotationInterpolationSpeed = 8.0f;
 
+	/** How quickly the camera eases toward a minimap click/drag target (lower = slower pan). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement", meta = (ClampMin = "0.01"))
+	float MinimapPanInterpolationSpeed = 5.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Movement", meta = (ClampMin = "0.0"))
 	float EdgeScrollThreshold = 12.0f;
 
@@ -167,6 +171,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Input")
 	TObjectPtr<UInputAction> FocusChampionAction;
 
+	/** Arrow keys pan the camera regardless of bEnableKeyboardCameraMoveWhenGrounded (WASD is reserved for abilities). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Input")
+	TObjectPtr<UInputAction> ArrowMoveAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Input")
 	int32 MappingContextPriority = 1;
 
@@ -204,7 +212,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void RecenterOnChampion(bool bInstant = false);
 
-	/** Instantly pan the free camera pivot over a world XY (keeps current height). Used by minimap. */
+	/** Eases the free camera pivot toward a world XY at MinimapPanInterpolationSpeed (keeps current height). Used by minimap. */
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void SnapToWorldXY(const FVector& WorldLocation);
 
@@ -224,12 +232,14 @@ protected:
 	void OnDragCompleted(const FInputActionValue& Value);
 	void OnFocusStarted(const FInputActionValue& Value);
 	void OnFocusCompleted(const FInputActionValue& Value);
+	void OnArrowMove(const FInputActionValue& Value);
 
 	void UpdatePlanarAxes();
 	void UpdateKeyboardMove(float DeltaTime);
 	void UpdateEdgeScroll(float DeltaTime);
 	void UpdateMiddleMouseDrag(float DeltaTime);
 	void UpdateChampionFocus(float DeltaTime);
+	void UpdateMinimapPan(float DeltaTime);
 	void UpdateZoom(float DeltaTime);
 	void UpdateRotation(float DeltaTime);
 	void ApplyVelocity(float DeltaTime);
@@ -248,6 +258,8 @@ protected:
 
 	// Runtime state
 	FVector2D MoveInput = FVector2D::ZeroVector;
+	/** Arrow-key pan input — combined with MoveInput but not gated by the WASD grounded toggle. */
+	FVector2D ArrowMoveInput = FVector2D::ZeroVector;
 	float RotateInput = 0.0f;
 	FVector DesiredVelocity = FVector::ZeroVector;
 	FVector CurrentVelocity = FVector::ZeroVector;
@@ -261,7 +273,12 @@ protected:
 	FVector RightPlanar = FVector::RightVector;
 
 	bool bIsDragging = false;
+	/** After a fresh lock (Space / recenter), require the cursor to leave the screen edge once before edge-scroll can act again. */
+	bool bEdgeScrollArmed = true;
 	bool bFocusChampionHeld = false;
+	/** True while easing toward a minimap click/drag target (cleared on arrival or manual input). */
+	bool bMinimapPanning = false;
+	FVector MinimapPanTarget = FVector::ZeroVector;
 	FVector2D LastDragMousePos = FVector2D::ZeroVector;
 	bool bSavedCursorVisibility = true;
 	float CachedPawnHeight = 0.0f;

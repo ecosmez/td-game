@@ -11,6 +11,21 @@ class UCameraOrbitGizmoWidget;
 class UInputMappingContext;
 class UMapDiscoveryComponent;
 class UWorldFogOfWarComponent;
+class UFloatingDamageTextWidget;
+
+/** One active floating combat-text number: owning widget, world anchor, and lifetime. */
+USTRUCT()
+struct FTDFloatingDamageEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<UFloatingDamageTextWidget> Widget = nullptr;
+
+	FVector WorldLocation = FVector::ZeroVector;
+	float Elapsed = 0.0f;
+	float Duration = 1.0f;
+};
 
 /**
  * MOBA player controller: free RTS camera + separately tracked champion pawn.
@@ -63,6 +78,46 @@ public:
 	/** Stop direct cliff/fall moves when XY distance to the click is within this (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
 	float DirectMoveAcceptanceRadius = 90.0f;
+
+	/** Right-click on an enemy attacks it instead of moving there (walks into range first). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
+	bool bEnableChampionAttack = true;
+
+	/** Reach of the champion's basic attack (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack", meta = (ClampMin = "1.0"))
+	float ChampionAttackRange = 250.0f;
+
+	/** Damage dealt per basic attack. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack", meta = (ClampMin = "0.0"))
+	float ChampionAttackDamage = 15.0f;
+
+	/** Seconds between basic attacks while the target is in range. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack", meta = (ClampMin = "0.05"))
+	float ChampionAttackInterval = 1.0f;
+
+	/** Current champion basic-attack target, if any (set by right-clicking an enemy). */
+	UFUNCTION(BlueprintPure, Category = "Moba Camera|Champion|Attack")
+	AActor* GetChampionAttackTarget() const { return ChampionAttackTarget.Get(); }
+
+	/** Show a LoL-style floating damage number that rises and fades over this many seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack", meta = (ClampMin = "0.1"))
+	float FloatingDamageDuration = 1.0f;
+
+	/** Upward drift speed of floating damage numbers (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
+	float FloatingDamageRiseSpeed = 70.0f;
+
+	/** Floating text color for damage the champion deals to enemies. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
+	FLinearColor OutgoingDamageColor = FLinearColor(1.0f, 0.87f, 0.25f, 1.0f);
+
+	/** Floating text color for damage the champion takes from enemies. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
+	FLinearColor IncomingDamageColor = FLinearColor(1.0f, 0.18f, 0.16f, 1.0f);
+
+	/** Clear the current champion attack order (does not issue a new move). */
+	UFUNCTION(BlueprintCallable, Category = "Moba Camera|Champion|Attack")
+	void StopChampionAttack();
 
 	/** When true, controller possesses the camera pawn and keeps the champion via ControlledChampion. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera")
@@ -141,6 +196,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
 	void SetWorldFogOfWarEnabled(bool bEnabled);
+
+	/** Hotkey that opens/closes the tower store. Default: B */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
+	FKey ToggleStoreKeyPrimary = EKeys::B;
+
+	/** Second hotkey that opens/closes the tower store. Default: S */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
+	FKey ToggleStoreKeySecondary = EKeys::S;
 
 	UFUNCTION(BlueprintPure, Category = "Map Discovery")
 	bool IsWorldFogOfWarEnabled() const { return bEnableWorldFogOfWar; }
@@ -275,8 +338,14 @@ protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
 	void HandleClickToMoveChampion();
+	void UpdateChampionAttack(float DeltaTime);
+	void BeginChampionAttack(APawn* Champion, AActor* Target);
+	void UpdateChampionDamageTaken();
+	void SpawnFloatingDamageText(const FVector& WorldLocation, float Amount, const FLinearColor& Color);
+	void UpdateFloatingDamageTexts(float DeltaTime);
 	void HandleSkipSkyDropInput();
 	void HandleToggleFogOfWarInput();
+	void HandleToggleStoreInput();
 	void ApplyFogOfWarVisualState();
 	void EnsureChampionHasAIController(APawn* Champion);
 	void UpdateSkyDropCamera(float DeltaTime);
@@ -317,4 +386,29 @@ protected:
 
 	UPROPERTY(Transient)
 	FVector DirectMoveTarget = FVector::ZeroVector;
+
+	/** Enemy the champion is currently attack-moving toward / attacking. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> ChampionAttackTarget;
+
+	UPROPERTY(Transient)
+	float ChampionAttackCooldownRemaining = 0.0f;
+
+	/** Throttles re-issuing SimpleMoveToLocation while chasing a moving attack target. */
+	UPROPERTY(Transient)
+	float ChampionAttackRepathCooldown = 0.0f;
+
+	UPROPERTY(Transient)
+	FVector ChampionAttackLastChaseTarget = FVector::ZeroVector;
+
+	/** Active floating damage numbers currently rising/fading in the viewport. */
+	UPROPERTY(Transient)
+	TArray<FTDFloatingDamageEntry> FloatingDamageEntries;
+
+	/** Champion CurrentHealth last tick, used to detect incoming hits for red floating text. -1 = not yet sampled. */
+	UPROPERTY(Transient)
+	float LastKnownChampionHealth = -1.0f;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<APawn> LastKnownChampionForHealth;
 };

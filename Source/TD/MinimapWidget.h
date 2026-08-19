@@ -34,6 +34,7 @@ public:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+	virtual int32 NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -78,6 +79,14 @@ public:
 	/** Re-scan level bounds every N seconds while auto-fit is on (0 = only once). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.0", EditCondition = "bAutoFitBoundsToLevel"))
 	float AutoFitRescanInterval = 2.0f;
+
+	/**
+	 * Tightens the orthographic capture around the world-bounds center (1.0 = fit exactly,
+	 * smaller = zoom in / show less area). LoL-style minimaps read as a close, filled-frame
+	 * crop rather than the whole level with empty margins.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float MinimapZoomFactor = 0.6f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bShowChampionMarker = true;
@@ -128,6 +137,65 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks", meta = (ClampMin = "2.0"))
 	float EnemySpawnMarkerHalfSize = 7.0f;
+
+	/** Live enemy blips — red dots for every walking BP_Enemy, updated as they move. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Enemies")
+	bool bShowEnemyMarkers = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Enemies")
+	FLinearColor EnemyMarkerColor = FLinearColor(0.95f, 0.12f, 0.10f, 1.0f);
+
+	/** Half-size of each enemy dot on the minimap (slate units). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Enemies", meta = (ClampMin = "1.0"))
+	float EnemyMarkerHalfSize = 4.0f;
+
+	/** Soft class path for BP_Enemy (and subclasses) tracked as walking blips. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Enemies")
+	FSoftClassPath EnemyActorClass = FSoftClassPath(TEXT("/Game/TD/BP_Enemy.BP_Enemy_C"));
+
+	/** Re-scan live enemies every N seconds (0 = every frame). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Enemies", meta = (ClampMin = "0.0"))
+	float EnemyMarkerUpdateInterval = 0.1f;
+
+	/** Blue blips for every placed tower (BP_Tower and subclasses). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Towers")
+	bool bShowTowerMarkers = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Towers")
+	FLinearColor TowerMarkerColor = FLinearColor(0.15f, 0.55f, 0.98f, 1.0f);
+
+	/** Half-size of each tower blip on the minimap (slate units). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Towers", meta = (ClampMin = "1.0"))
+	float TowerMarkerHalfSize = 5.0f;
+
+	/** Soft class path for BP_Tower (and subclasses: arrow, cannon, sniper, ...). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Towers")
+	FSoftClassPath TowerActorClass = FSoftClassPath(TEXT("/Game/TD/BP_Tower.BP_Tower_C"));
+
+	/** Re-scan placed towers every N seconds (0 = every frame). Towers are static, so this can be slower than enemy scanning. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Towers", meta = (ClampMin = "0.0"))
+	float TowerMarkerUpdateInterval = 0.5f;
+
+	/** White ring behind the champion marker so it reads as a distinct "avatar" icon. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
+	bool bShowChampionAvatarFrame = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
+	FLinearColor ChampionAvatarFrameColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.9f);
+
+	/** How much larger the avatar frame is than the champion marker itself (slate units, added to half-size). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap", meta = (ClampMin = "0.0"))
+	float ChampionAvatarFramePadding = 3.0f;
+
+	/** Draws a quad on the minimap outlining the ground area currently visible on screen (LoL-style camera box). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|View Frustum")
+	bool bShowViewFrustum = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|View Frustum")
+	FLinearColor ViewFrustumColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.85f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|View Frustum", meta = (ClampMin = "0.5"))
+	float ViewFrustumThickness = 1.5f;
 
 	/**
 	 * World radius (cm) permanently revealed around crystal + first enemy spawn
@@ -213,6 +281,14 @@ protected:
 	void UpdateCaptureTransform();
 	void ConfigureSceneCapture();
 	void UpdateMarkers();
+	void UpdateEnemyMarkers(float DeltaTime);
+	UBorder* GetOrCreateEnemyMarker(int32 Index);
+	void UpdateTowerMarkers(float DeltaTime);
+	UBorder* GetOrCreateTowerMarker(int32 Index);
+	/** Deprojects the four screen corners onto the ground plane and returns their minimap-normalized UVs. */
+	bool ComputeViewFrustumCorners(TArray<FVector2D>& OutNormalizedCorners) const;
+	/** Maps a minimap-normalized point into AllottedGeometry's local paint space (for NativePaint). */
+	FVector2D NormalizedToRootLocal(const FVector2D& Normalized, const FGeometry& AllottedGeometry) const;
 	void UpdateCapture(float DeltaTime);
 	void UpdateMapDiscovery();
 	void EnsureDiscoveryFog();
@@ -280,6 +356,39 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UBorder> EnemySpawnMarker = nullptr;
+
+	/** Map canvas hosting all markers — kept so enemy blips can be added after initial build. */
+	UPROPERTY()
+	TObjectPtr<UCanvasPanel> MapCanvas = nullptr;
+
+	/** Pooled live-enemy blip widgets, one per concurrently tracked enemy. */
+	UPROPERTY()
+	TArray<TObjectPtr<UBorder>> EnemyMarkers;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UCanvasPanelSlot>> EnemyMarkerSlots;
+
+	TWeakObjectPtr<UClass> CachedEnemyClass;
+
+	float EnemyMarkerTimer = 0.0f;
+
+	/** Pooled placed-tower blip widgets (blue), one per concurrently tracked tower. */
+	UPROPERTY()
+	TArray<TObjectPtr<UBorder>> TowerMarkers;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UCanvasPanelSlot>> TowerMarkerSlots;
+
+	TWeakObjectPtr<UClass> CachedTowerClass;
+
+	float TowerMarkerTimer = 0.0f;
+
+	/** White ring behind ChampionMarker so it reads as an avatar icon rather than a plain square. */
+	UPROPERTY()
+	TObjectPtr<UBorder> ChampionMarkerFrame = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UCanvasPanelSlot> ChampionFrameSlot = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanelSlot> ChampionSlot = nullptr;

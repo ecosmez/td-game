@@ -112,14 +112,9 @@ protected:
 	UPROPERTY()
 	TArray<TObjectPtr<UBorder>> WaveDots;
 
+	/** Skull glyph inside each wave dot, shown only on the dot for the upcoming boss wave. */
 	UPROPERTY()
-	TObjectPtr<USizeBox> BossSizeBox = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UBorder> BossFrame = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> BossLabel = nullptr;
+	TArray<TObjectPtr<UTextBlock>> WaveDotIcons;
 
 	UPROPERTY()
 	TObjectPtr<USizeBox> NextWaveSizeBox = nullptr;

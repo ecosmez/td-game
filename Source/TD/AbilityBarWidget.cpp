@@ -372,6 +372,11 @@ void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
 
 void UAbilityBarWidget::OnStorePlusClicked()
 {
+	ToggleStore();
+}
+
+void UAbilityBarWidget::ToggleStore()
+{
 	UWorld* World = GetWorld();
 	if (!World)
 	{

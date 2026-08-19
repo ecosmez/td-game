@@ -38,7 +38,7 @@ public:
 
 	/** Show path connections during PIE / play for debugging. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Path Preview")
-	bool bDrawPathPreviewInPlay = true;
+	bool bDrawPathPreviewInPlay = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Path Preview")
 	FLinearColor OverLaneColor = FLinearColor(0.15f, 1.f, 0.35f, 1.f);

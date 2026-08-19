@@ -38,12 +38,8 @@ namespace TDEnemyPathPrivate
 	static const FSoftClassPath RangedEnemyClass(TEXT("/Game/TD/BP_RangedEnemy.BP_RangedEnemy_C"));
 	static const FSoftClassPath BossEnemyClass(TEXT("/Game/TD/BP_Boss.BP_Boss_C"));
 
-	static void ScreenMsg(const FString& Text, const FLinearColor& Color, float Seconds = 2.f)
+	static void ScreenMsg(const FString& Text, const FLinearColor& /*Color*/, float /*Seconds*/ = 2.f)
 	{
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(INDEX_NONE, Seconds, Color.ToFColor(true), Text);
-		}
 		UE_LOG(LogTemp, Log, TEXT("%s"), *Text);
 	}
 
@@ -320,16 +316,38 @@ namespace TDEnemyPathPrivate
 		{
 			return;
 		}
-		if (UFunction* Fn = Actor->FindFunction(FunctionName))
+		UFunction* Fn = Actor->FindFunction(FunctionName);
+		if (!Fn || Fn->ParmsSize <= 0)
 		{
-			struct FFloatParam
-			{
-				float DeltaSeconds;
-			};
-			FFloatParam Params;
-			Params.DeltaSeconds = Value;
-			Actor->ProcessEvent(Fn, &Params);
+			return;
 		}
+
+		// Blueprint numeric params are FDoubleProperty (8 bytes) by default in UE5, not a
+		// raw C++ float (4 bytes). Write through the function's own reflected first
+		// parameter instead of assuming its size, or the frame memcpy under/over-reads.
+		TArray<uint8> Frame;
+		Frame.SetNumZeroed(Fn->ParmsSize);
+
+		for (TFieldIterator<FProperty> It(Fn); It; ++It)
+		{
+			FProperty* Prop = *It;
+			if (!(Prop->PropertyFlags & CPF_Parm) || (Prop->PropertyFlags & CPF_ReturnParm))
+			{
+				continue;
+			}
+			if (FDoubleProperty* DProp = CastField<FDoubleProperty>(Prop))
+			{
+				DProp->SetPropertyValue_InContainer(Frame.GetData(), static_cast<double>(Value));
+				break;
+			}
+			if (FFloatProperty* FProp = CastField<FFloatProperty>(Prop))
+			{
+				FProp->SetPropertyValue_InContainer(Frame.GetData(), Value);
+				break;
+			}
+		}
+
+		Actor->ProcessEvent(Fn, Frame.GetData());
 	}
 
 	static UTDEnemyPathSubsystem* GetPathSys(const UObject* WorldContext)
@@ -1498,6 +1516,11 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		}
 	}
 
+	if (State->bHeld)
+	{
+		return;
+	}
+
 	const float MoveSpeed = ReadFloatOr(Enemy, { TEXT("MoveSpeed") }, 300.f);
 	const float SlowFactor = ReadFloatOr(Enemy, { TEXT("SlowFactor") }, 1.f);
 	const float GroundOffset = ResolveGroundOffset(Enemy);
@@ -1548,6 +1571,36 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	{
 		State->bReachedNotified = true;
 		CallNoParam(Enemy, TEXT("ReachCrystal"));
+	}
+}
+
+bool UTDEnemyPathLibrary::IsAttackableEnemy(AActor* Actor)
+{
+	using namespace TDEnemyPathPrivate;
+
+	if (!IsValid(Actor) || !Actor->FindFunction(FName(TEXT("ApplyEnemyDamage"))))
+	{
+		return false;
+	}
+	return IsEnemyStillAlive(Actor);
+}
+
+void UTDEnemyPathLibrary::ApplyDamageToEnemy(AActor* Enemy, float Amount)
+{
+	using namespace TDEnemyPathPrivate;
+	CallFloatParam(Enemy, TEXT("ApplyEnemyDamage"), Amount);
+}
+
+void UTDEnemyPathLibrary::SetEnemyPathHeld(AActor* Enemy, bool bHeld)
+{
+	using namespace TDEnemyPathPrivate;
+	if (!IsValid(Enemy))
+	{
+		return;
+	}
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Enemy))
+	{
+		Sys->FindOrAdd(Enemy).bHeld = bHeld;
 	}
 }
 

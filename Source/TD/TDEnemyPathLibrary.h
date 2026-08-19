@@ -76,6 +76,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void CheckWaveEnemiesCleared(AActor* Spawner);
 
+	/**
+	 * True if Actor is a living enemy the champion can attack: exposes an
+	 * ApplyEnemyDamage(Amount) function (BP_Enemy + subclasses) and CurrentHealth > 0.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static bool IsAttackableEnemy(AActor* Actor);
+
+	/** Reduce Enemy's health via its own ApplyEnemyDamage(Amount) function (health bar + death handled there). */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void ApplyDamageToEnemy(AActor* Enemy, float Amount);
+
+	/**
+	 * Freeze/unfreeze an enemy's waypoint-path movement (used while it's locked as the
+	 * champion's melee target, so it doesn't keep teleporting into the champion's collision
+	 * every tick and fighting the physics de-penetration).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void SetEnemyPathHeld(AActor* Enemy, bool bHeld);
+
 	/** Tessellate Catmull-Rom through points. Used by enemies and waypoint previews. */
 	static void TessellateCatmullRom(const TArray<FVector>& Points, TArray<FVector>& OutSamples, int32 SamplesPerSegment = 12);
 

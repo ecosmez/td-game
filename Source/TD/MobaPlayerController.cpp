@@ -1,16 +1,20 @@
 ﻿#include "MobaPlayerController.h"
 
+#include "AbilityBarWidget.h"
 #include "MobaCameraPawn.h"
 #include "MinimapWidget.h"
 #include "CameraOrbitGizmoWidget.h"
 #include "MapDiscoveryComponent.h"
 #include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
+#include "TDEnemyPathLibrary.h"
+#include "FloatingDamageTextWidget.h"
 
 #include "AIController.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/CapsuleComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -23,6 +27,7 @@
 #include "Navigation/PathFollowingComponent.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectIterator.h"
 
 namespace MobaSkipDropPrivate
 {
@@ -317,7 +322,11 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 
 	HandleSkipSkyDropInput();
 	HandleToggleFogOfWarInput();
+	HandleToggleStoreInput();
 	HandleClickToMoveChampion();
+	UpdateChampionAttack(DeltaTime);
+	UpdateChampionDamageTaken();
+	UpdateFloatingDamageTexts(DeltaTime);
 	UpdateDirectMoveChampion(DeltaTime);
 	UpdateSkyDropCamera(DeltaTime);
 }
@@ -340,6 +349,32 @@ void AMobaPlayerController::HandleToggleFogOfWarInput()
 	ToggleWorldFogOfWar();
 }
 
+void AMobaPlayerController::HandleToggleStoreInput()
+{
+	const bool bPrimaryPressed = ToggleStoreKeyPrimary.IsValid() && WasInputKeyJustPressed(ToggleStoreKeyPrimary);
+	const bool bSecondaryPressed = ToggleStoreKeySecondary.IsValid() && WasInputKeyJustPressed(ToggleStoreKeySecondary);
+	if (!bPrimaryPressed && !bSecondaryPressed)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TObjectIterator<UAbilityBarWidget> It; It; ++It)
+	{
+		UAbilityBarWidget* AbilityBar = *It;
+		if (IsValid(AbilityBar) && AbilityBar->GetWorld() == World)
+		{
+			AbilityBar->ToggleStore();
+			return;
+		}
+	}
+}
+
 void AMobaPlayerController::ToggleWorldFogOfWar()
 {
 	SetWorldFogOfWarEnabled(!bEnableWorldFogOfWar);
@@ -350,14 +385,7 @@ void AMobaPlayerController::SetWorldFogOfWarEnabled(bool bEnabled)
 	bEnableWorldFogOfWar = bEnabled;
 	ApplyFogOfWarVisualState();
 
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-			99117,
-			1.5f,
-			bEnableWorldFogOfWar ? FColor::Orange : FColor::Green,
-			bEnableWorldFogOfWar ? TEXT("Fog of War: ON") : TEXT("Fog of War: OFF"));
-	}
+	UE_LOG(LogTemp, Log, TEXT("Fog of War: %s"), bEnableWorldFogOfWar ? TEXT("ON") : TEXT("OFF"));
 }
 
 void AMobaPlayerController::ApplyFogOfWarVisualState()
@@ -482,11 +510,7 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 	MobaSkipDropPrivate::CallNoArgFunction(Champion, FName(TEXT("ShowAbilityHUD")));
 	UTDUIInputLibrary::CreateAndShowAbilityBar(this, this, 100);
 
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-			-1, 4.f, FColor::Cyan, TEXT("Sky drop skipped (Enter)"));
-	}
+	UE_LOG(LogTemp, Log, TEXT("Sky drop skipped (Enter)"));
 	return true;
 }
 
@@ -709,7 +733,197 @@ void AMobaPlayerController::HandleClickToMoveChampion()
 		return;
 	}
 
+	AActor* HitActor = Hit.GetActor();
+	if (bEnableChampionAttack && HitActor && HitActor != Champion && UTDEnemyPathLibrary::IsAttackableEnemy(HitActor))
+	{
+		BeginChampionAttack(Champion, HitActor);
+		return;
+	}
+
 	MoveChampionToLocation(Hit.ImpactPoint);
+}
+
+void AMobaPlayerController::BeginChampionAttack(APawn* Champion, AActor* Target)
+{
+	if (!Champion || !Target)
+	{
+		return;
+	}
+
+	StopDirectMove();
+	ChampionAttackTarget = Target;
+	ChampionAttackCooldownRemaining = 0.0f;
+	ChampionAttackRepathCooldown = 0.0f;
+	ChampionAttackLastChaseTarget = Target->GetActorLocation();
+
+	EnsureChampionHasAIController(Champion);
+	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), ChampionAttackLastChaseTarget);
+}
+
+void AMobaPlayerController::StopChampionAttack()
+{
+	if (AActor* Target = ChampionAttackTarget.Get())
+	{
+		UTDEnemyPathLibrary::SetEnemyPathHeld(Target, false);
+	}
+	ChampionAttackTarget.Reset();
+	ChampionAttackCooldownRemaining = 0.0f;
+	ChampionAttackRepathCooldown = 0.0f;
+}
+
+void AMobaPlayerController::UpdateChampionAttack(float DeltaTime)
+{
+	if (!ChampionAttackTarget.IsValid())
+	{
+		return;
+	}
+
+	APawn* Champion = GetControlledChampion();
+	AActor* Target = ChampionAttackTarget.Get();
+	if (!Champion || !UTDEnemyPathLibrary::IsAttackableEnemy(Target) || MobaSkipDropPrivate::IsPawnDropping(Champion))
+	{
+		StopChampionAttack();
+		return;
+	}
+
+	const FVector ChampionLoc = Champion->GetActorLocation();
+	const FVector TargetLoc = Target->GetActorLocation();
+	const float Dist = FVector::Dist2D(ChampionLoc, TargetLoc);
+
+	// Ground ring under the locked target so it's obvious what the champion is attacking.
+	// Single-frame draw (LifeTime -1, not persistent) re-issued every tick it's targeted.
+	float TargetRadius = 60.0f;
+	float TargetHalfHeight = 90.0f;
+	Target->GetSimpleCollisionCylinder(TargetRadius, TargetHalfHeight);
+	const FVector RingCenter = TargetLoc - FVector(0.0f, 0.0f, TargetHalfHeight - 8.0f);
+	DrawDebugCircle(GetWorld(), RingCenter, TargetRadius + 40.0f, 32, FColor::Red, false, -1.0f, 0,
+		4.0f, FVector(1.0f, 0.0f, 0.0f), FVector(0.0f, 1.0f, 0.0f), false);
+
+	if (Dist > ChampionAttackRange)
+	{
+		// Not in melee range (yet) - let it keep walking its lane instead of freezing it
+		// out of range, and re-issue the chase move only when the target has moved enough
+		// or on a short throttle, so we don't spam SimpleMoveToLocation / repath every frame.
+		UTDEnemyPathLibrary::SetEnemyPathHeld(Target, false);
+		ChampionAttackRepathCooldown -= DeltaTime;
+		const bool bTargetMoved = FVector::DistSquared(TargetLoc, ChampionAttackLastChaseTarget) > FMath::Square(50.0f);
+		if (ChampionAttackRepathCooldown <= 0.0f || bTargetMoved)
+		{
+			ChampionAttackRepathCooldown = 0.5f;
+			ChampionAttackLastChaseTarget = TargetLoc;
+			EnsureChampionHasAIController(Champion);
+			UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), TargetLoc);
+		}
+		return;
+	}
+
+	// In range: stop moving, face the target, and tick the attack cooldown. Freeze the
+	// target's own path movement too - otherwise it keeps teleporting back onto its lane
+	// every tick while overlapping the now-stationary champion, and physics de-penetration
+	// shoving it back out each frame reads as the enemy glitching/flickering in place.
+	UTDEnemyPathLibrary::SetEnemyPathHeld(Target, true);
+	AbortChampionPathFollowing(Champion);
+
+	FRotator FaceRotation = (TargetLoc - ChampionLoc).GetSafeNormal().Rotation();
+	FaceRotation.Pitch = 0.0f;
+	FaceRotation.Roll = 0.0f;
+	Champion->SetActorRotation(FaceRotation);
+
+	ChampionAttackCooldownRemaining -= DeltaTime;
+	if (ChampionAttackCooldownRemaining <= 0.0f)
+	{
+		UTDEnemyPathLibrary::ApplyDamageToEnemy(Target, ChampionAttackDamage);
+		SpawnFloatingDamageText(TargetLoc + FVector(0.0f, 0.0f, TargetHalfHeight * 1.6f), ChampionAttackDamage, OutgoingDamageColor);
+		ChampionAttackCooldownRemaining = ChampionAttackInterval;
+	}
+}
+
+void AMobaPlayerController::UpdateChampionDamageTaken()
+{
+	APawn* Champion = GetControlledChampion();
+	if (!Champion)
+	{
+		LastKnownChampionHealth = -1.0f;
+		LastKnownChampionForHealth.Reset();
+		return;
+	}
+
+	// Champion swapped (respawn/repossess) - reseed the baseline instead of diffing
+	// against a stale pawn's health.
+	if (LastKnownChampionForHealth.Get() != Champion)
+	{
+		LastKnownChampionForHealth = Champion;
+		LastKnownChampionHealth = -1.0f;
+	}
+
+	float CurrentHealth = 0.0f;
+	if (!MobaSkipDropPrivate::ReadFloatProp(Champion, FName(TEXT("CurrentHealth")), CurrentHealth))
+	{
+		return;
+	}
+
+	if (LastKnownChampionHealth >= 0.0f && CurrentHealth < LastKnownChampionHealth - KINDA_SMALL_NUMBER)
+	{
+		const float DamageTaken = LastKnownChampionHealth - CurrentHealth;
+		float Radius = 40.0f;
+		float HalfHeight = 90.0f;
+		Champion->GetSimpleCollisionCylinder(Radius, HalfHeight);
+		SpawnFloatingDamageText(Champion->GetActorLocation() + FVector(0.0f, 0.0f, HalfHeight * 1.6f), DamageTaken, IncomingDamageColor);
+	}
+
+	LastKnownChampionHealth = CurrentHealth;
+}
+
+void AMobaPlayerController::SpawnFloatingDamageText(const FVector& WorldLocation, float Amount, const FLinearColor& Color)
+{
+	UFloatingDamageTextWidget* DamageWidget = CreateWidget<UFloatingDamageTextWidget>(this, UFloatingDamageTextWidget::StaticClass());
+	if (!DamageWidget)
+	{
+		return;
+	}
+
+	DamageWidget->SetDamageText(Amount, Color);
+	DamageWidget->AddToViewport(200);
+
+	FTDFloatingDamageEntry& Entry = FloatingDamageEntries.AddDefaulted_GetRef();
+	Entry.Widget = DamageWidget;
+	Entry.WorldLocation = WorldLocation;
+	Entry.Duration = FMath::Max(FloatingDamageDuration, 0.1f);
+}
+
+void AMobaPlayerController::UpdateFloatingDamageTexts(float DeltaTime)
+{
+	for (int32 Index = FloatingDamageEntries.Num() - 1; Index >= 0; --Index)
+	{
+		FTDFloatingDamageEntry& Entry = FloatingDamageEntries[Index];
+		Entry.Elapsed += DeltaTime;
+
+		UFloatingDamageTextWidget* Widget = Entry.Widget;
+		if (!IsValid(Widget) || Entry.Elapsed >= Entry.Duration)
+		{
+			if (IsValid(Widget))
+			{
+				Widget->RemoveFromParent();
+			}
+			FloatingDamageEntries.RemoveAtSwap(Index);
+			continue;
+		}
+
+		const float Alpha = FMath::Clamp(Entry.Elapsed / Entry.Duration, 0.0f, 1.0f);
+		const FVector DriftedLocation = Entry.WorldLocation + FVector(0.0f, 0.0f, FloatingDamageRiseSpeed * Entry.Elapsed);
+
+		FVector2D ScreenPos;
+		if (ProjectWorldLocationToScreen(DriftedLocation, ScreenPos))
+		{
+			const FVector2D HalfSize = Widget->GetDesiredSize() * 0.5f;
+			Widget->SetPositionInViewport(ScreenPos - HalfSize, true);
+
+			// Hold at full opacity, then fade out over the back half of the lifetime.
+			constexpr float FadeOutStart = 0.55f;
+			const float Opacity = Alpha <= FadeOutStart ? 1.0f : 1.0f - ((Alpha - FadeOutStart) / (1.0f - FadeOutStart));
+			Widget->SetRenderOpacity(FMath::Clamp(Opacity, 0.0f, 1.0f));
+		}
+	}
 }
 
 void AMobaPlayerController::EnsureChampionHasAIController(APawn* Champion)
@@ -758,6 +972,7 @@ void AMobaPlayerController::MoveChampionToLocation(const FVector& WorldLocation)
 		return;
 	}
 
+	StopChampionAttack();
 	EnsureChampionHasAIController(Champion);
 
 	const float DropZ = Champion->GetActorLocation().Z - WorldLocation.Z;

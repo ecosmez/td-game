@@ -94,6 +94,10 @@ public:
 
 	void OnAbilitySlotClicked(int32 AbilityId);
 
+	/** Opens/closes the tower store (same effect as clicking the "+" slot). Used by the store hotkeys (S/B). */
+	UFUNCTION(BlueprintCallable, Category = "Ability Bar")
+	void ToggleStore();
+
 protected:
 	void EnsureBuilt();
 	void BuildDefaultUI();

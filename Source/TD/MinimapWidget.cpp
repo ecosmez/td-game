@@ -28,6 +28,8 @@
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Particles/ParticleSystemComponent.h"
+#include "Rendering/DrawElements.h"
+#include "Rendering/DrawElementTypes.h"
 #include "Styling/SlateBrush.h"
 #include "Components/SlateWrapperTypes.h"
 #include "InputCoreTypes.h"
@@ -110,6 +112,8 @@ void UMinimapWidget::BuildDefaultUI()
 	FrameBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MinimapFrame"));
 	FrameBorder->SetPadding(FMargin(3.f));
 	FrameBorder->SetBrushColor(BorderColor);
+	// Tighter zoom can push markers/frustum past the fit bounds; clip so they don't spill past the frame.
+	FrameBorder->SetClipping(EWidgetClipping::ClipToBounds);
 	FrameSizeBox->SetContent(FrameBorder);
 
 	UBorder* InnerBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MinimapInner"));
@@ -117,7 +121,7 @@ void UMinimapWidget::BuildDefaultUI()
 	InnerBg->SetBrushColor(FrameColor);
 	FrameBorder->SetContent(InnerBg);
 
-	UCanvasPanel* MapCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
+	MapCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
 	InnerBg->SetContent(MapCanvas);
 
 	MapImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapImage"));
@@ -143,6 +147,20 @@ void UMinimapWidget::BuildDefaultUI()
 		FogSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
 		FogSlot->SetOffsets(FMargin(0.f));
 		FogSlot->SetZOrder(1);
+	}
+
+	// White ring behind the champion square so it reads as a distinct "avatar" icon.
+	ChampionMarkerFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionMarkerFrame"));
+	ChampionMarkerFrame->SetBrushColor(ChampionAvatarFrameColor);
+	ChampionMarkerFrame->SetPadding(FMargin(0.f));
+	ChampionMarkerFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+	if (UCanvasPanelSlot* FrameSlot = MapCanvas->AddChildToCanvas(ChampionMarkerFrame))
+	{
+		FrameSlot->SetAnchors(FAnchors(0.f, 0.f));
+		FrameSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		FrameSlot->SetSize(FVector2D(16.f, 16.f));
+		FrameSlot->SetZOrder(2);
+		ChampionFrameSlot = FrameSlot;
 	}
 
 	ChampionMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionMarker"));
@@ -621,7 +639,8 @@ void UMinimapWidget::GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, flo
 	// Square orthographic volume: cover full bounds so the RT is a true top-down map projection.
 	const float ExtX = FMath::Max(100.f, MaxX - MinX);
 	const float ExtY = FMath::Max(100.f, MaxY - MinY);
-	OutOrthoWidth = FMath::Max(ExtX, ExtY);
+	// Zoom tightens the frame around the same center instead of showing the full fit bounds.
+	OutOrthoWidth = FMath::Max(ExtX, ExtY) * FMath::Clamp(MinimapZoomFactor, 0.1f, 1.0f);
 }
 
 void UMinimapWidget::ConfigureSceneCapture()
@@ -992,17 +1011,36 @@ void UMinimapWidget::UpdateMarkers()
 	{
 		if (APawn* Champ = ResolveChampion())
 		{
-			PlaceMarker(ChampionMarker, ChampionSlot, WorldToNormalized(Champ->GetActorLocation()), 6.f);
+			const FVector2D ChampNorm = WorldToNormalized(Champ->GetActorLocation());
+			PlaceMarker(ChampionMarker, ChampionSlot, ChampNorm, 6.f);
 			ChampionMarker->SetBrushColor(ChampionMarkerColor);
+
+			if (bShowChampionAvatarFrame && ChampionMarkerFrame && ChampionFrameSlot)
+			{
+				PlaceMarker(ChampionMarkerFrame, ChampionFrameSlot, ChampNorm, 6.f + ChampionAvatarFramePadding);
+				ChampionMarkerFrame->SetBrushColor(ChampionAvatarFrameColor);
+			}
+			else if (ChampionMarkerFrame)
+			{
+				ChampionMarkerFrame->SetVisibility(ESlateVisibility::Collapsed);
+			}
 		}
 		else
 		{
 			ChampionMarker->SetVisibility(ESlateVisibility::Collapsed);
+			if (ChampionMarkerFrame)
+			{
+				ChampionMarkerFrame->SetVisibility(ESlateVisibility::Collapsed);
+			}
 		}
 	}
 	else if (ChampionMarker)
 	{
 		ChampionMarker->SetVisibility(ESlateVisibility::Collapsed);
+		if (ChampionMarkerFrame)
+		{
+			ChampionMarkerFrame->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 
 	if (bShowCameraMarker && CameraMarker && CameraSlot)
@@ -1072,6 +1110,214 @@ void UMinimapWidget::UpdateMarkers()
 	else if (EnemySpawnMarker)
 	{
 		EnemySpawnMarker->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+UBorder* UMinimapWidget::GetOrCreateEnemyMarker(int32 Index)
+{
+	if (EnemyMarkers.IsValidIndex(Index) && EnemyMarkers[Index])
+	{
+		return EnemyMarkers[Index];
+	}
+
+	if (!WidgetTree || !MapCanvas)
+	{
+		return nullptr;
+	}
+
+	const FName MarkerName = *FString::Printf(TEXT("EnemyMarker_%d"), Index);
+	UBorder* Marker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), MarkerName);
+	Marker->SetPadding(FMargin(0.f));
+	Marker->SetBrushColor(EnemyMarkerColor);
+	Marker->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	UCanvasPanelSlot* MarkerSlot = MapCanvas->AddChildToCanvas(Marker);
+	if (MarkerSlot)
+	{
+		MarkerSlot->SetAnchors(FAnchors(0.f, 0.f));
+		MarkerSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		MarkerSlot->SetSize(FVector2D(EnemyMarkerHalfSize * 2.f, EnemyMarkerHalfSize * 2.f));
+		// Above camera/fog, same layer as champion — enemies should read clearly as threats.
+		MarkerSlot->SetZOrder(3);
+	}
+
+	const int32 NewNum = FMath::Max(EnemyMarkers.Num(), Index + 1);
+	EnemyMarkers.SetNum(NewNum);
+	EnemyMarkerSlots.SetNum(NewNum);
+	EnemyMarkers[Index] = Marker;
+	EnemyMarkerSlots[Index] = MarkerSlot;
+	return Marker;
+}
+
+void UMinimapWidget::UpdateEnemyMarkers(float DeltaTime)
+{
+	if (!bShowEnemyMarkers)
+	{
+		for (UBorder* Marker : EnemyMarkers)
+		{
+			if (Marker)
+			{
+				Marker->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+		return;
+	}
+
+	EnemyMarkerTimer += DeltaTime;
+	const float Interval = FMath::Max(0.f, EnemyMarkerUpdateInterval);
+	if (Interval > KINDA_SMALL_NUMBER && EnemyMarkerTimer < Interval)
+	{
+		return;
+	}
+	EnemyMarkerTimer = 0.f;
+
+	UWorld* World = GetWorld();
+	if (!World || !MapCanvas)
+	{
+		return;
+	}
+
+	if (!CachedEnemyClass.IsValid())
+	{
+		CachedEnemyClass = EnemyActorClass.TryLoadClass<AActor>();
+	}
+	UClass* Cls = CachedEnemyClass.Get();
+	if (!Cls)
+	{
+		return;
+	}
+
+	int32 LiveCount = 0;
+	for (TActorIterator<AActor> It(World, Cls); It; ++It)
+	{
+		AActor* Enemy = *It;
+		if (!IsValid(Enemy) || Enemy->IsActorBeingDestroyed() || Enemy->IsHidden())
+		{
+			continue;
+		}
+
+		UBorder* Marker = GetOrCreateEnemyMarker(LiveCount);
+		if (!Marker || !EnemyMarkerSlots.IsValidIndex(LiveCount))
+		{
+			continue;
+		}
+
+		PlaceMarker(Marker, EnemyMarkerSlots[LiveCount], WorldToNormalized(Enemy->GetActorLocation()), EnemyMarkerHalfSize);
+		Marker->SetBrushColor(EnemyMarkerColor);
+		++LiveCount;
+	}
+
+	// Hide pooled markers left over from a larger previous wave.
+	for (int32 i = LiveCount; i < EnemyMarkers.Num(); ++i)
+	{
+		if (EnemyMarkers[i])
+		{
+			EnemyMarkers[i]->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+}
+
+UBorder* UMinimapWidget::GetOrCreateTowerMarker(int32 Index)
+{
+	if (TowerMarkers.IsValidIndex(Index) && TowerMarkers[Index])
+	{
+		return TowerMarkers[Index];
+	}
+
+	if (!WidgetTree || !MapCanvas)
+	{
+		return nullptr;
+	}
+
+	const FName MarkerName = *FString::Printf(TEXT("TowerMarker_%d"), Index);
+	UBorder* Marker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), MarkerName);
+	Marker->SetPadding(FMargin(0.f));
+	Marker->SetBrushColor(TowerMarkerColor);
+	Marker->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	UCanvasPanelSlot* MarkerSlot = MapCanvas->AddChildToCanvas(Marker);
+	if (MarkerSlot)
+	{
+		MarkerSlot->SetAnchors(FAnchors(0.f, 0.f));
+		MarkerSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		MarkerSlot->SetSize(FVector2D(TowerMarkerHalfSize * 2.f, TowerMarkerHalfSize * 2.f));
+		// Below enemies/champion (static, less urgent than threats), above camera/fog.
+		MarkerSlot->SetZOrder(2);
+	}
+
+	const int32 NewNum = FMath::Max(TowerMarkers.Num(), Index + 1);
+	TowerMarkers.SetNum(NewNum);
+	TowerMarkerSlots.SetNum(NewNum);
+	TowerMarkers[Index] = Marker;
+	TowerMarkerSlots[Index] = MarkerSlot;
+	return Marker;
+}
+
+void UMinimapWidget::UpdateTowerMarkers(float DeltaTime)
+{
+	if (!bShowTowerMarkers)
+	{
+		for (UBorder* Marker : TowerMarkers)
+		{
+			if (Marker)
+			{
+				Marker->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+		return;
+	}
+
+	TowerMarkerTimer += DeltaTime;
+	const float Interval = FMath::Max(0.f, TowerMarkerUpdateInterval);
+	if (Interval > KINDA_SMALL_NUMBER && TowerMarkerTimer < Interval)
+	{
+		return;
+	}
+	TowerMarkerTimer = 0.f;
+
+	UWorld* World = GetWorld();
+	if (!World || !MapCanvas)
+	{
+		return;
+	}
+
+	if (!CachedTowerClass.IsValid())
+	{
+		CachedTowerClass = TowerActorClass.TryLoadClass<AActor>();
+	}
+	UClass* Cls = CachedTowerClass.Get();
+	if (!Cls)
+	{
+		return;
+	}
+
+	int32 LiveCount = 0;
+	for (TActorIterator<AActor> It(World, Cls); It; ++It)
+	{
+		AActor* Tower = *It;
+		if (!IsValid(Tower) || Tower->IsActorBeingDestroyed() || Tower->IsHidden())
+		{
+			continue;
+		}
+
+		UBorder* Marker = GetOrCreateTowerMarker(LiveCount);
+		if (!Marker || !TowerMarkerSlots.IsValidIndex(LiveCount))
+		{
+			continue;
+		}
+
+		PlaceMarker(Marker, TowerMarkerSlots[LiveCount], WorldToNormalized(Tower->GetActorLocation()), TowerMarkerHalfSize);
+		Marker->SetBrushColor(TowerMarkerColor);
+		++LiveCount;
+	}
+
+	// Hide pooled markers left over from towers that were sold/destroyed.
+	for (int32 i = LiveCount; i < TowerMarkers.Num(); ++i)
+	{
+		if (TowerMarkers[i])
+		{
+			TowerMarkers[i]->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 }
 
@@ -1507,5 +1753,121 @@ void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		LandmarkRefreshTimer = 0.f;
 	}
 
+	UpdateEnemyMarkers(InDeltaTime);
+	UpdateTowerMarkers(InDeltaTime);
 	UpdateMarkers();
+}
+
+FVector2D UMinimapWidget::NormalizedToRootLocal(const FVector2D& Normalized, const FGeometry& AllottedGeometry) const
+{
+	if (!MapCanvas)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const FGeometry& MapGeo = MapCanvas->GetCachedGeometry();
+	const FVector2D LocalInMap = Normalized * MapGeo.GetLocalSize();
+	const FVector2D Absolute = MapGeo.LocalToAbsolute(LocalInMap);
+	return AllottedGeometry.AbsoluteToLocal(Absolute);
+}
+
+bool UMinimapWidget::ComputeViewFrustumCorners(TArray<FVector2D>& OutNormalizedCorners) const
+{
+	OutNormalizedCorners.Reset();
+
+	APlayerController* PC = GetOwningPlayer();
+	if (!PC)
+	{
+		return false;
+	}
+
+	int32 SizeX = 0;
+	int32 SizeY = 0;
+	PC->GetViewportSize(SizeX, SizeY);
+	if (SizeX <= 0 || SizeY <= 0)
+	{
+		return false;
+	}
+
+	// Ground plane height: same reference used for minimap click → world (camera, else champion).
+	float GroundZ = 0.f;
+	if (AMobaCameraPawn* Cam = ResolveCameraPawn())
+	{
+		GroundZ = Cam->GetActorLocation().Z;
+	}
+	else if (APawn* Champ = ResolveChampion())
+	{
+		GroundZ = Champ->GetActorLocation().Z;
+	}
+
+	const FVector2D ScreenCorners[4] =
+	{
+		FVector2D(0.f, 0.f),
+		FVector2D(static_cast<float>(SizeX), 0.f),
+		FVector2D(static_cast<float>(SizeX), static_cast<float>(SizeY)),
+		FVector2D(0.f, static_cast<float>(SizeY)),
+	};
+
+	OutNormalizedCorners.Reserve(4);
+	for (const FVector2D& ScreenPos : ScreenCorners)
+	{
+		FVector RayOrigin(ForceInitToZero);
+		FVector RayDir(ForceInitToZero);
+		if (!PC->DeprojectScreenPositionToWorld(ScreenPos.X, ScreenPos.Y, RayOrigin, RayDir))
+		{
+			return false;
+		}
+
+		if (FMath::IsNearlyZero(RayDir.Z))
+		{
+			return false;
+		}
+
+		const float T = (GroundZ - RayOrigin.Z) / RayDir.Z;
+		if (T < 0.f)
+		{
+			// Camera looking away from the ground plane — shouldn't happen with a top-down cam.
+			return false;
+		}
+
+		const FVector WorldPoint = RayOrigin + RayDir * T;
+		OutNormalizedCorners.Add(WorldToNormalized(WorldPoint));
+	}
+
+	return OutNormalizedCorners.Num() == 4;
+}
+
+int32 UMinimapWidget::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
+{
+	int32 NewLayerId = Super::NativePaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, LayerId, InWidgetStyle, bParentEnabled);
+
+	if (bShowViewFrustum && bBuilt && MapCanvas)
+	{
+		TArray<FVector2D> Corners;
+		if (ComputeViewFrustumCorners(Corners) && Corners.Num() == 4)
+		{
+			TArray<FVector2D> LinePoints;
+			LinePoints.Reserve(5);
+			for (const FVector2D& Corner : Corners)
+			{
+				LinePoints.Add(NormalizedToRootLocal(Corner, AllottedGeometry));
+			}
+			const FVector2D FirstPoint = LinePoints[0];
+			LinePoints.Add(FirstPoint);
+
+			const int32 FrustumLayer = NewLayerId + 1;
+			FSlateDrawElement::MakeLines(
+				OutDrawElements,
+				FrustumLayer,
+				AllottedGeometry.ToPaintGeometry(),
+				LinePoints,
+				ESlateDrawEffect::None,
+				ViewFrustumColor,
+				true,
+				ViewFrustumThickness);
+			NewLayerId = FrustumLayer;
+		}
+	}
+
+	return NewLayerId;
 }
