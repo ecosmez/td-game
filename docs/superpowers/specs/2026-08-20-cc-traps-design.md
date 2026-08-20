@@ -38,10 +38,13 @@ is consumed).
   `StunRemaining > 0`; if the enemy is still traveling (neither flag set),
   `StunRemaining > 0` skips the movement-advance block entirely.
 - The Tower Store (`UTowerStoreWidget::BuildDefaultCatalog`, C++) already has
-  an unrelated card named "Trap" (`BP_Tower_Trap`) — a burst-AoE damage
-  tower with a stub event graph (no CC logic). No mechanical collision with
-  this feature, only a naming one; the new cards avoid the bare word "Trap"
-  in their display names.
+  an unrelated card, currently mid-rename in the working tree from "Trap"
+  (`BP_Tower_Trap`) to "Mine" (`BP_Tower_Mine`) — a burst-AoE damage tower
+  (one-shot or pulse *damage* burst via `UpdateAoEBehavior`, see
+  `Content/TD/Tower_UpdateAoEBehavior.dsl.txt`), unrelated to CC and left
+  untouched by this feature. No mechanical collision, only a naming one;
+  the new cards avoid the bare word "Trap" in their display names so they
+  don't read as related to the Mine card either.
 
 ## Status-effect mechanics (on `BP_Enemy`)
 
@@ -121,10 +124,10 @@ is consumed).
   for all 8 existing tower types, just pointed at the new trap classes.
 - Display names use "Slow"/"Root"/"Freeze" rather than the bare word "Trap"
   (e.g. "Slow Field", "Slow Snare") to avoid confusion with the existing
-  unrelated "Trap" card (`BP_Tower_Trap`, burst-AoE damage). That card is
-  untouched.
-- Role tag: reuse `"Trap"` as the Role for all 6 new cards, same field the
-  existing burst-AoE card already uses.
+  unrelated "Mine" card (burst-AoE damage, formerly named "Trap"). That
+  card and its in-progress rename are untouched by this feature.
+- Role tag: reuse `"Trap"` as the Role for all 6 new cards (the Mine card's
+  Role is `"Mine"` after its rename, so there's no tag collision either).
 
 ## Build & verification plan
 
