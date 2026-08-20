@@ -1,69 +1,77 @@
-(event EventBeginPlay
-  (Variables|Default|SetIsDropping true)
-  (bind loc (Transformation|GetActorLocation))
-  (bind selfref self)
-  (Transformation|SetActorLocation selfref (Math|Vector|MakeVector (.x loc) (.y loc) (Variables|Default|GetDropHeight)) false true)
-  (bind move (Variables|Character|GetCharacterMovement))
-  (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetFreefallGravityScale) move)
-  (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetAirControlStrength) move)
-  (bind arm (Variables|Camera|GetSpringArm))
-  (Variables|Default|SetSavedArmLength (Class|SpringArmComponent|GetTargetArmLength arm))
-  (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) arm)
-  (Transformation|SetRelativeRotation arm (Math|Rotator|MakeRotator 0.0 -90.0 0.0) false false)
-  (bind pc (Game|GetPlayerController 0))
-  (Utilities|FlowControl|Sequence
-    (:then_0
-      (Utilities|IsValid pc
-        (:"Is Valid"
-          (Class|PlayerController|SetShowMouseCursor true pc)
-          (Class|PlayerController|SetEnableClickEvents true pc)
-          (Class|PlayerController|SetEnableMouseOverEvents true pc)
-          (bind ctrl (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController)))
-          (Utilities|IsValid ctrl
-            (:"Is Valid"
-              (Class|MobaPlayerController|SetbEnableClickToMoveChampion false ctrl)
-              ;; Prefer SetDropMode once TD module is recompiled with bDropMode:
-              ;; (Class|MobaPlayerController|SetDropMode true ctrl)
-              ))))))
-    (:then_1
-      (Development|PrintString "SKY DROP - mouse aim, SPACE plane, ENTER skip" true true "(R=0.300000,G=0.900000,B=1.000000,A=1.000000)" 6.0))))
-
 (event EventTick (DeltaSeconds)
-  (bind selfref self)
-  (bind pc (Game|GetPlayerController 0))
-  (bind arm (Variables|Camera|GetSpringArm))
-  (if (Variables|Default|GetIsDropping)
-    (Utilities|IsValid pc
+  (bind _returnvalue (Game|GetPlayerController 0))
+  (bind _springarm (Variables|Camera|GetSpringArm))
+  (bind _targetarmlength (Class|SpringArmComponent|GetTargetArmLength _springarm))
+  (bind _zoomspeed (Variables|Default|GetZoomSpeed))
+  (if (|GetbIsDropping)
+    (Utilities|IsValid _returnvalue
       (:"Is Valid"
-        (bind (hitresult bhit) (Game|Player|GetHitResultUnderCursorByChannel pc "TraceTypeQuery1" true))
-        (if bhit
-          (bind (blocking overlap time dist cursorloc) (Collision|BreakHitResult hitresult))
-          (bind myloc (Transformation|GetActorLocation))
-          (Pawn|Input|AddMovementInput selfref (Math|Vector|GetUnitDirection(Vector) (Math|Vector|MakeVector (.x myloc) (.y myloc) 0.0) (Math|Vector|MakeVector (.x cursorloc) (.y cursorloc) 0.0)) (Variables|Default|GetSteerScale) false))
-        (if (Game|Player|IsInputKeyDown pc "SpaceBar")
-          (bind move (Variables|Character|GetCharacterMovement))
-          (bind vel (Transformation|GetVelocity))
-          (Class|MovementComponent|SetVelocity (Math|Vector|MakeVector (.x vel) (.y vel) (Variables|Default|GetGlideFallSpeed)) move))))
+        (if (Game|Player|GetHitResultUnderCursorByChannel _returnvalue)
+          (Pawn|Input|AddMovementInput self (Math|Vector|GetUnitDirection(Vector) (Math|Vector|MakeVector (.x (Transformation|GetActorLocation)) (.y (Transformation|GetActorLocation))) (Math|Vector|MakeVector (.x (Collision|BreakHitResult (Game|Player|GetHitResultUnderCursorByChannel _returnvalue))) (.y (Collision|BreakHitResult (Game|Player|GetHitResultUnderCursorByChannel _returnvalue))))) (Variables|Default|GetSteerScale)))
+        (if (Game|Player|IsInputKeyDown _returnvalue "SpaceBar")
+          (Class|ABPUnarmed|SetVelocity (Math|Vector|MakeVector (.x (Transformation|GetVelocity)) (.y (Transformation|GetVelocity)) (Variables|Default|GetGlideFallSpeed)) (Variables|Character|GetCharacterMovement)))))
     (else
-      (Utilities|IsValid pc
+      (Variables|Default|SetAbilityDelta DeltaSeconds)
+      (CallFunction|TickAbilities)
+      (Utilities|IsValid _returnvalue
         (:"Is Valid"
-          (bind targetarmlength (Class|SpringArmComponent|GetTargetArmLength arm))
-          (bind zoomspeed (Variables|Default|GetZoomSpeed))
-          (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollUp")
-            (Class|SpringArmComponent|SetTargetArmLength (select (< (- targetarmlength zoomspeed) (Variables|Default|GetMinZoom)) (Variables|Default|GetMinZoom) (- targetarmlength zoomspeed)) arm))
-          (if (Game|Player|WasInputKeyJustPressed pc "MouseScrollDown")
-            (Class|SpringArmComponent|SetTargetArmLength (select (> (+ targetarmlength zoomspeed) (Variables|Default|GetMaxZoom)) (Variables|Default|GetMaxZoom) (+ targetarmlength zoomspeed)) arm)))))))
+          (if (Game|Player|WasInputKeyJustPressed _returnvalue "MouseScrollUp")
+            (Class|SpringArmComponent|SetTargetArmLength (select (< (- _targetarmlength _zoomspeed) (Variables|Default|GetMinZoom)) (Variables|Default|GetMinZoom) (- _targetarmlength _zoomspeed)) _springarm))
+          (if (Game|Player|WasInputKeyJustPressed _returnvalue "MouseScrollDown")
+            (Class|SpringArmComponent|SetTargetArmLength (select (> (+ _targetarmlength _zoomspeed) (Variables|Default|GetMaxZoom)) (Variables|Default|GetMaxZoom) (+ _targetarmlength _zoomspeed)) _springarm))
+          (if (<= (Variables|Default|GetPendingAbility) 0)
+            (if (and (Game|Player|WasInputKeyJustPressed _returnvalue "Q") (<= (|GetCD_Q) 0.0))
+              (CallFunction|BeginAbilityAim 1))
+            (if (and (Game|Player|WasInputKeyJustPressed _returnvalue "W") (<= (|GetCD_W) 0.0))
+              (CallFunction|BeginAbilityAim 2))
+            (if (and (Game|Player|WasInputKeyJustPressed _returnvalue "E") (<= (|GetCD_E) 0.0))
+              (CallFunction|BeginAbilityAim 3))
+            (if (and (Game|Player|WasInputKeyJustPressed _returnvalue "R") (<= (|GetCD_R) 0.0))
+              (CallFunction|BeginAbilityAim 4)))
+          (if (> (Variables|Default|GetPendingAbility) 0)
+            (CallFunction|UpdateAbilityAim)
+            (if (Game|Player|WasInputKeyJustPressed _returnvalue "LeftMouseButton")
+              (CallFunction|ConfirmAbilityAim))
+            (if (Game|Player|WasInputKeyJustPressed _returnvalue "Escape")
+              (CallFunction|CancelAbilityAim))))))))
 
-; Landing camera: AMobaPlayerController Warzone freefall view (3rd person on champion)
-; while bIsDropping, then blends to free MOBA camera on land.
-; LoLCameraComponent land zoom only matters if still viewing the champion cam.
-; Land cleanup lives in CompleteDropLanding; EventOnLanded just calls it.
-; Skip during freefall: Enter -> AMobaPlayerController::TrySkipSkyDrop (C++)
-;   prefer BP SkipSkyDrop / CompleteDropLanding if present, else reflection fallback.
-; Camera notes for freefall BP arm: C++ overrides to DropCameraPitch / DropCameraArmLength
-; each tick while dropping (do not rely on -90 pitch for player silhouette).
+(event MouseWheelAxis (AxisValue))
+
+(event MouseWheelAxis (AxisValue))
+
+(event EventBeginPlay
+  (bind _returnvalue (Game|GetPlayerController 0))
+  (bind _charactermovement (Variables|Character|GetCharacterMovement))
+  (bind _springarm (Variables|Camera|GetSpringArm))
+  (|SetbIsDropping true)
+  (Transformation|SetActorLocation self (Math|Vector|MakeVector (.x (Transformation|GetActorLocation)) (.y (Transformation|GetActorLocation)) (Variables|Default|GetDropHeight)) false true)
+  (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetFreefallGravityScale) _charactermovement)
+  (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetAirControlStrength) _charactermovement)
+  (Variables|Default|SetSavedArmLength (Class|SpringArmComponent|GetTargetArmLength _springarm))
+  (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) _springarm)
+  (Transformation|SetRelativeRotation _springarm (Math|Rotator|MakeRotator 0.0 -90.0))
+  (Utilities|IsValid _returnvalue
+    (:"Is Valid"
+      (|SetbShowMouseCursor true _returnvalue)
+      (|SetbEnableClickEvents true _returnvalue)
+      (|SetbEnableMouseOverEvents true _returnvalue)
+      (bind _asmoba_player_controller (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController)))
+      (|SetbEnableClickToMoveChampion false _asmoba_player_controller))))
+
+(event MouseWheelAxis (AxisValue))
+
 (event EventOnLanded (Hit)
-  (CallFunction|CompleteDropLanding))
-
-; (fn CompleteDropLanding ()  — clear bIsDropping, restore CMC + spring arm, SetDropMode false, ShowAbilityHUD)
-; (fn SkipSkyDrop ()          — line-trace to ground, teleport, then CompleteDropLanding)
+  (bind _charactermovement (Variables|Character|GetCharacterMovement))
+  (bind _springarm (Variables|Camera|GetSpringArm))
+  (if (|GetbIsDropping)
+    (|SetbIsDropping false)
+    (Class|CharacterMovementComponent|SetGravityScale (Variables|Default|GetDefaultGravityScale) _charactermovement)
+    (Class|CharacterMovementComponent|SetAirControl (Variables|Default|GetDefaultAirControl) _charactermovement)
+    (Class|SpringArmComponent|SetTargetArmLength (Variables|Default|GetSavedArmLength) _springarm)
+    (Transformation|SetRelativeRotation _springarm (Math|Rotator|MakeRotator 0.0 (Variables|Default|GetTopDownArmPitch)))
+    (bind _asmoba_player_controller (Utilities|Casting|CastToMobaPlayerController (Pawn|GetController))
+      (:then
+        (|SetbEnableClickToMoveChampion true _asmoba_player_controller)
+        (CallFunction|ShowAbilityHUD))
+      (:CastFailed
+        (CallFunction|ShowAbilityHUD)))))

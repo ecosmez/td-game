@@ -1,24 +1,10 @@
 (fn BeginAbilityAim (AbilityId)
-  (if (|GetbIsDropping)
-    (Development|PrintString "Cannot aim while dropping" true true "(R=1.000000,G=0.400000,B=0.200000,A=1.000000)")
+  (if (and (> (Variables|Default|GetPendingAbility) 0) (== (Variables|Default|GetPendingAbility) AbilityId))
+    (CallFunction|CancelAbilityAim)
     (else
-      (bind onCd (or (and (== AbilityId 1) (> (|GetCD_Q) 0.0))
-                     (or (and (== AbilityId 2) (> (|GetCD_W) 0.0))
-                         (or (and (== AbilityId 3) (> (|GetCD_E) 0.0))
-                             (and (== AbilityId 4) (> (|GetCD_R) 0.0)))))))
-      (if onCd
-        (Development|PrintString "Ability on cooldown" true true "(R=1.000000,G=0.600000,B=0.200000,A=1.000000)")
-        (else
-          (if (and (== AbilityId 4) (< (Variables|Default|GetChampionLevel) 3))
-            (Development|PrintString "Ult locked until Level 3" true true "(R=1.000000,G=0.300000,B=0.300000,A=1.000000)")
-            (else
-              (if (and (> (Variables|Default|GetPendingAbility) 0) (== (Variables|Default|GetPendingAbility) AbilityId))
-                (CallFunction|CancelAbilityAim)
-                (else
-                  (CallFunction|CancelAbilityAim)
-                  (Variables|Default|SetPendingAbility AbilityId)
-                  (bind preview (Game|SpawnActorfromClass "/Game/TD/BP_AbilityAimPreview.BP_AbilityAimPreview_C" (Math|Transform|MakeTransform (Transformation|GetActorLocation)) "AlwaysSpawn" "MultiplyWithRoot"))
-                  (Variables|Default|SetAimPreviewActor preview)
-                  (Collision|SetActorEnableCollision preview false)
-                  (CallFunction|UpdateAbilityAim)
-                  (Development|PrintString "Aiming - LMB cast / RMB cancel" true true "(R=0.400000,G=0.900000,B=1.000000,A=1.000000)" 2.0)))))))))
+      (CallFunction|CancelAbilityAim)
+      (Variables|Default|SetPendingAbility AbilityId)
+      (bind _returnvalue (Game|SpawnActorBPAbilityAimPreview "/Game/TD/BP_AbilityAimPreview.BP_AbilityAimPreview_C" (Math|Transform|MakeTransform (Transformation|GetActorLocation)) "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+      (Variables|Default|SetAimPreviewActor _returnvalue)
+      (Collision|SetActorEnableCollision _returnvalue)
+      (CallFunction|UpdateAbilityAim))))

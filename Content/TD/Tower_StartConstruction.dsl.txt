@@ -5,5 +5,4 @@
   (Variables|Construction|SetMeshMinZ (.z (Components|StaticMesh|GetLocalBounds (Variables|Default|GetTowerMesh))))
   (CallFunction|ApplyTowerColor)
   (Rendering|Material|SetMaterial (Variables|Default|GetHoloMesh) 0 "/Game/TD/Materials/M_TowerHolo.M_TowerHolo")
-  (Rendering|SetVisibility (Variables|Default|GetHoloMesh) true)
-  (Development|PrintString "Construction started" true true "(R=0.200000,G=0.800000,B=1.000000,A=1.000000)" 1.5))
+  (Rendering|SetVisibility (Variables|Default|GetHoloMesh) true))

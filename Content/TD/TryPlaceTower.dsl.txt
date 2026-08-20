@@ -1,21 +1,23 @@
 (fn TryPlaceTower ()
-  (Utilities|IsValid (Variables|Default|GetPlacedTower)
-    (:"Is Valid"
-      (Development|PrintString "Pad already occupied" true true "(R=1.000000,G=0.500000,B=0.000000,A=1.000000)" 2.0))
-    (:"Is Not Valid"
-      (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"
-        (:then
-          (if (Utilities|Array|IsEmpty _outactors)
-            (Development|PrintString "No BuildManager" true true "(R=1.000000,G=0.000000,B=0.000000,A=1.000000)" 3.0)
-            (else
-              (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors))
-                (:then
-                  (if (Class|BPBuildManager|CanPlaceTower mgr)
-                    (bind loc (Transformation|GetActorLocation))
-                    (bind spawned (Game|SpawnActorfromClass "/Game/TD/BP_Tower.BP_Tower_C" (Math|Transform|MakeTransform (Math|Vector|MakeVector (.x loc) (.y loc) (+ (.z loc) 120.0))) "AlwaysSpawn" "MultiplyWithRoot"))
-                    (Variables|Default|SetPlacedTower spawned)
-                    (Development|PrintString "Tower placed!" true true "(R=0.200000,G=1.000000,B=0.400000,A=1.000000)" 2.0)
-                    (else
-                      (Development|PrintString "Press 1 to select a tower first" true true "(R=1.000000,G=0.700000,B=0.200000,A=1.000000)" 3.0))))
-                (:CastFailed
-                  (Development|PrintString "BuildManager cast failed")))))))))
+  (bind _returnvalue (Transformation|GetActorLocation))
+  (bind _x (.x _returnvalue))
+  (bind _y (.y _returnvalue))
+  (bind _z (.z _returnvalue))
+  (bind _returnvalue_1 120.0)
+  (bind _returnvalue_2 (+ _z _returnvalue_1))
+  (bind _returnvalue_3 (Math|Vector|MakeVector _x _y _returnvalue_2))
+  (bind _returnvalue_4 (Math|Transform|MakeTransform _returnvalue_3))
+  (bind _placedtower (Variables|Default|GetPlacedTower))
+  (bind _outactors (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
+  (if (not (Utilities|Array|IsEmpty _outactors))
+    (bind _asbp_build_manager (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors)))
+    (if (Class|BPBuildManager|GetIsBuildPhase _asbp_build_manager)
+      (if (Class|BPBuildManager|GetHasTowerSelected _asbp_build_manager)
+        (if (>= (Class|BPBuildManager|GetResource _asbp_build_manager) (Class|BPBuildManager|GetSelectedTowerCost _asbp_build_manager))
+          (Class|BPBuildManager|TrySpendResource _asbp_build_manager)
+          (Utilities|IsValid _placedtower
+            (:"Is Valid"
+              (Actor|DestroyActor _placedtower)
+              (CallFunction|SpawnandStartTower _returnvalue_4))
+            (:"Is Not Valid"
+              (CallFunction|SpawnandStartTower _returnvalue_4))))))))

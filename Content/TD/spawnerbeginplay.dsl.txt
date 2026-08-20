@@ -3,14 +3,13 @@
   (Variables|Default|SetBetweenWaveDelay 4.0)
   (Variables|Default|SetSpawnInterval 1.25)
   (Variables|Default|SetMaxAlive 99)
-  (Variables|Default|SetAliveCount 0)
-  (Development|PrintString "Spawner ready" true true "(R=0.500000,G=0.800000,B=1.000000,A=1.000000)" 3.0))
+  (Variables|Default|SetAliveCount 0))
 
 (event Collision|EventActorBeginOverlap (OtherActor))
 
 (event EventTick (DeltaSeconds)
-  (bind pc (Game|GetPlayerController 0))
-  (Utilities|IsValid pc
+  (bind _returnvalue (Game|GetPlayerController 0))
+  (Utilities|IsValid _returnvalue
     (:"Is Valid"
-      (if (Game|Player|WasInputKeyJustPressed pc "Enter")
-        (CallFunction|ForceStartNextWave)))))
+      (if (Game|Player|WasInputKeyJustPressed _returnvalue "Enter")
+        (TD|EnemyPath|ForceStartNextWave 0)))))

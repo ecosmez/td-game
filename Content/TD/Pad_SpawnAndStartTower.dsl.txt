@@ -1,23 +1,50 @@
 (fn SpawnAndStartTower (SpawnXF)
-  ; Live graph: switch on BuildManager.SelectedTowerName and spawn the matching
-  ; child BP so CDO combat stats apply (DamagePerShot, AttackSpeed, ShotsPerVolley,
-  ; ProjectileMesh). Unknown names fall back to /Game/TD/BP_Tower.
-  (bind managers (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
-  (if (Utilities|Array|IsEmpty managers)
-    (Development|PrintString "No BuildManager")
-    (else
-      (bind mgr (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem managers)))
-      (bind tower_name (Class|BPBuildManager|GetSelectedTowerName mgr))
-      (if (Utilities|String|EqualExactly(String) tower_name "Arrow")
-        ; spawn BP_Tower_Arrow → StartConstruction + FinishTowerPlacement
-        _
-        (elif (Utilities|String|EqualExactly(String) tower_name "Cannon")
-          ; spawn BP_Tower_Cannon
-          _
-          (elif (Utilities|String|EqualExactly(String) tower_name "Sniper")
-            _
-            (elif (Utilities|String|EqualExactly(String) tower_name "Magical Tower")
-              _
-              (else
-                ; Buff/Economy/Trap/Wall + default base BP_Tower
-                _)))))))
+  (bind _selectedtowername (Class|BPBuildManager|GetSelectedTowerName (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C")))))
+  (bind _outactors (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
+  (if (not (Utilities|Array|IsEmpty _outactors))
+    (bind _asbp_build_manager (Utilities|Casting|CastToBP_BuildManager (Utilities|Array|RandomArrayItem _outactors)))
+    (if (Utilities|String|EqualExactly(String) _selectedtowername "Arrow")
+      (bind _returnvalue (Game|SpawnActorBPTowerArrow "/Game/TD/Towers/BP_Tower_Arrow.BP_Tower_Arrow_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+      (Variables|Default|SetPlacedTower _returnvalue)
+      (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+      (Class|BPTower|StartConstruction _asbp_tower)
+      (elif (Utilities|String|EqualExactly(String) _selectedtowername "Cannon")
+        (bind _returnvalue (Game|SpawnActorBPTowerCannon "/Game/TD/Towers/BP_Tower_Cannon.BP_Tower_Cannon_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+        (Variables|Default|SetPlacedTower _returnvalue)
+        (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+        (Class|BPTower|StartConstruction _asbp_tower)
+        (elif (Utilities|String|EqualExactly(String) _selectedtowername "Sniper")
+          (bind _returnvalue (Game|SpawnActorBPTowerSniper "/Game/TD/Towers/BP_Tower_Sniper.BP_Tower_Sniper_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+          (Variables|Default|SetPlacedTower _returnvalue)
+          (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+          (Class|BPTower|StartConstruction _asbp_tower)
+          (elif (Utilities|String|EqualExactly(String) _selectedtowername "Magical Tower")
+            (bind _returnvalue (Game|SpawnActorBPTowerMagic "/Game/TD/Towers/BP_Tower_Magic.BP_Tower_Magic_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+            (Variables|Default|SetPlacedTower _returnvalue)
+            (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+            (Class|BPTower|StartConstruction _asbp_tower)
+            (elif (Utilities|String|EqualExactly(String) _selectedtowername "Buff Stats")
+              (bind _returnvalue (Game|SpawnActorBPTowerBuff "/Game/TD/Towers/BP_Tower_Buff.BP_Tower_Buff_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+              (Variables|Default|SetPlacedTower _returnvalue)
+              (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+              (Class|BPTower|StartConstruction _asbp_tower)
+              (elif (Utilities|String|EqualExactly(String) _selectedtowername "Economy")
+                (bind _returnvalue (Game|SpawnActorBPTowerEconomy "/Game/TD/Towers/BP_Tower_Economy.BP_Tower_Economy_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+                (Variables|Default|SetPlacedTower _returnvalue)
+                (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+                (Class|BPTower|StartConstruction _asbp_tower)
+                (elif (Utilities|String|EqualExactly(String) _selectedtowername "Trap Mine")
+                  (bind _returnvalue (Game|SpawnActorBPTowerTrap "/Game/TD/Towers/BP_Tower_Trap.BP_Tower_Trap_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+                  (Variables|Default|SetPlacedTower _returnvalue)
+                  (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+                  (Class|BPTower|StartConstruction _asbp_tower)
+                  (elif (Utilities|String|EqualExactly(String) _selectedtowername "Wall")
+                    (bind _returnvalue (Game|SpawnActorBPTowerWall "/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+                    (Variables|Default|SetPlacedTower _returnvalue)
+                    (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+                    (Class|BPTower|StartConstruction _asbp_tower)
+                    (else
+                      (bind _returnvalue (Game|SpawnActorBPTower "/Game/TD/BP_Tower.BP_Tower_C" SpawnXF "AlwaysSpawn" "MultiplyWithRoot" 0 0))
+                      (Variables|Default|SetPlacedTower _returnvalue)
+                      (bind _asbp_tower (Utilities|Casting|CastToBP_Tower _returnvalue))
+                      (Class|BPTower|StartConstruction _asbp_tower))))))))))))

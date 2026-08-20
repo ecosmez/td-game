@@ -1,11 +1,8 @@
 (fn ShowBuildHUD ()
-  (bind pc (Game|GetPlayerController 0))
-  (Utilities|IsValid pc
+  (bind _returnvalue (Game|GetPlayerController 0))
+  (Utilities|IsValid _returnvalue
     (:"Is Valid"
-      ; C++ helper — no Create Widget Class pin to go missing at compile time.
-      (bind widget (TD|UI|CreateAndShowTowerStore :OwningPlayer pc :ZOrder 120))
-      (Utilities|IsValid widget
+      (bind _returnvalue_1 (TD|UI|CreateAndShowTowerStore _returnvalue))
+      (Utilities|IsValid _returnvalue_1
         (:"Is Valid"
-          (Variables|Default|SetBuildHUDWidget widget))
-        (:"Is Not Valid"
-          (Development|PrintString "ShowBuildHUD: CreateAndShowTowerStore failed"))))))
+          (Variables|Default|SetBuildHUDWidget _returnvalue_1))))))
