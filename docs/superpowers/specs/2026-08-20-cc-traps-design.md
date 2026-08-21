@@ -81,47 +81,79 @@ is consumed).
 
 ## Trap actor architecture
 
-- New Blueprint `BP_Trap_Base` (Actor, no C++ parent — matches how towers
-  are pure Blueprint today, e.g. `BP_Tower_Arrow`). Components: root scene,
-  a mesh/decal for the visual, and a `TriggerVolume` overlap component
-  (box or sphere).
-- Instance-editable config:
-  - `EffectType` (enum: `Slow` / `Root` / `Stun`)
-  - `ApplicationMode` (enum: `Pulse` / `OneShot`)
+**Revised during planning**: the Unreal MCP tooling available in this project
+has no tool to create a new Blueprint *enum* asset, and editing per-subclass
+CDO defaults is unconfirmed/risky. The codebase already has a proven
+alternative for "one class, many configurations" — `BP_BuildManager`'s
+`SpawnAndStartTower` (see `Content/TD/Pad_SpawnAndStartTower.dsl.txt`)
+dispatches by **string name** and configures each freshly-spawned actor with
+direct instance-property writes, the same way C++
+`TDEnemyPathLibrary::SpawnNextWaveEnemy` configures a freshly-spawned enemy.
+Traps follow that same pattern instead of using enums or subclasses:
+
+- One Blueprint `BP_Trap_Base` (Actor, no C++ parent — matches how towers
+  are pure Blueprint today, e.g. `BP_Tower_Arrow`). Components: default
+  scene root and a mesh for the visual. No collision/overlap component —
+  see detection note below.
+- **Detection**: instead of a physical overlap volume, mirrors the Mine
+  tower's own proven `HasEnemyInRange`/`FireAoEBurst` pattern exactly
+  (`Content/TD/Tower_UpdateAoEBehavior.dsl.txt`): a `Radius` float
+  variable, `Actor|GetAllActorsOfClass` on `BP_Enemy`, and a distance
+  check against the trap's own location. Functionally equivalent to "who
+  overlaps the trigger volume" without needing new collision-component
+  setup — same query shape already compiling and running in this project.
+- Instance variables (all configured post-spawn by `SpawnAndStartTower`,
+  not baked into subclasses):
+  - `EffectType` (String: `"Slow"` / `"Root"` / `"Stun"`) — dispatched with
+    a DSL `switch string` in the trap's own pulse/trigger logic.
+  - `bPulseMode` (Bool) — mirrors the Mine tower's existing `PulseMode`
+    flag naming exactly: `true` = permanent pulsing field, `false` =
+    one-shot snare.
   - `Magnitude` (float — `SlowFactor` for Slow, ignored for Root/Stun)
   - `EffectDuration` (float — passed to `ApplySlowTimed`/`ApplyRoot`/
     `ApplyStun` on each application)
-  - `PulseInterval` (float — Pulse mode only)
-- **Pulse mode**: on placement, start a repeating timer at `PulseInterval`.
-  Each firing, gather every actor currently overlapping `TriggerVolume`,
-  cast to `BP_Enemy`, and call the matching `Apply*` function with
-  `EffectDuration`. Because durations refresh-if-longer, an enemy standing
-  inside just keeps getting refreshed for as long as it stays — no manual
-  un-apply needed. Pulse traps never expire (permanent until sold/destroyed,
-  per user decision — same lifetime model as towers).
-- **OneShot mode**: on the trap's first `BeginOverlap`, apply the effect
-  once to every actor currently overlapping the volume (not just the
-  actor that triggered it — user decision: affects all enemies inside),
-  then the trap destroys itself (consumed).
-- 6 thin subclasses of `BP_Trap_Base`, each just setting different CDO
-  defaults (no new logic per subclass):
-  - `BP_Trap_Slow_Field` (Pulse) / `BP_Trap_Slow_Snare` (OneShot)
-  - `BP_Trap_Root_Field` (Pulse) / `BP_Trap_Root_Snare` (OneShot)
-  - `BP_Trap_Freeze_Field` (Pulse) / `BP_Trap_Freeze_Snare` (OneShot) —
-    both use `EffectType = Stun` under the hood
+  - `PulseInterval` (float — used only when `bPulseMode` is true)
+  - `Radius` (float — detection radius, see above)
+- **Pulse mode** (`bPulseMode = true`): `EventTick` counts `PulseInterval`
+  down every frame (mirrors Mine's `PulseTimer` countdown exactly); when it
+  reaches zero, apply the effect to every `BP_Enemy` within `Radius` and
+  reset the countdown to `PulseInterval`. Because durations refresh-if-
+  longer, an enemy standing inside just keeps getting refreshed for as
+  long as it stays — no manual un-apply needed. Pulse traps never expire
+  (permanent until sold/destroyed, per user decision — same lifetime model
+  as towers).
+- **OneShot mode** (`bPulseMode = false`): `EventTick` checks each frame
+  whether any `BP_Enemy` is within `Radius`; the first frame one is, apply
+  the effect to every enemy within `Radius` and destroy the trap in the
+  same branch (both statements execute together, exactly mirroring Mine's
+  proven one-shot branch) — consumed after one application.
+- 6 store cards spawn the **same** `BP_Trap_Base` class with 6 different
+  `(EffectType, bPulseMode)` configurations — no per-effect subclasses:
+  - Slow Field (`"Slow"`, pulse) / Slow Snare (`"Slow"`, one-shot)
+  - Root Field (`"Root"`, pulse) / Root Snare (`"Root"`, one-shot)
+  - Freeze Field (`"Stun"`, pulse) / Freeze Snare (`"Stun"`, one-shot)
 
 ## Store / BuildManager integration
 
-- 6 new entries in `UTowerStoreWidget::BuildDefaultCatalog()` (C++), one per
-  subclass, each with a distinct `SelectFunctionName` (`SelectSlowFieldTrap`,
+- 6 new entries in `UTowerStoreWidget::BuildDefaultCatalog()` (C++), all
+  sharing the same `TowerClassPath` (`BP_Trap_Base`) but each with a
+  distinct `SelectFunctionName` (`SelectSlowFieldTrap`,
   `SelectSlowSnareTrap`, `SelectRootFieldTrap`, `SelectRootSnareTrap`,
-  `SelectFreezeFieldTrap`, `SelectFreezeSnareTrap`), its `TowerClassPath`,
+  `SelectFreezeFieldTrap`, `SelectFreezeSnareTrap`), display name,
   cost/build-time/stats, and an `ExtraNote` describing the effect (e.g.
-  "Pulses slow • permanent" vs. "One-shot snare • consumed").
+  "Pulses slow • permanent" vs. "One-shot snare • consumed"). Each entry
+  may use its own `MeshPath`/material for a visually distinct store
+  preview even though the underlying class is shared.
 - 6 matching `SelectXTrap` functions added to `BP_BuildManager`, each
-  mirroring the existing `SelectArrowTower`-style pattern (enters
-  placement/ghost mode for that class) — the same mechanism already used
-  for all 8 existing tower types, just pointed at the new trap classes.
+  mirroring the existing `SelectArrowTower`-style pattern (sets the
+  selected-tower name, enters placement/ghost mode) — the same mechanism
+  already used for all 8 existing tower types.
+- 6 new `elif` branches added to the `SpawnAndStartTower` DSL function
+  (keyed on the same selected-tower-name string set by the `SelectXTrap`
+  functions above), each spawning `BP_Trap_Base` and then writing its
+  `EffectType`/`bPulseMode`/`Magnitude`/`EffectDuration`/`PulseInterval`
+  instance variables to the values for that trap, before
+  `StartConstruction` — mirrors every existing branch in that function.
 - Display names use "Slow"/"Root"/"Freeze" rather than the bare word "Trap"
   (e.g. "Slow Field", "Slow Snare") to avoid confusion with the existing
   unrelated "Mine" card (burst-AoE damage, formerly named "Trap"). That
@@ -140,11 +172,16 @@ is consumed).
   reliably crashes on a Live Coding patch after gameplay C++ changes. Build
   via a closed-editor `Build.bat` run instead of a Live Coding compile in
   the running editor.
-- All Blueprint work (`BP_Enemy` new vars/functions/Tick decay, the 6
-  `BP_Trap_*` actors, 6 new `BP_BuildManager` Select functions) happens
-  afterward through Unreal MCP editor automation against the relaunched
-  editor, following the patterns already in
-  [[unreal-mcp-editor-automation]].
+- All Blueprint work (`BP_Enemy` new vars/functions/Tick decay, the single
+  `BP_Trap_Base` actor, 6 new `BP_BuildManager` Select functions, 6 new
+  `SpawnAndStartTower` branches) happens afterward through Unreal MCP
+  editor automation against the relaunched editor, following the patterns
+  already in [[unreal-mcp-editor-automation]]. Blueprint function/event
+  bodies are written via the `BlueprintTools.write_graph_dsl` tool — for
+  any graph that already has logic (e.g. `BP_Enemy.EventTick`,
+  `SpawnAndStartTower`), the workflow is read the full existing DSL via
+  `read_graph_dsl`, edit the complete text, and write the whole script
+  back (it replaces, not appends).
 - Verification in PIE: place each of the 6 traps from the store and confirm:
   - Slow reduces enemy speed and self-heals back to normal after
     `EffectDuration` with no source object required to still exist.
