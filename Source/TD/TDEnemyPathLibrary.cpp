@@ -1493,7 +1493,8 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		return;
 	}
 
-	if (StunRemaining > 0.f)
+	const float RootRemaining = ReadFloatOr(Enemy, { TEXT("RootRemaining") }, 0.f);
+	if (StunRemaining > 0.f || RootRemaining > 0.f)
 	{
 		return;
 	}
