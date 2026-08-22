@@ -174,10 +174,10 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 
 	const TCHAR* MeshBase = TEXT("/Game/TD/Assets/Towers/TowerBase.TowerBase");
 
-	Add(TEXT("Trap"), TEXT("Trap"), TEXT("SelectTrapTower"),
-		TEXT("/Game/TD/Towers/BP_Tower_Trap.BP_Tower_Trap_C"),
+	Add(TEXT("Mine"), TEXT("Mine"), TEXT("SelectMineTower"),
+		TEXT("/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Trap.MI_Tower_Trap"),
-		40, 1.5f, 0.f, 45.f, 200.f, TEXT("Path • Burst AoE"));
+		40, 1.5f, 0.f, 45.f, 200.f, TEXT("Path • AoE, one-shot or pulse"));
 
 	Add(TEXT("Wall"), TEXT("Wall"), TEXT("SelectWallTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C"),

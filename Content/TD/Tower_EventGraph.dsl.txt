@@ -14,6 +14,11 @@
 
 (event EventTick (DeltaSeconds)
   (if (Variables|Construction|GetIsBuilt)
-    (CallFunction|TryFire)
+    (if (Variables|Default|GetIsAoe)
+      (CallFunction|UpdateAoEBehavior self DeltaSeconds)
+      (CallFunction|TryFire))
     (elif (Variables|Construction|GetIsConstructing)
       (CallFunction|UpdateConstruction))))
+
+; IsAoe routes to UpdateAoEBehavior instead of TryFire/fire-points combat.
+; See Tower_UpdateAoEBehavior.dsl.txt (Mine tower: BP_Tower_Mine).

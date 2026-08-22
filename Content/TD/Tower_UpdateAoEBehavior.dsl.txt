@@ -1,0 +1,50 @@
+; AoE combat path for towers with IsAoe=true (currently: BP_Tower_Mine).
+; Bypasses TryFire/fire-points entirely — see EventTick branch in Tower_EventGraph.dsl.txt.
+; Reuses AoeRadius (not Range) as both detect radius and blast radius, and
+; DamagePerShot as the blast damage. Damage is applied directly via
+; TD|EnemyPath|ApplyDamageToEnemy (reflection call into BP_Enemy.ApplyEnemyDamage,
+; same function BP_Projectile uses on hit) — no projectile is spawned.
+;
+; PulseMode false (default, one-shot/"trap"): waits for the first enemy within
+; AoeRadius, blasts everyone in AoeRadius once, then destroys itself. Self-destruct
+; frees the build pad automatically (Pad_TryPlaceTower already treats an invalid
+; PlacedTower ref as empty).
+; PulseMode true: blasts everyone in AoeRadius every PulseInterval seconds,
+; unconditionally (fires even if nothing is in range), forever — never self-destructs.
+
+(fn UpdateAoEBehavior (DeltaSeconds)
+  (bind origin (Transformation|GetActorLocation))
+  (bind radius (Variables|Default|GetAoeRadius))
+  (bind dmg (Variables|Combat|GetDamagePerShot))
+  (if (Variables|Default|GetPulseMode)
+    (bind newtimer (- (Variables|Default|GetPulseTimer) DeltaSeconds))
+    (Variables|Default|SetPulseTimer newtimer)
+    (if (<= newtimer 0.0)
+      (CallFunction|FireAoEBurst self origin radius dmg)
+      (Variables|Default|SetPulseTimer (Variables|Default|GetPulseInterval)))
+    (else
+      (if (CallFunction|HasEnemyInRange self origin radius)
+        (CallFunction|FireAoEBurst self origin radius dmg)
+        (Actor|DestroyActor self)))))
+
+; HasEnemyInRange(Origin, Radius): true if any attackable BP_Enemy is within
+; Radius of Origin. Read-only — used to decide whether the one-shot mine should
+; detonate, checked BEFORE FireAoEBurst so a kill in the same burst can't hide
+; the fact something was hit (IsAttackableEnemy would report a just-destroyed
+; enemy as no longer attackable).
+(fn HasEnemyInRange (Origin Radius)
+  (bind enemies (Actor|GetAllActorsOfClass "/Game/TD/BP_Enemy.BP_Enemy_C"))
+  (for enemy enemies
+    (if (TD|EnemyPath|IsAttackableEnemy enemy)
+      (if (<= (Math|Vector|Distance(Vector) Origin (Transformation|GetActorLocation enemy)) Radius)
+        (return true))))
+  (return false))
+
+; FireAoEBurst(Origin, Radius, Damage): damages every attackable BP_Enemy within
+; Radius of Origin via TD|EnemyPath|ApplyDamageToEnemy (health/death handled there).
+(fn FireAoEBurst (Origin Radius Damage)
+  (bind enemies (Actor|GetAllActorsOfClass "/Game/TD/BP_Enemy.BP_Enemy_C"))
+  (for enemy enemies
+    (if (TD|EnemyPath|IsAttackableEnemy enemy)
+      (if (<= (Math|Vector|Distance(Vector) Origin (Transformation|GetActorLocation enemy)) Radius)
+        (TD|EnemyPath|ApplyDamageToEnemy enemy Damage)))))

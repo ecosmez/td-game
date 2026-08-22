@@ -15,6 +15,10 @@ Editable stats on BP_Tower (Details panel)
 - Range             (uu from the fire point)
 - ProjectileMesh    (StaticMesh for shots; child types override, else inherit base Sphere)
 - TowerTypeName     (label)
+- IsAoe             (routes EventTick to UpdateAoEBehavior instead of TryFire — see below)
+- AoeRadius         (uu; detect + blast radius for IsAoe towers, reuses DamagePerShot as blast damage)
+- PulseMode         (IsAoe only: false = one-shot then self-destruct, true = repeat every PulseInterval)
+- PulseInterval     (seconds between pulses when PulseMode is true)
 
 Fire positions (1–8)
 - Place child Scene Components on the tower (or child tower BPs). Tag each with FirePoint.
@@ -39,7 +43,9 @@ Helpers on BP_Tower
 - GatherFirePoints
 - SelectVisibleTarget(Origin)
 - SpawnVolleyAt(Origin)
-- TryFire (tick when IsBuilt)
+- TryFire (tick when IsBuilt and not IsAoe)
+- UpdateAoEBehavior(DeltaSeconds) / HasEnemyInRange / FireAoEBurst (tick when IsBuilt and IsAoe;
+  see Tower_UpdateAoEBehavior.dsl.txt — used by BP_Tower_Mine)
 
 Collision notes
 - TowerMesh: BlockAllDynamic / QueryAndPhysics — occludes LoS through the tower.

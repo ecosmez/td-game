@@ -13,7 +13,9 @@ Buff Stats        Support    80   3.0s    —         —    900  None          
 Cannon            Combat    100   4.0s    0.6/s    35   1400  CannonShell   Ground only, AoE 350
 Sniper            Combat    140   4.5s    0.45/s   80   2800  SniperShot    High single-target, bosses
 Economy           Economy    90   3.5s    —         —      0  None          Crystal placement, +8 gold / 2s
-Trap Mine         Trap       40   1.5s    trigger  45    200  Burst         Path only, burst AoE 250
+Mine              Trap       40   1.5s    trigger  45    200  None          Path only, direct AoE (radius = AoeRadius, not a projectile);
+                                                                              PulseMode false (default) = one-shot, destroys itself after
+                                                                              first blast; PulseMode true = repeats every PulseInterval sec
 Wall Blockage     Wall       35   2.0s    —         —      0  None          Path only, block/redirect, no damage
 Magical Tower     Combat    200   5.0s    1.2/s    55   2000  MagicBeam     Expensive, multi-shot, anti-air
 
@@ -26,7 +28,7 @@ Assets:
   /Game/TD/Towers/BP_Tower_Cannon
   /Game/TD/Towers/BP_Tower_Sniper
   /Game/TD/Towers/BP_Tower_Economy
-  /Game/TD/Towers/BP_Tower_Trap
+  /Game/TD/Towers/BP_Tower_Mine
   /Game/TD/Towers/BP_Tower_Wall
   /Game/TD/Towers/BP_Tower_Magic
 
@@ -34,11 +36,14 @@ Wired:
 - Pad SpawnAndStartTower spawns selected child class (Arrow/Cannon/…)
 - TryFire uses ShotsPerVolley + DamagePerShot + AttackSpeed/FireInterval + ProjectileMesh
 
+- Mine (IsAoe=true) routes EventTick to UpdateAoEBehavior instead of TryFire;
+  see Tower_UpdateAoEBehavior.dsl.txt
+
 Wire-up next:
 - Enforce PlacementRule (Path/Crystal vs Pad)
 - Buff tick: apply BuffDamageMult / BuffAttackSpeedMult to towers in BuffRadius
 - Economy tick: GoldPerInterval every EconomyInterval
-- Trap trigger on overlap; Wall as path occupancy
+- Wall as path occupancy
 - AoE radius on projectile hit (Cannon)
 - Ghost preview spawns selected child class
 - Merge interaction
