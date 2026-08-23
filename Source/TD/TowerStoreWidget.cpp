@@ -37,6 +37,8 @@ namespace TowerStorePrivate
 	static const FLinearColor CardAfford(0.10f, 0.18f, 0.16f, 0.96f);
 	static const FLinearColor CardUnafford(0.18f, 0.08f, 0.08f, 0.96f);
 	static const FLinearColor CardHover(0.16f, 0.28f, 0.34f, 0.98f);
+	static const FLinearColor TabActive(0.16f, 0.48f, 0.66f, 1.f);
+	static const FLinearColor TabInactive(0.10f, 0.16f, 0.22f, 0.96f);
 	static const FLinearColor TextMain(0.92f, 0.95f, 1.f, 1.f);
 	static const FLinearColor TextDim(0.78f, 0.86f, 0.92f, 1.f);
 	static const FLinearColor TextCost(1.f, 0.86f, 0.35f, 1.f);
@@ -110,6 +112,14 @@ void UTowerStoreCardClickBinder::HandleUnhovered()
 	if (Store)
 	{
 		Store->OnCardUnhovered(CardIndex);
+	}
+}
+
+void UTowerStoreCategoryClickBinder::HandleClicked()
+{
+	if (Store)
+	{
+		Store->SetCategoryFilter(bShowAll, Category);
 	}
 }
 
@@ -326,6 +336,8 @@ void UTowerStoreWidget::BuildDefaultUI()
 		ResSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
+	BuildCategoryTabs(PanelV);
+
 	// Horizontal tower strip only — no hover inside this chrome.
 	USizeBox* StripSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StripSize"));
 	StripSize->SetHeightOverride(StoreStripHeight);
@@ -437,7 +449,7 @@ float UTowerStoreWidget::GetStoreStripBottomPad() const
 float UTowerStoreWidget::GetHoverFloatBottomPad() const
 {
 	// Floating hover sits above the full store body + float gap.
-	const float StoreBody = StoreHeaderHeight + StoreStripHeight + 24.f;
+	const float StoreBody = StoreHeaderHeight + StoreTabsHeight + StoreStripHeight + 24.f;
 	return GetStoreStripBottomPad() + StoreBody + HoverFloatGap;
 }
 
@@ -464,6 +476,104 @@ void UTowerStoreWidget::ApplyDockLayout()
 	}
 }
 
+void UTowerStoreWidget::BuildCategoryTabs(UVerticalBox* Parent)
+{
+	CategoryTabs.Reset();
+	CategoryClickBinders.Reset();
+	if (!Parent || !WidgetTree)
+	{
+		return;
+	}
+
+	USizeBox* TabsSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CategoryTabsSize"));
+	TabsSize->SetHeightOverride(StoreTabsHeight);
+	if (UVerticalBoxSlot* TabsSlot = Parent->AddChildToVerticalBox(TabsSize))
+	{
+		TabsSlot->SetHorizontalAlignment(HAlign_Left);
+		TabsSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
+	}
+
+	UHorizontalBox* TabsRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CategoryTabsRow"));
+	TabsSize->SetContent(TabsRow);
+
+	auto AddTab = [this, TabsRow](const TCHAR* Name, bool bShowAll, ETowerStoreCategory Category)
+	{
+		FTowerStoreCategoryTabUI Tab;
+		Tab.bShowAll = bShowAll;
+		Tab.Category = Category;
+
+		USizeBox* TabSize = WidgetTree->ConstructWidget<USizeBox>(
+			USizeBox::StaticClass(), *FString::Printf(TEXT("CategoryTabSize_%s"), Name));
+		TabSize->SetWidthOverride(88.f);
+		TabSize->SetHeightOverride(StoreTabsHeight - 6.f);
+		if (UHorizontalBoxSlot* TabSlot = TabsRow->AddChildToHorizontalBox(TabSize))
+		{
+			TabSlot->SetPadding(FMargin(0.f, 0.f, 6.f, 0.f));
+		}
+
+		Tab.Button = WidgetTree->ConstructWidget<UButton>(
+			UButton::StaticClass(), *FString::Printf(TEXT("CategoryTab_%s"), Name));
+		TabSize->SetContent(Tab.Button);
+
+		UTowerStoreCategoryClickBinder* Binder = NewObject<UTowerStoreCategoryClickBinder>(this);
+		Binder->Store = this;
+		Binder->bShowAll = bShowAll;
+		Binder->Category = Category;
+		Tab.Button->OnClicked.AddDynamic(Binder, &UTowerStoreCategoryClickBinder::HandleClicked);
+		CategoryClickBinders.Add(Binder);
+
+		Tab.Label = WidgetTree->ConstructWidget<UTextBlock>(
+			UTextBlock::StaticClass(), *FString::Printf(TEXT("CategoryTabLabel_%s"), Name));
+		Tab.Label->SetText(FText::FromString(Name));
+		Tab.Label->SetJustification(ETextJustify::Center);
+		Tab.Label->SetVisibility(ESlateVisibility::HitTestInvisible);
+		TowerStorePrivate::SetTextStyle(Tab.Label, TowerStorePrivate::TextMain, 11.f, true);
+		Tab.Button->SetContent(Tab.Label);
+
+		CategoryTabs.Add(Tab);
+	};
+
+	AddTab(TEXT("All"), true, ETowerStoreCategory::Attack);
+	AddTab(TEXT("Attack"), false, ETowerStoreCategory::Attack);
+	AddTab(TEXT("Defense"), false, ETowerStoreCategory::Defense);
+	AddTab(TEXT("Support"), false, ETowerStoreCategory::Support);
+	RefreshCategoryTabVisuals();
+}
+
+void UTowerStoreWidget::RefreshCategoryTabVisuals()
+{
+	for (FTowerStoreCategoryTabUI& Tab : CategoryTabs)
+	{
+		const bool bActive = Tab.bShowAll == bShowAllCategories
+			&& (Tab.bShowAll || Tab.Category == ActiveCategory);
+		if (Tab.Button)
+		{
+			Tab.Button->SetBackgroundColor(bActive
+				? TowerStorePrivate::TabActive
+				: TowerStorePrivate::TabInactive);
+		}
+	}
+}
+
+void UTowerStoreWidget::SetCategoryFilter(bool bShowAll, ETowerStoreCategory Category)
+{
+	if (bShowAllCategories == bShowAll && (bShowAll || ActiveCategory == Category))
+	{
+		return;
+	}
+
+	ShowHoverPanel(false);
+	DestroyHoverTowerActor();
+	HoveredCardIndex = INDEX_NONE;
+	CaptureTimer = 0.f;
+	bShowAllCategories = bShowAll;
+	ActiveCategory = Category;
+
+	BuildCards();
+	RefreshCategoryTabVisuals();
+	RefreshResourceLabel();
+}
+
 void UTowerStoreWidget::BuildCards()
 {
 	Cards.Reset();
@@ -474,9 +584,14 @@ void UTowerStoreWidget::BuildCards()
 	}
 	CardRow->ClearChildren();
 
-	for (int32 i = 0; i < Catalog.Num(); ++i)
+	for (const FTowerStoreEntryDef& Def : Catalog)
 	{
-		Cards.Add(BuildCard(Catalog[i], i));
+		if (!DoesCategoryMatchFilter(Def.Category, bShowAllCategories, ActiveCategory))
+		{
+			continue;
+		}
+		const int32 VisibleIndex = Cards.Num();
+		Cards.Add(BuildCard(Def, VisibleIndex));
 	}
 }
 
@@ -1315,6 +1430,25 @@ bool FTowerStoreCategoryFilterTest::RunTest(const FString& Parameters)
 		ETowerStoreCategory::Defense, false, ETowerStoreCategory::Attack));
 	TestFalse(TEXT("Attack excludes Support"), UTowerStoreWidget::DoesCategoryMatchFilter(
 		ETowerStoreCategory::Support, false, ETowerStoreCategory::Attack));
+
+	const ETowerStoreCategory Categories[] = {
+		ETowerStoreCategory::Attack,
+		ETowerStoreCategory::Defense,
+		ETowerStoreCategory::Support
+	};
+	auto CountVisible = [&Categories](bool bShowAll, ETowerStoreCategory ActiveCategory)
+	{
+		int32 Count = 0;
+		for (ETowerStoreCategory Category : Categories)
+		{
+			Count += UTowerStoreWidget::DoesCategoryMatchFilter(Category, bShowAll, ActiveCategory) ? 1 : 0;
+		}
+		return Count;
+	};
+	TestEqual(TEXT("All shows every category"), CountVisible(true, ETowerStoreCategory::Attack), 3);
+	TestEqual(TEXT("Attack shows one category"), CountVisible(false, ETowerStoreCategory::Attack), 1);
+	TestEqual(TEXT("Defense shows one category"), CountVisible(false, ETowerStoreCategory::Defense), 1);
+	TestEqual(TEXT("Support shows one category"), CountVisible(false, ETowerStoreCategory::Support), 1);
 	return true;
 }
 #endif

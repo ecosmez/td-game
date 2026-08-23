@@ -27,6 +27,11 @@ Store UI:
 - Store strip opens at bottom-center; closed by default
 - Panel closed by default; click + to open, − to close
 - Live resource readout + afford greying
+- Category tabs above the item strip:
+    • All: every store entry
+    • Attack: Arrow, Cannon, Sniper, Magic, Mine
+    • Defense: Wall, Slow/Root/Freeze fields and snares
+    • Support: Buff, Economy
 - Each tower type card:
     • Translucent projection of the real tower mesh (M_TowerHolo scene-capture)
     • Stats: build time, damage, attack speed, range, role notes

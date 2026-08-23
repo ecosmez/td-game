@@ -50,6 +50,23 @@ public:
 	void HandleUnhovered();
 };
 
+/** Maps one category-tab button to the store filter it activates. */
+UCLASS()
+class TD_API UTowerStoreCategoryClickBinder : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY()
+	TObjectPtr<UTowerStoreWidget> Store = nullptr;
+
+	bool bShowAll = false;
+	ETowerStoreCategory Category = ETowerStoreCategory::Attack;
+
+	UFUNCTION()
+	void HandleClicked();
+};
+
 /** One store entry: identity, stats, and the select function on BuildManager. */
 USTRUCT(BlueprintType)
 struct FTowerStoreEntryDef
@@ -120,6 +137,22 @@ struct FTowerStoreCardUI
 	int32 CardIndex = INDEX_NONE;
 };
 
+/** Runtime handles and filter identity for one category tab. */
+USTRUCT()
+struct FTowerStoreCategoryTabUI
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<UButton> Button = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> Label = nullptr;
+
+	bool bShowAll = false;
+	ETowerStoreCategory Category = ETowerStoreCategory::Attack;
+};
+
 /**
  * Tower store HUD docked at bottom-center:
  * - Toggle via the ability bar "+" slot (first button before Q)
@@ -166,6 +199,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
 	float StoreHeaderHeight = 28.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
+	float StoreTabsHeight = 32.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store|Layout")
 	float StoreMaxWidth = 780.f;
@@ -220,6 +256,8 @@ public:
 		bool bShowAll,
 		ETowerStoreCategory ActiveCategory);
 
+	void SetCategoryFilter(bool bShowAll, ETowerStoreCategory Category);
+
 	void OnCardClicked(int32 CardIndex);
 	void OnCardHovered(int32 CardIndex);
 	void OnCardUnhovered(int32 CardIndex);
@@ -232,6 +270,8 @@ protected:
 	float GetStoreStripBottomPad() const;
 	float GetHoverFloatBottomPad() const;
 	void BuildDefaultCatalog();
+	void BuildCategoryTabs(UVerticalBox* Parent);
+	void RefreshCategoryTabVisuals();
 	void BuildCards();
 	FTowerStoreCardUI BuildCard(const FTowerStoreEntryDef& Def, int32 Index);
 
@@ -262,6 +302,9 @@ protected:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UObject>> CardClickBinders;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UObject>> CategoryClickBinders;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> RootCanvas = nullptr;
@@ -296,6 +339,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> ResourceText = nullptr;
+
+	UPROPERTY()
+	TArray<FTowerStoreCategoryTabUI> CategoryTabs;
 
 	UPROPERTY()
 	TObjectPtr<UScrollBox> CardScroll = nullptr;
