@@ -26,5 +26,7 @@
       (if (Variables|Default|GetTowerDragLive)
         (CallFunction|UpdateGhostTower))
       (if (or (Variables|Default|GetTowerDragLive) (Variables|Default|GetHasTowerSelected))
+        (if (Game|Player|WasInputKeyJustPressed pc "LeftMouseButton")
+          (CallFunction|TryDropTower))
         (if (or (Game|Player|WasInputKeyJustPressed pc "Escape") (Game|Player|WasInputKeyJustPressed pc "RightMouseButton"))
           (CallFunction|CancelTowerSelection))))))

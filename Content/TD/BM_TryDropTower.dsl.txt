@@ -1,4 +1,23 @@
 (fn TryDropTower ()
   (if (Variables|Default|GetIsBuildPhase)
     (if (Variables|Default|GetHasTowerSelected)
-      (CallFunction|ResolveCursorPad))))
+      (if (or
+            (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C")
+            (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"))
+        (bind pc (Game|GetPlayerController 0))
+        (Utilities|IsValid pc
+          (:"Is Valid"
+            (bind (hitresult didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+            (if didhit
+              (bind (blockinghit initialoverlap hittime hitdistance hitlocation impactpoint) (Collision|BreakHitResult hitresult))
+              (bind pathdistance (TD|EnemyPath|GetDistanceToNearestPath impactpoint))
+              (if (<= pathdistance (Variables|Store|GetSelectedTowerRadius))
+                (if (>= (Variables|Resource|GetResource) (Variables|Store|GetSelectedTowerCost))
+                  (CallFunction|TrySpendResource)
+                  (bind spawnlocation (Math|Vector|MakeVector (.x impactpoint) (.y impactpoint) (+ (.z impactpoint) 120.0)))
+                  (bind spawnedactor (CallFunction|SpawnandStartTower :self self :SpawnXF (Math|Transform|MakeTransform spawnlocation)))
+                  (Utilities|IsValid spawnedactor
+                    (:"Is Valid"
+                      (CallFunction|FinishTowerPlacement))))))))
+        (else
+          (CallFunction|ResolveCursorPad))))))
