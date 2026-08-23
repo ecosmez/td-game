@@ -20,6 +20,14 @@ class UStaticMeshComponent;
 class AActor;
 class UTowerStoreWidget;
 
+UENUM(BlueprintType)
+enum class ETowerStoreCategory : uint8
+{
+	Attack,
+	Defense,
+	Support
+};
+
 /** Tiny UObject binder so each card button can map events → card index. */
 UCLASS()
 class TD_API UTowerStoreCardClickBinder : public UObject
@@ -53,6 +61,9 @@ struct FTowerStoreEntryDef
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
 	FString Role;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
+	ETowerStoreCategory Category = ETowerStoreCategory::Attack;
 
 	/** Blueprint function on BP_BuildManager (e.g. SelectArrowTower). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
@@ -204,6 +215,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Tower Store")
 	bool IsStoreOpen() const { return bStoreOpen; }
 
+	static bool DoesCategoryMatchFilter(
+		ETowerStoreCategory EntryCategory,
+		bool bShowAll,
+		ETowerStoreCategory ActiveCategory);
+
 	void OnCardClicked(int32 CardIndex);
 	void OnCardHovered(int32 CardIndex);
 	void OnCardUnhovered(int32 CardIndex);
@@ -313,6 +329,8 @@ protected:
 
 	bool bBuilt = false;
 	bool bStoreOpen = false;
+	bool bShowAllCategories = true;
+	ETowerStoreCategory ActiveCategory = ETowerStoreCategory::Attack;
 	bool bHoverPreviewReady = false;
 	int32 HoveredCardIndex = INDEX_NONE;
 	float CaptureTimer = 0.f;

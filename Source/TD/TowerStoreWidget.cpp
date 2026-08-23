@@ -26,6 +26,10 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+#endif
+
 namespace TowerStorePrivate
 {
 	static const FLinearColor PanelBg(0.04f, 0.06f, 0.09f, 0.92f);
@@ -152,13 +156,15 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 {
 	Catalog.Reset();
 
-	auto Add = [this](const TCHAR* Name, const TCHAR* Role, const TCHAR* SelectFn, const TCHAR* ClassPath,
+	auto Add = [this](const TCHAR* Name, const TCHAR* Role, ETowerStoreCategory Category,
+		const TCHAR* SelectFn, const TCHAR* ClassPath,
 		const TCHAR* MeshPath, const TCHAR* ColorMI, int32 Cost, float Build, float AS, float Dmg, float Range,
 		const TCHAR* Note)
 	{
 		FTowerStoreEntryDef E;
 		E.DisplayName = Name;
 		E.Role = Role;
+		E.Category = Category;
 		E.SelectFunctionName = FName(SelectFn);
 		E.TowerClassPath = ClassPath;
 		E.MeshPath = MeshPath;
@@ -174,72 +180,72 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 
 	const TCHAR* MeshBase = TEXT("/Game/TD/Assets/Towers/TowerBase.TowerBase");
 
-	Add(TEXT("Mine"), TEXT("Mine"), TEXT("SelectMineTower"),
+	Add(TEXT("Mine"), TEXT("Mine"), ETowerStoreCategory::Attack, TEXT("SelectMineTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Trap.MI_Tower_Trap"),
 		40, 1.5f, 0.f, 45.f, 200.f, TEXT("Path • AoE, one-shot or pulse"));
 
-	Add(TEXT("Wall"), TEXT("Wall"), TEXT("SelectWallTower"),
+	Add(TEXT("Wall"), TEXT("Wall"), ETowerStoreCategory::Defense, TEXT("SelectWallTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
 		35, 2.0f, 0.f, 0.f, 0.f, TEXT("Path block / redirect"));
 
-	Add(TEXT("Arrow"), TEXT("Combat"), TEXT("SelectArrowTower"),
+	Add(TEXT("Arrow"), TEXT("Combat"), ETowerStoreCategory::Attack, TEXT("SelectArrowTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Arrow.BP_Tower_Arrow_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Arrow.MI_Tower_Arrow"),
 		60, 2.5f, 3.0f, 6.f, 1600.f, TEXT("High ROF volley"));
 
-	Add(TEXT("Economy"), TEXT("Economy"), TEXT("SelectEconomyTower"),
+	Add(TEXT("Economy"), TEXT("Economy"), ETowerStoreCategory::Support, TEXT("SelectEconomyTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Economy.BP_Tower_Economy_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Economy.MI_Tower_Economy"),
 		90, 3.5f, 0.f, 0.f, 0.f, TEXT("Crystal • +gold over time"));
 
-	Add(TEXT("Buff"), TEXT("Support"), TEXT("SelectBuffTower"),
+	Add(TEXT("Buff"), TEXT("Support"), ETowerStoreCategory::Support, TEXT("SelectBuffTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Buff.BP_Tower_Buff_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
 		80, 3.0f, 0.f, 0.f, 900.f, TEXT("+20% dmg / +15% AS"));
 
-	Add(TEXT("Cannon"), TEXT("Combat"), TEXT("SelectCannonTower"),
+	Add(TEXT("Cannon"), TEXT("Combat"), ETowerStoreCategory::Attack, TEXT("SelectCannonTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Cannon.BP_Tower_Cannon_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Cannon.MI_Tower_Cannon"),
 		100, 4.0f, 0.6f, 35.f, 1400.f, TEXT("Ground AoE shell"));
 
-	Add(TEXT("Sniper"), TEXT("Combat"), TEXT("SelectSniperTower"),
+	Add(TEXT("Sniper"), TEXT("Combat"), ETowerStoreCategory::Attack, TEXT("SelectSniperTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Sniper.BP_Tower_Sniper_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
 		140, 4.5f, 0.45f, 80.f, 2800.f, TEXT("Long-range single"));
 
-	Add(TEXT("Magic"), TEXT("Combat"), TEXT("SelectMagicTower"),
+	Add(TEXT("Magic"), TEXT("Combat"), ETowerStoreCategory::Attack, TEXT("SelectMagicTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Magic.BP_Tower_Magic_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Magic.MI_Tower_Magic"),
 		200, 5.0f, 1.2f, 55.f, 2000.f, TEXT("Multi-shot beam"));
 
-	Add(TEXT("Slow Field"), TEXT("Trap"), TEXT("SelectSlowFieldTrap"),
+	Add(TEXT("Slow Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
 		50, 2.0f, 0.f, 0.f, 350.f, TEXT("Pulses slow • permanent"));
 
-	Add(TEXT("Slow Snare"), TEXT("Trap"), TEXT("SelectSlowSnareTrap"),
+	Add(TEXT("Slow Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
 		30, 1.5f, 0.f, 0.f, 250.f, TEXT("One-shot slow • consumed"));
 
-	Add(TEXT("Root Field"), TEXT("Trap"), TEXT("SelectRootFieldTrap"),
+	Add(TEXT("Root Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
 		70, 2.5f, 0.f, 0.f, 300.f, TEXT("Pulses root • permanent"));
 
-	Add(TEXT("Root Snare"), TEXT("Trap"), TEXT("SelectRootSnareTrap"),
+	Add(TEXT("Root Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
 		45, 1.5f, 0.f, 0.f, 220.f, TEXT("One-shot root • consumed"));
 
-	Add(TEXT("Freeze Field"), TEXT("Trap"), TEXT("SelectFreezeFieldTrap"),
+	Add(TEXT("Freeze Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
 		90, 3.0f, 0.f, 0.f, 280.f, TEXT("Pulses freeze • permanent"));
 
-	Add(TEXT("Freeze Snare"), TEXT("Trap"), TEXT("SelectFreezeSnareTrap"),
+	Add(TEXT("Freeze Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
 		55, 1.5f, 0.f, 0.f, 200.f, TEXT("One-shot freeze • consumed"));
@@ -1284,3 +1290,31 @@ void UTowerStoreWidget::DestroyHoverPreview()
 	bHoverPreviewReady = false;
 	HoveredCardIndex = INDEX_NONE;
 }
+
+bool UTowerStoreWidget::DoesCategoryMatchFilter(
+	ETowerStoreCategory EntryCategory,
+	bool bShowAll,
+	ETowerStoreCategory ActiveCategory)
+{
+	return bShowAll || EntryCategory == ActiveCategory;
+}
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTowerStoreCategoryFilterTest,
+	"TD.UI.TowerStore.CategoryFilter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTowerStoreCategoryFilterTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("All includes Attack"), UTowerStoreWidget::DoesCategoryMatchFilter(
+		ETowerStoreCategory::Attack, true, ETowerStoreCategory::Defense));
+	TestTrue(TEXT("Attack includes Attack"), UTowerStoreWidget::DoesCategoryMatchFilter(
+		ETowerStoreCategory::Attack, false, ETowerStoreCategory::Attack));
+	TestFalse(TEXT("Attack excludes Defense"), UTowerStoreWidget::DoesCategoryMatchFilter(
+		ETowerStoreCategory::Defense, false, ETowerStoreCategory::Attack));
+	TestFalse(TEXT("Attack excludes Support"), UTowerStoreWidget::DoesCategoryMatchFilter(
+		ETowerStoreCategory::Support, false, ETowerStoreCategory::Attack));
+	return true;
+}
+#endif
