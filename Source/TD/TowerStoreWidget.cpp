@@ -82,6 +82,21 @@ namespace TowerStorePrivate
 		}
 		return false;
 	}
+
+	static bool ReadBoolProp(const UObject* Obj, FName Name, bool& OutValue)
+	{
+		if (!Obj)
+		{
+			return false;
+		}
+		if (const FBoolProperty* Prop = FindFProperty<FBoolProperty>(Obj->GetClass(), Name))
+		{
+			OutValue = Prop->GetPropertyValue_InContainer(Obj);
+			return true;
+		}
+		return false;
+	}
+
 }
 
 UTowerStoreWidget::UTowerStoreWidget(const FObjectInitializer& ObjectInitializer)
@@ -791,6 +806,18 @@ void UTowerStoreWidget::OnCardClicked(int32 CardIndex)
 
 	if (CallBuildManagerSelect(Def.SelectFunctionName))
 	{
+		// Some Select*Tower Blueprint functions only store the selection. Ensure the
+		// placement mode starts now so the ghost follows the cursor before a pad click.
+		bool bTowerDragLive = false;
+		const bool bReadDragState = TowerStorePrivate::ReadBoolProp(
+			BM, FName(TEXT("TowerDragLive")), bTowerDragLive);
+		if ((!bReadDragState || !bTowerDragLive) && BM)
+		{
+			if (UFunction* BeginDrag = BM->FindFunction(FName(TEXT("BeginTowerDrag"))))
+			{
+				BM->ProcessEvent(BeginDrag, nullptr);
+			}
+		}
 		UE_LOG(LogTemp, Display, TEXT("TowerStore: selected %s via %s"),
 			*Def.DisplayName, *Def.SelectFunctionName.ToString());
 		SetStoreOpen(false);

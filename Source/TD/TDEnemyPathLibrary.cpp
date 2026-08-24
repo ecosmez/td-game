@@ -502,7 +502,13 @@ namespace TDEnemyPathPrivate
 		const FVector End(Desired.X, Desired.Y, Desired.Z - 5000.f);
 
 		TArray<FHitResult> Hits;
-		World->LineTraceMultiByChannel(Hits, Start, End, ECC_WorldStatic, Params);
+		FCollisionObjectQueryParams GroundObjects;
+		GroundObjects.AddObjectTypesToQuery(ECC_WorldStatic);
+		World->LineTraceMultiByObjectType(Hits, Start, End, GroundObjects, Params);
+		if (Hits.Num() == 0)
+		{
+			World->LineTraceMultiByChannel(Hits, Start, End, ECC_WorldStatic, Params);
+		}
 		if (Hits.Num() == 0)
 		{
 			World->LineTraceMultiByChannel(Hits, Start, End, ECC_Visibility, Params);

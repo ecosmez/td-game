@@ -446,7 +446,13 @@ bool AMobaPlayerController::TrySkipSkyDrop()
 	Params.AddIgnoredActor(Champion);
 
 	FHitResult Hit;
-	const bool bHit = World->LineTraceSingleByChannel(Hit, Loc, TraceEnd, ECC_Visibility, Params);
+	FCollisionObjectQueryParams GroundObjects;
+	GroundObjects.AddObjectTypesToQuery(ECC_WorldStatic);
+	bool bHit = World->LineTraceSingleByObjectType(Hit, Loc, TraceEnd, GroundObjects, Params);
+	if (!bHit)
+	{
+		bHit = World->LineTraceSingleByChannel(Hit, Loc, TraceEnd, ECC_Visibility, Params);
+	}
 
 	float CapsuleHalfHeight = 96.f;
 	if (const ACharacter* AsChar = Cast<ACharacter>(Champion))

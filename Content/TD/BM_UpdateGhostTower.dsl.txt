@@ -1,16 +1,32 @@
 (fn UpdateGhostTower ()
+  (bind pc (Game|GetPlayerController 0))
+  (bind (hit didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+  (bind (bBlockingHit bInitialOverlap Time Distance Location ImpactPoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hit))
   (bind ghost (Variables|Default|GetGhostTower))
-  (Utilities|IsValid ghost
+  (bind cachedPad (Variables|Default|GetCachedHitPad))
+  (Utilities|IsValid pc
     (:"Is Valid"
-      (bind pc (Game|GetPlayerController 0))
-      (Utilities|IsValid pc
-        (:"Is Valid"
-          (bind (hit didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+      (if (or (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C") (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"))
+        (if didhit
+          (Utilities|IsValid ghost
+            (:"Is Valid"
+              (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)
+              (bind as_trap (Utilities|Casting|CastToBP_Trap_Base ghost))
+              (bind trap_mesh (Class|BPTrapBase|GetTrapMesh as_trap))
+              (if (<= (TD|EnemyPath|GetDistanceToNearestPath ImpactPoint) (Variables|Store|GetSelectedTowerRadius))
+                (Rendering|Material|SetMaterial trap_mesh 0 "/Game/TD/Materials/MI_AbilityGhost.MI_AbilityGhost")
+                (else
+                  (Rendering|Material|SetMaterial trap_mesh 0 "/Game/TD/Materials/MI_AbilityDenied.MI_AbilityDenied"))))))
+        (else
           (if didhit
-            (bind (bBlockingHit bInitialOverlap Time Distance Location ImpactPoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hit))
             (bind pad (Utilities|Casting|CastToBP_TowerPad HitActor)
               (:then
+                (Class|BPTowerPad|SetHoverHighlight pad true)
+                (Variables|Default|SetCachedHitPad pad)
                 (bind padLoc (Transformation|GetActorLocation pad))
                 (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x padLoc) (.y padLoc) (+ (.z padLoc) 120.0)) false true))
               (:CastFailed
-                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)))))))))
+                (CallFunction|ClearPadHover)
+                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)))
+            (else
+              (CallFunction|ClearPadHover))))))))
