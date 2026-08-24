@@ -11,6 +11,7 @@ struct FTDEnemyPathState
 	TArray<float> CumLength;
 	float Distance = 0.f;
 	float TotalLength = 0.f;
+	float LateralOffset = 0.f;
 	bool bValid = false;
 	bool bReachedNotified = false;
 
@@ -33,6 +34,10 @@ class TD_API UTDEnemyPathSubsystem : public UWorldSubsystem
 	GENERATED_BODY()
 
 public:
+	static int32 ChooseAvoidanceSide(uint32 EnemyId, float LeftOccupancy, float RightOccupancy);
+	float ComputeAvoidanceOffset(AActor* Enemy, const FTDEnemyPathState& State, const FVector& PathLocation,
+		const FVector& PathTangent, float AvoidanceRadius, float SideStepDistance) const;
+
 	FTDEnemyPathState& FindOrAdd(AActor* Enemy);
 	FTDEnemyPathState* Find(AActor* Enemy);
 	void Remove(AActor* Enemy);

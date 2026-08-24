@@ -1275,7 +1275,7 @@ namespace TDEnemyPathPrivate
 		int32 EnemyCount = ReadIntOr(Spawner, { TEXT("EnemiesPerWave") }, 0);
 		if (EnemyCount <= 0)
 		{
-			EnemyCount = 4 + WaveNumber * 2;
+			EnemyCount = 12 + WaveNumber * 6;
 			if (IsBossWaveFor(Spawner, WaveNumber))
 			{
 				++EnemyCount;
@@ -1528,14 +1528,25 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	float LookAhead = DefaultLookAhead;
 	ReadFloat(Enemy, { TEXT("PathLookAhead") }, LookAhead);
 
-	State->Distance = FMath::Min(State->Distance + MoveSpeed * SlowFactor * DeltaSeconds, State->TotalLength);
+	const float DesiredDistance = FMath::Min(
+		State->Distance + MoveSpeed * SlowFactor * DeltaSeconds, State->TotalLength);
+	State->Distance = DesiredDistance;
 
 	FVector Tangent = FVector::ForwardVector;
 	FVector Location = SampleAtDistance(*State, State->Distance, Tangent);
+	const float AvoidanceRadius = ReadFloatOr(Enemy, { TEXT("EnemySpacing"), TEXT("PathSpacing") }, 90.f);
+	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
+	const float TargetOffset = Sys->ComputeAvoidanceOffset(
+		Enemy, *State, Location, Tangent, AvoidanceRadius, SideStepDistance);
+	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, TargetOffset, DeltaSeconds, 6.f);
+	const FVector PathRight(-Tangent.GetSafeNormal2D().Y, Tangent.GetSafeNormal2D().X, 0.f);
+	Location += PathRight * State->LateralOffset;
 	const FVector PrevLoc = Enemy->GetActorLocation();
 	int32 SteerSide = 0;
 	FVector LookTangent = Tangent;
-	const FVector LookPoint = SampleAtDistance(*State, State->Distance + LookAhead, LookTangent);
+	FVector LookPoint = SampleAtDistance(*State, State->Distance + LookAhead, LookTangent);
+	const FVector LookRight(-LookTangent.GetSafeNormal2D().Y, LookTangent.GetSafeNormal2D().X, 0.f);
+	LookPoint += LookRight * State->LateralOffset;
 	Location = PushOffBadTerrain(World, PrevLoc, Location, LookPoint, Enemy, GroundOffset, SteerSide);
 
 	FRotator NewRot = (LookPoint - Location).GetSafeNormal().Rotation();
