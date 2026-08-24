@@ -15,6 +15,13 @@ class TD_API UTDEnemyPathLibrary : public UBlueprintFunctionLibrary
 	GENERATED_BODY()
 
 public:
+	/** Distance from a world location to the nearest enemy lane curve. */
+	UFUNCTION(BlueprintPure, Category = "TD|EnemyPath", meta = (WorldContext = "WorldContextObject"))
+	static float GetDistanceToNearestPath(const UObject* WorldContextObject, FVector Location);
+
+	/** Pure geometry helper used by GetDistanceToNearestPath and automation tests. */
+	static float DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points);
+
 	/** Build / rebuild the enemy's curve from BP_Waypoint actors matching RouteId + lane. */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void ChooseEnemyPath(AActor* Enemy);

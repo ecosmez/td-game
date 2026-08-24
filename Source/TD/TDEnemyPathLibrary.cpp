@@ -21,6 +21,27 @@
 
 #include <initializer_list>
 
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDNearestPathDistanceTest,
+	"TD.EnemyPath.DistanceToPolyline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
+{
+	const TArray<FVector> StraightPath = { FVector(0.f, 0.f, 50.f), FVector(10.f, 0.f, 50.f) };
+	TestEqual(TEXT("Uses horizontal distance to the nearest segment"),
+		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector(5.f, 3.f, 900.f), StraightPath), 3.f);
+	TestEqual(TEXT("Clamps distance to a segment endpoint"),
+		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector(13.f, 4.f, 0.f), StraightPath), 5.f);
+	TestTrue(TEXT("An absent path cannot accept placement"),
+		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector::ZeroVector, {}) >= BIG_NUMBER);
+	return true;
+}
+#endif
+
 namespace TDEnemyPathPrivate
 {
 	constexpr float CrystalReachDistance = 200.f;
@@ -1376,6 +1397,83 @@ namespace TDEnemyPathPrivate
 		Sys->WaveSpawnQueueIndex = 0;
 		return true;
 	}
+}
+
+float UTDEnemyPathLibrary::DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points)
+{
+	if (Points.Num() == 0)
+	{
+		return BIG_NUMBER;
+	}
+	if (Points.Num() == 1)
+	{
+		return FVector::Dist2D(Location, Points[0]);
+	}
+
+	Location.Z = 0.f;
+	float BestDistSq = BIG_NUMBER;
+	for (int32 i = 1; i < Points.Num(); ++i)
+	{
+		FVector Start = Points[i - 1];
+		FVector End = Points[i];
+		Start.Z = 0.f;
+		End.Z = 0.f;
+		const FVector Segment = End - Start;
+		const float SegmentLengthSq = Segment.SizeSquared();
+		const float T = SegmentLengthSq > UE_SMALL_NUMBER
+			? FMath::Clamp(FVector::DotProduct(Location - Start, Segment) / SegmentLengthSq, 0.f, 1.f)
+			: 0.f;
+		BestDistSq = FMath::Min(BestDistSq, FVector::DistSquared(Location, Start + Segment * T));
+	}
+	return FMath::Sqrt(BestDistSq);
+}
+
+float UTDEnemyPathLibrary::GetDistanceToNearestPath(const UObject* WorldContextObject, FVector Location)
+{
+	using namespace TDEnemyPathPrivate;
+	UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	if (!World)
+	{
+		return BIG_NUMBER;
+	}
+
+	TArray<FWaypointInfo> All;
+	GatherWaypoints(World, All);
+	TMap<int64, TArray<FWaypointInfo>> Lanes;
+	for (const FWaypointInfo& Info : All)
+	{
+		const int64 LaneKey = (static_cast<int64>(Info.RouteId) << 1) | (Info.bOverLane ? 1 : 0);
+		Lanes.FindOrAdd(LaneKey).Add(Info);
+	}
+
+	float BestDistance = BIG_NUMBER;
+	for (TPair<int64, TArray<FWaypointInfo>>& Lane : Lanes)
+	{
+		Lane.Value.Sort([](const FWaypointInfo& A, const FWaypointInfo& B)
+		{
+			return A.Index < B.Index;
+		});
+
+		TArray<FVector> ControlPoints;
+		ControlPoints.Reserve(Lane.Value.Num());
+		for (const FWaypointInfo& Info : Lane.Value)
+		{
+			ControlPoints.Add(Info.Location);
+		}
+
+		TArray<FVector> Samples;
+		if (ControlPoints.Num() > 1)
+		{
+			TessellateCatmullRom(ControlPoints, Samples, DefaultSamplesPerSegment);
+		}
+		else
+		{
+			Samples = ControlPoints;
+		}
+		BestDistance = FMath::Min(BestDistance, DistanceToPolyline2D(Location, Samples));
+	}
+
+	return BestDistance;
 }
 
 FVector UTDEnemyPathLibrary::CatmullRom(const FVector& P0, const FVector& P1, const FVector& P2, const FVector& P3, float T)
