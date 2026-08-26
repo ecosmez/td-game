@@ -328,6 +328,7 @@ void AMobaPlayerController::PlayerTick(float DeltaTime)
 	UpdateChampionDamageTaken();
 	UpdateFloatingDamageTexts(DeltaTime);
 	UpdateDirectMoveChampion(DeltaTime);
+	SnapGroundedChampionToTerrain();
 	UpdateSkyDropCamera(DeltaTime);
 }
 
@@ -1121,6 +1122,50 @@ void AMobaPlayerController::UpdateDirectMoveChampion(float DeltaTime)
 	}
 
 	Champion->AddMovementInput(Dir, 1.0f);
+}
+
+void AMobaPlayerController::SnapGroundedChampionToTerrain()
+{
+	ACharacter* Champion = Cast<ACharacter>(GetControlledChampion());
+	if (!Champion || bDropMode || MobaSkipDropPrivate::IsPawnDropping(Champion))
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* Movement = Champion->GetCharacterMovement();
+	UCapsuleComponent* Capsule = Champion->GetCapsuleComponent();
+	UWorld* World = Champion->GetWorld();
+	if (!Movement || !Capsule || !World || Movement->IsFalling())
+	{
+		return;
+	}
+
+	const FVector Location = Champion->GetActorLocation();
+	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	const FVector Start(Location.X, Location.Y, Location.Z + HalfHeight + 100.f);
+	const FVector End(Location.X, Location.Y, Location.Z - HalfHeight - 500.f);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(TDChampionGroundSnap), false, Champion);
+	FCollisionObjectQueryParams GroundObjects;
+	GroundObjects.AddObjectTypesToQuery(ECC_WorldStatic);
+
+	FHitResult Hit;
+	bool bHit = World->LineTraceSingleByObjectType(Hit, Start, End, GroundObjects, Params);
+	if (!bHit)
+	{
+		bHit = World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
+	}
+	if (!bHit || !Hit.bBlockingHit || Hit.ImpactNormal.Z < Movement->GetWalkableFloorZ())
+	{
+		return;
+	}
+
+	FVector Snapped = Location;
+	Snapped.Z = Hit.ImpactPoint.Z + HalfHeight;
+	if (!FMath::IsNearlyEqual(Snapped.Z, Location.Z, 0.5f))
+	{
+		Champion->SetActorLocation(Snapped, false, nullptr, ETeleportType::TeleportPhysics);
+	}
 }
 
 void AMobaPlayerController::WireChampionFromPawn(APawn* InPawn)

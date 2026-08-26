@@ -118,7 +118,9 @@ void UWorldFogOfWarComponent::EnsureResources()
 		HostActor = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
 		if (HostActor)
 		{
+		#if WITH_EDITOR
 			HostActor->SetActorLabel(TEXT("WorldFOW_Host"));
+		#endif
 			USceneComponent* Root = NewObject<USceneComponent>(HostActor, TEXT("Root"));
 			HostActor->SetRootComponent(Root);
 			Root->RegisterComponent();

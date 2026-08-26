@@ -1652,6 +1652,7 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	const FVector LookRight(-LookTangent.GetSafeNormal2D().Y, LookTangent.GetSafeNormal2D().X, 0.f);
 	LookPoint += LookRight * State->LateralOffset;
 	Location = PushOffBadTerrain(World, PrevLoc, Location, LookPoint, Enemy, GroundOffset, SteerSide);
+	Location = SnapToGround(World, Location, GroundOffset, Enemy, PrevLoc.Z);
 
 	FRotator NewRot = (LookPoint - Location).GetSafeNormal().Rotation();
 	if ((LookPoint - Location).SizeSquared() < 1.f)

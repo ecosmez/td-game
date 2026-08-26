@@ -18,4 +18,12 @@ if ($enemySource -notmatch 'ECC_WorldStatic' -or $playerSource -notmatch 'ECC_Wo
     throw 'Ground object queries must include ECC_WorldStatic.'
 }
 
+if ($enemySource -notmatch 'Location\s*=\s*SnapToGround\(World,\s*Location,\s*GroundOffset,\s*Enemy,\s*PrevLoc\.Z') {
+    throw 'Each enemy movement step must be snapped to walkable terrain after steering.'
+}
+
+if ($playerSource -notmatch 'SnapGroundedChampionToTerrain\(\)') {
+    throw 'The player controller must continuously snap the grounded champion to terrain.'
+}
+
 Write-Host 'Ground snapping object-query regression checks passed.'
