@@ -1,2 +1,0 @@
-; DEPRECATED — BP_EnemyPath BeginPlay is unused.
-; Pathing lives on BP_Waypoint + UTDEnemyPathLibrary.
