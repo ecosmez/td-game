@@ -362,7 +362,6 @@ protected:
 	void StartDirectMoveTo(const FVector& WorldLocation);
 	void StopDirectMove();
 	void UpdateDirectMoveChampion(float DeltaTime);
-	void SnapGroundedChampionToTerrain();
 
 	UPROPERTY(Transient)
 	TObjectPtr<AMobaCameraPawn> CachedCameraPawn;

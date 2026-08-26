@@ -10,20 +10,17 @@ if ($enemySource -notmatch 'LineTraceMultiByObjectType') {
     throw 'Enemy ground snapping must query WorldStatic geometry by object type.'
 }
 
-if ($playerSource -notmatch 'LineTraceSingleByObjectType') {
-    throw 'Player landing snapping must query WorldStatic geometry by object type.'
-}
-
-if ($enemySource -notmatch 'ECC_WorldStatic' -or $playerSource -notmatch 'ECC_WorldStatic') {
-    throw 'Ground object queries must include ECC_WorldStatic.'
+if ($enemySource -notmatch 'ECC_WorldStatic') {
+    throw 'Enemy ground object queries must include ECC_WorldStatic.'
 }
 
 if ($enemySource -notmatch 'Location\s*=\s*SnapToGround\(World,\s*Location,\s*GroundOffset,\s*Enemy,\s*PrevLoc\.Z') {
     throw 'Each enemy movement step must be snapped to walkable terrain after steering.'
 }
 
-if ($playerSource -notmatch 'SnapGroundedChampionToTerrain\(\)') {
-    throw 'The player controller must continuously snap the grounded champion to terrain.'
+if ($playerSource -match 'SnapGroundedChampionToTerrain\(\)' -or
+    $playerSource -match 'TDChampionGroundSnap') {
+    throw 'Grounded champions must rely on CharacterMovement floor following, not a per-frame vertical trace/teleport.'
 }
 
 Write-Host 'Ground snapping object-query regression checks passed.'
