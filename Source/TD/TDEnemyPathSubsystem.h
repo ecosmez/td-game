@@ -17,6 +17,10 @@ struct FTDEnemyPathState
 
 	/** True while something (e.g. the champion's melee lock) should freeze path movement this tick. */
 	bool bHeld = false;
+
+	/** Stable place on the melee ring while this enemy is engaging the champion. */
+	TWeakObjectPtr<AActor> EngagementTarget;
+	int32 EngagementSlot = INDEX_NONE;
 };
 
 /** One minion spawn assignment (route + lane + Index 0 location). */
@@ -29,14 +33,20 @@ struct FTDWaveSpawnSlot
 
 /** Per-world runtime path state for enemies following waypoint curves. */
 UCLASS()
-class TD_API UTDEnemyPathSubsystem : public UWorldSubsystem
+class TD_API UTDEnemyPathSubsystem : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 
 public:
+	virtual void Tick(float DeltaTime) override;
+	virtual TStatId GetStatId() const override;
+	virtual bool IsTickableInEditor() const override { return false; }
+
 	static int32 ChooseAvoidanceSide(uint32 EnemyId, float LeftOccupancy, float RightOccupancy);
+	static int32 ChooseStableAttackSlot(int32 PreferredSlot, uint32 OccupiedMask, int32 SlotCount);
 	float ComputeAvoidanceOffset(AActor* Enemy, const FTDEnemyPathState& State, const FVector& PathLocation,
 		const FVector& PathTangent, float AvoidanceRadius, float SideStepDistance) const;
+	int32 FindOrAssignEngagementSlot(AActor* Enemy, AActor* Target, int32 SlotCount);
 
 	FTDEnemyPathState& FindOrAdd(AActor* Enemy);
 	FTDEnemyPathState* Find(AActor* Enemy);

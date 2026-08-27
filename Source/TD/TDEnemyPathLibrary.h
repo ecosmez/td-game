@@ -22,6 +22,9 @@ public:
 	/** Pure geometry helper used by GetDistanceToNearestPath and automation tests. */
 	static float DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points);
 
+	/** True once a champion pursuit has carried an enemy beyond its lane leash. */
+	static bool ShouldAbandonChampionPursuit(float DistanceToOwnPath, float MaxPathLeashRange);
+
 	/** Build / rebuild the enemy's curve from BP_Waypoint actors matching RouteId + lane. */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void ChooseEnemyPath(AActor* Enemy);
@@ -101,6 +104,10 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void SetEnemyPathHeld(AActor* Enemy, bool bHeld);
+
+	/** Smoothly moves a melee enemy toward a stable, reserved place around its champion target. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void ApplyChampionEngagementSeparation(AActor* Enemy);
 
 	/** Tessellate Catmull-Rom through points. Used by enemies and waypoint previews. */
 	static void TessellateCatmullRom(const TArray<FVector>& Points, TArray<FVector>& OutSamples, int32 SamplesPerSegment = 12);

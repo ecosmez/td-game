@@ -1,4 +1,5 @@
 #include "TDEnemyPathSubsystem.h"
+#include "TDEnemyPathLibrary.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
@@ -18,9 +19,33 @@ bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathSubsystem::ChooseAvoidanceSide(2, 1.f, 1.f), 1);
 	TestEqual(TEXT("Odd id breaks an equal tie to the left"),
 		UTDEnemyPathSubsystem::ChooseAvoidanceSide(3, 1.f, 1.f), -1);
+	TestEqual(TEXT("Keeps a stable attack slot while it remains free"),
+		UTDEnemyPathSubsystem::ChooseStableAttackSlot(3, 1u << 1, 8), 3);
+	TestEqual(TEXT("Chooses the nearest free attack slot instead of jumping across the ring"),
+		UTDEnemyPathSubsystem::ChooseStableAttackSlot(3, (1u << 3) | (1u << 4), 8), 2);
+	TestEqual(TEXT("Reports no attack slot when the ring is full"),
+		UTDEnemyPathSubsystem::ChooseStableAttackSlot(0, 0xffu, 8), INDEX_NONE);
 	return true;
 }
 #endif
+
+void UTDEnemyPathSubsystem::Tick(float DeltaTime)
+{
+	TArray<TWeakObjectPtr<AActor>> Enemies;
+	States.GenerateKeyArray(Enemies);
+	for (const TWeakObjectPtr<AActor>& Enemy : Enemies)
+	{
+		if (AActor* Actor = Enemy.Get())
+		{
+			UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(Actor);
+		}
+	}
+}
+
+TStatId UTDEnemyPathSubsystem::GetStatId() const
+{
+	RETURN_QUICK_DECLARE_CYCLE_STAT(UTDEnemyPathSubsystem, STATGROUP_Tickables);
+}
 
 int32 UTDEnemyPathSubsystem::ChooseAvoidanceSide(uint32 EnemyId, float LeftOccupancy, float RightOccupancy)
 {
@@ -30,6 +55,65 @@ int32 UTDEnemyPathSubsystem::ChooseAvoidanceSide(uint32 EnemyId, float LeftOccup
 	}
 
 	return (EnemyId & 1u) == 0u ? 1 : -1;
+}
+
+int32 UTDEnemyPathSubsystem::ChooseStableAttackSlot(int32 PreferredSlot, uint32 OccupiedMask, int32 SlotCount)
+{
+	if (SlotCount <= 0 || SlotCount > 32)
+	{
+		return INDEX_NONE;
+	}
+
+	PreferredSlot = ((PreferredSlot % SlotCount) + SlotCount) % SlotCount;
+	if ((OccupiedMask & (1u << PreferredSlot)) == 0u)
+	{
+		return PreferredSlot;
+	}
+
+	for (int32 Step = 1; Step < SlotCount; ++Step)
+	{
+		const int32 CounterClockwise = (PreferredSlot - Step + SlotCount) % SlotCount;
+		if ((OccupiedMask & (1u << CounterClockwise)) == 0u)
+		{
+			return CounterClockwise;
+		}
+		const int32 Clockwise = (PreferredSlot + Step) % SlotCount;
+		if ((OccupiedMask & (1u << Clockwise)) == 0u)
+		{
+			return Clockwise;
+		}
+	}
+
+	return INDEX_NONE;
+}
+
+int32 UTDEnemyPathSubsystem::FindOrAssignEngagementSlot(AActor* Enemy, AActor* Target, int32 SlotCount)
+{
+	if (!Enemy || !Target || SlotCount <= 0 || SlotCount > 32)
+	{
+		return INDEX_NONE;
+	}
+
+	FTDEnemyPathState& State = FindOrAdd(Enemy);
+	if (State.EngagementTarget.Get() == Target && State.EngagementSlot >= 0 && State.EngagementSlot < SlotCount)
+	{
+		return State.EngagementSlot;
+	}
+
+	uint32 OccupiedMask = 0u;
+	for (const TPair<TWeakObjectPtr<AActor>, FTDEnemyPathState>& Pair : States)
+	{
+		if (Pair.Key.Get() != Enemy && Pair.Value.EngagementTarget.Get() == Target
+			&& Pair.Value.EngagementSlot >= 0 && Pair.Value.EngagementSlot < SlotCount)
+		{
+			OccupiedMask |= 1u << Pair.Value.EngagementSlot;
+		}
+	}
+
+	const int32 Preferred = static_cast<int32>(Enemy->GetUniqueID() % static_cast<uint32>(SlotCount));
+	State.EngagementTarget = Target;
+	State.EngagementSlot = ChooseStableAttackSlot(Preferred, OccupiedMask, SlotCount);
+	return State.EngagementSlot;
 }
 
 float UTDEnemyPathSubsystem::ComputeAvoidanceOffset(

@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
@@ -40,11 +41,31 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector::ZeroVector, {}) >= BIG_NUMBER);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDChampionPathLeashTest,
+	"TD.EnemyPath.ChampionPursuitRespectsPathLeash",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDChampionPathLeashTest::RunTest(const FString& Parameters)
+{
+	TestFalse(TEXT("Keeps pursuing inside the leash"),
+		UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(999.f, 1000.f));
+	TestFalse(TEXT("Keeps pursuing exactly at the leash boundary"),
+		UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(1000.f, 1000.f));
+	TestTrue(TEXT("Abandons pursuit beyond the leash"),
+		UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(1000.1f, 1000.f));
+	return true;
+}
 #endif
 
 namespace TDEnemyPathPrivate
 {
 	constexpr float CrystalReachDistance = 200.f;
+	static TAutoConsoleVariable<float> CVarChampionPathLeashRange(
+		TEXT("td.EnemyChampionPathLeashRange"),
+		1000.f,
+		TEXT("Maximum 2D distance a champion-engaged enemy may leave its own path before returning."));
 	constexpr float DefaultLookAhead = 220.f;
 	constexpr int32 DefaultSamplesPerSegment = 12;
 	constexpr float WalkableFloorZ = 0.7f;
@@ -1719,6 +1740,104 @@ void UTDEnemyPathLibrary::SetEnemyPathHeld(AActor* Enemy, bool bHeld)
 	{
 		Sys->FindOrAdd(Enemy).bHeld = bHeld;
 	}
+}
+
+void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
+{
+	using namespace TDEnemyPathPrivate;
+
+	if (!IsValid(Enemy) || !Enemy->GetWorld())
+	{
+		return;
+	}
+
+	UTDEnemyPathSubsystem* Sys = GetPathSys(Enemy);
+	if (!Sys)
+	{
+		return;
+	}
+
+	FTDEnemyPathState& State = Sys->FindOrAdd(Enemy);
+	AActor* Champion = ReadActor(Enemy, { TEXT("ChampionMeleeTarget"), TEXT("ChampionTarget") });
+	const bool bBlueprintHasTarget = ReadBoolOr(Enemy, { TEXT("HasChampionTarget") }, Champion != nullptr);
+	if (bBlueprintHasTarget && IsValid(Champion))
+	{
+		State.EngagementTarget = Champion;
+	}
+	else
+	{
+		Champion = State.EngagementTarget.Get();
+	}
+
+	if (!IsValid(Champion))
+	{
+		State.EngagementTarget.Reset();
+		State.EngagementSlot = INDEX_NONE;
+		return;
+	}
+
+	const float DefaultPathLeashRange = CVarChampionPathLeashRange.GetValueOnGameThread();
+	const float MaxPathLeashRange = FMath::Max(0.f, ReadFloatOr(Enemy,
+		{ TEXT("ChampionPathLeashRange"), TEXT("PathLeashRange") }, DefaultPathLeashRange));
+	const float DistanceToOwnPath = DistanceToPolyline2D(Enemy->GetActorLocation(), State.Samples);
+	if (State.bValid && State.Samples.Num() >= 2
+		&& ShouldAbandonChampionPursuit(DistanceToOwnPath, MaxPathLeashRange))
+	{
+		WriteBool(Enemy, { TEXT("HasChampionTarget") }, false);
+		WriteActor(Enemy, { TEXT("ChampionMeleeTarget"), TEXT("ChampionTarget") }, nullptr);
+		State.EngagementTarget.Reset();
+		State.EngagementSlot = INDEX_NONE;
+		State.bHeld = false;
+		return;
+	}
+
+	// Blueprints may clear their short attack-range target while the champion is
+	// retreating. Keep the acquired target alive until the path leash is broken.
+	WriteActor(Enemy, { TEXT("ChampionMeleeTarget"), TEXT("ChampionTarget") }, Champion);
+	WriteBool(Enemy, { TEXT("HasChampionTarget") }, true);
+
+	constexpr int32 SlotCount = 12;
+	const int32 Slot = Sys->FindOrAssignEngagementSlot(Enemy, Champion, SlotCount);
+	if (Slot == INDEX_NONE)
+	{
+		return;
+	}
+
+	float EnemyRadius = 45.f;
+	float EnemyHalfHeight = 90.f;
+	float ChampionRadius = 45.f;
+	float ChampionHalfHeight = 90.f;
+	Enemy->GetSimpleCollisionCylinder(EnemyRadius, EnemyHalfHeight);
+	Champion->GetSimpleCollisionCylinder(ChampionRadius, ChampionHalfHeight);
+	const float RingRadius = FMath::Max(EnemyRadius + ChampionRadius + 22.f,
+		ReadFloatOr(Enemy, { TEXT("MeleeSpacingRadius") }, 135.f));
+	const float Angle = (2.f * PI * static_cast<float>(Slot)) / static_cast<float>(SlotCount);
+	const FVector Radial(FMath::Cos(Angle), FMath::Sin(Angle), 0.f);
+	FVector Desired = Champion->GetActorLocation() + Radial * RingRadius;
+	Desired.Z = Enemy->GetActorLocation().Z;
+
+	const float DeltaSeconds = FMath::Min(Enemy->GetWorld()->GetDeltaSeconds(), 1.f / 20.f);
+	const float MoveSpeed = ReadFloatOr(Enemy, { TEXT("EngagementMoveSpeed"), TEXT("MoveSpeed") }, 300.f);
+	const FVector Current = Enemy->GetActorLocation();
+	const FVector Next = FMath::VInterpConstantTo(Current, Desired, DeltaSeconds, MoveSpeed);
+	FHitResult Hit;
+	Enemy->SetActorLocation(Next, true, &Hit, ETeleportType::None);
+
+	const FVector ToChampion = Champion->GetActorLocation() - Enemy->GetActorLocation();
+	if (ToChampion.SizeSquared2D() > 1.f)
+	{
+		FRotator DesiredRotation = ToChampion.Rotation();
+		DesiredRotation.Pitch = 0.f;
+		DesiredRotation.Roll = 0.f;
+		const FRotator SmoothRotation = FMath::RInterpTo(
+			Enemy->GetActorRotation(), DesiredRotation, DeltaSeconds, 10.f);
+		Enemy->SetActorRotation(SmoothRotation, ETeleportType::None);
+	}
+}
+
+bool UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(float DistanceToOwnPath, float MaxPathLeashRange)
+{
+	return DistanceToOwnPath > FMath::Max(0.f, MaxPathLeashRange);
 }
 
 FTransform UTDEnemyPathLibrary::GetEnemySpawnTransform(const UObject* WorldContextObject, int32 RouteId, bool bPreferOverLane)
