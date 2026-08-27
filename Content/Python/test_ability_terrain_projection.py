@@ -46,8 +46,8 @@ def verify():
         )
 
     expected_parents = {
-        "RangeTerrainDecal": "RangeRing",
-        "AimTerrainDecal": "AimMarker",
+        "RangeTerrainDecal": "DefaultSceneRoot",
+        "AimTerrainDecal": "DefaultSceneRoot",
     }
     for component_name, expected_parent_name in expected_parents.items():
         data = library.get_data(component_handles[component_name])
@@ -55,9 +55,18 @@ def verify():
         parent = library.get_object(library.get_data(parent_handle))
         actual_parent_name = _component_base_name(parent) if parent else "None"
         assert actual_parent_name == expected_parent_name, (
-            f"{component_name} must inherit transforms from {expected_parent_name}; "
+            f"{component_name} must avoid non-uniform mesh scale under {expected_parent_name}; "
             f"actual parent is {actual_parent_name}"
         )
+
+    sync_components = [
+        component
+        for component in components
+        if component.get_class().get_name() == "AbilityTerrainProjectionComponent"
+    ]
+    assert len(sync_components) == 1, (
+        "Ability preview needs one AbilityTerrainProjectionComponent to mirror world transforms"
+    )
 
     legacy_meshes = {
         _component_base_name(component): component

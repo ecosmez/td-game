@@ -101,6 +101,9 @@ def _ensure_decal(subsystem, blueprint, parent_handle, name, material):
             raise RuntimeError(f"Could not add {name}: {failure}")
         subsystem.rename_subobject(handle=handle, new_name=unreal.Text(name))
 
+    if not subsystem.attach_subobject(parent_handle, handle):
+        raise RuntimeError(f"Could not attach {name} to the preview root")
+
     decal = _get_component_object(handle)
     decal.set_editor_property("decal_material", material)
     decal.set_editor_property("decal_size", unreal.Vector(10000.0, 50.0, 50.0))
@@ -108,6 +111,26 @@ def _ensure_decal(subsystem, blueprint, parent_handle, name, material):
     decal.set_editor_property("sort_order", 50)
     decal.set_editor_property("fade_screen_size", 0.0)
     return decal
+
+
+def _ensure_sync_component(subsystem, blueprint, owner_handle):
+    handles = subsystem.k2_gather_subobject_data_for_blueprint(blueprint)
+    for handle in handles:
+        component = _get_component_object(handle)
+        if component and component.get_class().get_name() == "AbilityTerrainProjectionComponent":
+            return component
+
+    params = unreal.AddNewSubobjectParams(
+        parent_handle=owner_handle,
+        new_class=unreal.AbilityTerrainProjectionComponent,
+        blueprint_context=blueprint,
+    )
+    handle, failure = subsystem.add_new_subobject(params=params)
+    component = _get_component_object(handle)
+    if not component:
+        raise RuntimeError(f"Could not add terrain projection sync component: {failure}")
+    subsystem.rename_subobject(handle=handle, new_name=unreal.Text("TerrainProjectionSync"))
+    return component
 
 
 def setup():
@@ -126,7 +149,8 @@ def setup():
 
     range_handle = _find_handle(handles, "RangeRing")
     aim_handle = _find_handle(handles, "AimMarker")
-    if not range_handle or not aim_handle:
+    root_handle = _find_handle(handles, "DefaultSceneRoot")
+    if not range_handle or not aim_handle or not root_handle:
         raise RuntimeError("Ability preview is missing RangeRing or AimMarker")
 
     for handle in (range_handle, aim_handle):
@@ -136,8 +160,9 @@ def setup():
         mesh.set_editor_property("cast_shadow", False)
         mesh.set_editor_property("receives_decals", False)
 
-    _ensure_decal(subsystem, blueprint, range_handle, "RangeTerrainDecal", range_material)
-    _ensure_decal(subsystem, blueprint, aim_handle, "AimTerrainDecal", aim_material)
+    _ensure_decal(subsystem, blueprint, root_handle, "RangeTerrainDecal", range_material)
+    _ensure_decal(subsystem, blueprint, root_handle, "AimTerrainDecal", aim_material)
+    _ensure_sync_component(subsystem, blueprint, handles[0])
 
     unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
     if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, only_if_is_dirty=False):
