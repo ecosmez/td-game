@@ -5,6 +5,11 @@ if "-run=" in unreal.SystemLibrary.get_command_line().lower():
     unreal.log("init_unreal: skipping UI setup during commandlet execution")
 else:
     try:
+        import setup_terrain_collision
+    except Exception as exc:
+        unreal.log_warning("init_unreal setup_terrain_collision failed: {}".format(exc))
+
+    try:
         import setup_towers_widget_ui
         setup_towers_widget_ui.setup(force=False)
     except Exception as exc:
