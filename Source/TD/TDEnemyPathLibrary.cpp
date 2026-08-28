@@ -1642,7 +1642,7 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		}
 	}
 
-	if (State->bHeld)
+	if (UTDEnemyPathSubsystem::ShouldHoldEnemyPath(State->bHeld, State->EngagementTarget.IsValid()))
 	{
 		return;
 	}
@@ -1809,8 +1809,10 @@ void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
 	float ChampionHalfHeight = 90.f;
 	Enemy->GetSimpleCollisionCylinder(EnemyRadius, EnemyHalfHeight);
 	Champion->GetSimpleCollisionCylinder(ChampionRadius, ChampionHalfHeight);
-	const float RingRadius = FMath::Max(EnemyRadius + ChampionRadius + 22.f,
-		ReadFloatOr(Enemy, { TEXT("MeleeSpacingRadius") }, 135.f));
+	const float CollisionSafeRingRadius = UTDEnemyPathSubsystem::MinimumEngagementRingRadius(
+		EnemyRadius, SlotCount, 4.f);
+	const float RingRadius = FMath::Max3(EnemyRadius + ChampionRadius + 22.f,
+		ReadFloatOr(Enemy, { TEXT("MeleeSpacingRadius") }, 135.f), CollisionSafeRingRadius);
 	const float Angle = (2.f * PI * static_cast<float>(Slot)) / static_cast<float>(SlotCount);
 	const FVector Radial(FMath::Cos(Angle), FMath::Sin(Angle), 0.f);
 	FVector Desired = Champion->GetActorLocation() + Radial * RingRadius;
@@ -1819,9 +1821,14 @@ void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
 	const float DeltaSeconds = FMath::Min(Enemy->GetWorld()->GetDeltaSeconds(), 1.f / 20.f);
 	const float MoveSpeed = ReadFloatOr(Enemy, { TEXT("EngagementMoveSpeed"), TEXT("MoveSpeed") }, 300.f);
 	const FVector Current = Enemy->GetActorLocation();
-	const FVector Next = FMath::VInterpConstantTo(Current, Desired, DeltaSeconds, MoveSpeed);
-	FHitResult Hit;
-	Enemy->SetActorLocation(Next, true, &Hit, ETeleportType::None);
+	constexpr float EngagementStopTolerance = 8.f;
+	if (UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(
+		FVector::Dist2D(Current, Desired), EngagementStopTolerance))
+	{
+		const FVector Next = FMath::VInterpConstantTo(Current, Desired, DeltaSeconds, MoveSpeed);
+		FHitResult Hit;
+		Enemy->SetActorLocation(Next, true, &Hit, ETeleportType::None);
+	}
 
 	const FVector ToChampion = Champion->GetActorLocation() - Enemy->GetActorLocation();
 	if (ToChampion.SizeSquared2D() > 1.f)

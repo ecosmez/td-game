@@ -25,6 +25,16 @@ bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathSubsystem::ChooseStableAttackSlot(3, (1u << 3) | (1u << 4), 8), 2);
 	TestEqual(TEXT("Reports no attack slot when the ring is full"),
 		UTDEnemyPathSubsystem::ChooseStableAttackSlot(0, 0xffu, 8), INDEX_NONE);
+	TestTrue(TEXT("Champion engagement owns movement even without an explicit external hold"),
+		UTDEnemyPathSubsystem::ShouldHoldEnemyPath(false, true));
+	TestFalse(TEXT("A released enemy resumes its path"),
+		UTDEnemyPathSubsystem::ShouldHoldEnemyPath(false, false));
+	TestFalse(TEXT("Stops correcting once it is inside the engagement tolerance"),
+		UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(7.9f, 8.f));
+	TestTrue(TEXT("Moves toward the slot outside the engagement tolerance"),
+		UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(8.1f, 8.f));
+	TestTrue(TEXT("Twelve melee capsules receive a ring large enough not to overlap"),
+		UTDEnemyPathSubsystem::MinimumEngagementRingRadius(45.f, 12, 4.f) >= 177.f);
 	return true;
 }
 #endif
@@ -85,6 +95,27 @@ int32 UTDEnemyPathSubsystem::ChooseStableAttackSlot(int32 PreferredSlot, uint32 
 	}
 
 	return INDEX_NONE;
+}
+
+bool UTDEnemyPathSubsystem::ShouldHoldEnemyPath(bool bExplicitlyHeld, bool bHasEngagementTarget)
+{
+	return bExplicitlyHeld || bHasEngagementTarget;
+}
+
+bool UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(float DistanceToSlot, float StopTolerance)
+{
+	return DistanceToSlot > FMath::Max(0.f, StopTolerance);
+}
+
+float UTDEnemyPathSubsystem::MinimumEngagementRingRadius(float EnemyRadius, int32 SlotCount, float Gap)
+{
+	if (EnemyRadius <= 0.f || SlotCount < 2)
+	{
+		return FMath::Max(0.f, EnemyRadius);
+	}
+
+	const float HalfChordAngle = PI / static_cast<float>(SlotCount);
+	return (EnemyRadius + FMath::Max(0.f, Gap)) / FMath::Sin(HalfChordAngle);
 }
 
 int32 UTDEnemyPathSubsystem::FindOrAssignEngagementSlot(AActor* Enemy, AActor* Target, int32 SlotCount)

@@ -12,6 +12,21 @@ class UProgressBar;
 class USizeBox;
 class UTextBlock;
 
+enum class ECrystalThreatLevel : uint8
+{
+	None,
+	Low,
+	Medium,
+	High
+};
+
+struct FCrystalWaveThreat
+{
+	int32 ExtraEnemies = 0;
+	int32 EmpowermentPercent = 0;
+	ECrystalThreatLevel ThreatLevel = ECrystalThreatLevel::None;
+};
+
 /**
  * Top-center Base Health + wave HUD (replaces the old crystal-only bar).
  * Polls BP_Crystal CurrentHealth / MaxHealth, BP_EnemySpawner wave state, and
@@ -28,6 +43,9 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Mirrors BP_EnemySpawner's next-wave conversion for player-facing UI. */
+	static FCrystalWaveThreat CalculateCrystalWaveThreat(float EnemyResourcePool);
 
 	/** Soft class path for BP_Crystal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health")
@@ -95,6 +113,9 @@ protected:
 	TObjectPtr<UBorder> EnemiesChrome = nullptr;
 
 	UPROPERTY()
+	TObjectPtr<UBorder> ThreatChrome = nullptr;
+
+	UPROPERTY()
 	TObjectPtr<USizeBox> BarSizeBox = nullptr;
 
 	UPROPERTY()
@@ -130,6 +151,12 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> EnemiesCountLabel = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> ThreatImpactLabel = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> ThreatSourceLabel = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> TimerLabel = nullptr;
