@@ -47,6 +47,8 @@ public:
 	static bool ShouldHoldEnemyPath(bool bExplicitlyHeld, bool bHasEngagementTarget);
 	static bool ShouldMoveToEngagementSlot(float DistanceToSlot, float StopTolerance);
 	static float MinimumEngagementRingRadius(float EnemyRadius, int32 SlotCount, float Gap);
+	static FVector ComputePlanarEngagementStep(
+		const FVector& Current, const FVector& Desired, float DeltaSeconds, float MoveSpeed);
 	float ComputeAvoidanceOffset(AActor* Enemy, const FTDEnemyPathState& State, const FVector& PathLocation,
 		const FVector& PathTangent, float AvoidanceRadius, float SideStepDistance) const;
 	int32 FindOrAssignEngagementSlot(AActor* Enemy, AActor* Target, int32 SlotCount);

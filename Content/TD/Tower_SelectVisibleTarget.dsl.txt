@@ -9,18 +9,7 @@
         (bind enemy_loc (Transformation|GetActorLocation enemy))
         (bind dist (Math|Vector|Distance(Vector) Origin enemy_loc))
         (if (and (<= dist range) (< dist (Variables|Combat|GetBestFireDist)))
-          (bind dir (Math|Vector|GetUnitDirection(Vector) Origin enemy_loc))
-          (bind start (+ Origin (* dir 10.0)))
-          (bind end (+ enemy_loc (Math|Vector|MakeVector 0.0 0.0 50.0)))
-          (bind (outhit blocked) (Collision|LineTraceByChannel
-            :Start start
-            :End end
-            :TraceChannel "Visibility"
-            :ActorsToIgnore enemies
-            :bIgnoreSelf true
-            :DrawDebugType "None"))
-          (if (not blocked)
-            (Variables|Combat|SetBestFireDist dist)
-            (Variables|Combat|SetBestFireTarget enemy)
-            (Variables|Combat|SetHasFireTarget true))))
+          (Variables|Combat|SetBestFireDist dist)
+          (Variables|Combat|SetBestFireTarget enemy)
+          (Variables|Combat|SetHasFireTarget true)))
       (:"Is Not Valid"))))

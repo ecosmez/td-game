@@ -6,7 +6,10 @@
 #include "Algo/RandomShuffle.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
@@ -14,6 +17,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
+#include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
@@ -55,6 +59,33 @@ bool FTDChampionPathLeashTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(1000.f, 1000.f));
 	TestTrue(TEXT("Abandons pursuit beyond the leash"),
 		UTDEnemyPathLibrary::ShouldAbandonChampionPursuit(1000.1f, 1000.f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyHealthBarFillTest,
+	"TD.Enemy.HealthBarFillScalesWithPercent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyHealthBarFillTest::RunTest(const FString& Parameters)
+{
+	FVector Scale = FVector::ZeroVector;
+	FVector Location = FVector::ZeroVector;
+
+	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(30.f, 30.f, Scale, Location);
+	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.f);
+	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.f);
+	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.f);
+
+	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(15.f, 30.f, Scale, Location);
+	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.f);
+	TestEqual(TEXT("Half HP shifts the fill so the left edge stays put"), Location.X, -50.f);
+
+	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(0.f, 30.f, Scale, Location);
+	TestEqual(TEXT("Zero HP collapses the fill"), Scale.X, 0.f);
+
+	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(10.f, 0.f, Scale, Location);
+	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.f);
 	return true;
 }
 #endif
@@ -1710,6 +1741,8 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		State->bReachedNotified = true;
 		CallNoParam(Enemy, TEXT("ReachCrystal"));
 	}
+
+	UpdateEnemyHealthBar(Enemy);
 }
 
 bool UTDEnemyPathLibrary::IsAttackableEnemy(AActor* Actor)
@@ -1723,10 +1756,99 @@ bool UTDEnemyPathLibrary::IsAttackableEnemy(AActor* Actor)
 	return IsEnemyStillAlive(Actor);
 }
 
+void UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation)
+{
+	const float Percent = (MaxHealth > KINDA_SMALL_NUMBER)
+		? FMath::Clamp(CurrentHealth / MaxHealth, 0.f, 1.f)
+		: 0.f;
+	OutScale = FVector(2.f * Percent, 0.14f, 0.08f);
+	OutRelativeLocation = FVector(100.f * (Percent - 1.f), 0.f, 2.f);
+}
+
+void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy)
+{
+	using namespace TDEnemyPathPrivate;
+
+	if (!IsValid(Enemy))
+	{
+		return;
+	}
+
+	float Current = 0.f;
+	float Max = 0.f;
+	if (!ReadFloat(Enemy, { TEXT("CurrentHealth") }, Current))
+	{
+		int32 CurrentInt = 0;
+		if (ReadInt(Enemy, { TEXT("CurrentHealth") }, CurrentInt))
+		{
+			Current = static_cast<float>(CurrentInt);
+		}
+	}
+	if (!ReadFloat(Enemy, { TEXT("MaxHealth") }, Max))
+	{
+		int32 MaxInt = 0;
+		if (ReadInt(Enemy, { TEXT("MaxHealth") }, MaxInt))
+		{
+			Max = static_cast<float>(MaxInt);
+		}
+	}
+
+	FVector FillScale = FVector::ZeroVector;
+	FVector FillLocation = FVector::ZeroVector;
+	ComputeEnemyHealthBarFill(Current, Max, FillScale, FillLocation);
+
+	USceneComponent* Fill = nullptr;
+	USceneComponent* BarRoot = nullptr;
+	TArray<USceneComponent*> Comps;
+	Enemy->GetComponents<USceneComponent>(Comps);
+	for (USceneComponent* Comp : Comps)
+	{
+		if (!Comp)
+		{
+			continue;
+		}
+		const FString Name = Comp->GetName();
+		if (Name.Contains(TEXT("HealthBarFill")))
+		{
+			Fill = Comp;
+		}
+		else if (Name.Contains(TEXT("HealthBarRoot")))
+		{
+			BarRoot = Comp;
+		}
+		if (Name.Contains(TEXT("HealthBar")))
+		{
+			if (UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Comp))
+			{
+				Prim->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
+	}
+
+	if (Fill)
+	{
+		Fill->SetRelativeScale3D(FillScale);
+		Fill->SetRelativeLocation(FillLocation);
+	}
+
+	if (BarRoot)
+	{
+		if (APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(Enemy, 0))
+		{
+			const FRotator CamRot = Cam->GetCameraRotation();
+			BarRoot->SetWorldRotation(FRotator(0.f, CamRot.Yaw + 90.f, 0.f));
+		}
+	}
+}
+
 void UTDEnemyPathLibrary::ApplyDamageToEnemy(AActor* Enemy, float Amount)
 {
 	using namespace TDEnemyPathPrivate;
 	CallFloatParam(Enemy, TEXT("ApplyEnemyDamage"), Amount);
+	if (IsValid(Enemy))
+	{
+		UpdateEnemyHealthBar(Enemy);
+	}
 }
 
 void UTDEnemyPathLibrary::SetEnemyPathHeld(AActor* Enemy, bool bHeld)
@@ -1825,9 +1947,9 @@ void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
 	if (UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(
 		FVector::Dist2D(Current, Desired), EngagementStopTolerance))
 	{
-		const FVector Next = FMath::VInterpConstantTo(Current, Desired, DeltaSeconds, MoveSpeed);
-		FHitResult Hit;
-		Enemy->SetActorLocation(Next, true, &Hit, ETeleportType::None);
+		const FVector Next = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
+			Current, Desired, DeltaSeconds, MoveSpeed);
+		Enemy->SetActorLocation(Next, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	const FVector ToChampion = Champion->GetActorLocation() - Enemy->GetActorLocation();
@@ -1971,6 +2093,7 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 		WriteInt(Spawned, { TEXT("CurrentHealth") }, TrashHp);
 	}
 
+	UpdateEnemyHealthBar(Spawned);
 	ChooseEnemyPath(Spawned);
 	WriteInt(Spawner, { TEXT("WaveSpawnedCount") }, WaveSpawnedCount + 1);
 

@@ -10,7 +10,6 @@
 namespace CrystalCometPrivate
 {
 	const FSoftClassPath SpawnerClassPath(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
-	const FSoftClassPath MarkerClassPath(TEXT("/Game/TD/BP_CrystalSpawnMarker.BP_CrystalSpawnMarker_C"));
 	const FSoftClassPath CrystalClassPath(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C"));
 
 	bool ReadBool(const UObject* Object, const FName Name, bool& OutValue)
@@ -71,6 +70,11 @@ bool UCrystalCometWorldSubsystem::DidWaveJustClear(
 	bool bWasWaitingForClearValue, bool bIsWaitingForClear)
 {
 	return bWasWaitingForClearValue && !bIsWaitingForClear;
+}
+
+FSoftClassPath UCrystalCometWorldSubsystem::GetLandingMarkerClassPath()
+{
+	return FSoftClassPath(TEXT("/Game/TD/BP_CrystalCometMarker.BP_CrystalCometMarker_C"));
 }
 
 bool UCrystalCometWorldSubsystem::IsLandingLocationClear(const FVector& Candidate,
@@ -171,7 +175,7 @@ void UCrystalCometWorldSubsystem::TryLaunchComet()
 	}
 
 	UWorld* World = GetWorld();
-	UClass* MarkerClass = CrystalCometPrivate::MarkerClassPath.TryLoadClass<AActor>();
+	UClass* MarkerClass = GetLandingMarkerClassPath().TryLoadClass<AActor>();
 	UClass* CrystalClass = CrystalCometPrivate::CrystalClassPath.TryLoadClass<AActor>();
 	if (!World || !MarkerClass || !CrystalClass)
 	{

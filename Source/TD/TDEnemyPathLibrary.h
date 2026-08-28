@@ -97,6 +97,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void ApplyDamageToEnemy(AActor* Enemy, float Amount);
 
+	/** Fill scale/location matching BP_Enemy.UpdateHealthBar (left-anchored cube). */
+	static void ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation);
+
+	/** Scale the enemy's HealthBarFill mesh from CurrentHealth / MaxHealth and face the camera. */
+	static void UpdateEnemyHealthBar(AActor* Enemy);
+
 	/**
 	 * Freeze/unfreeze an enemy's waypoint-path movement (used while it's locked as the
 	 * champion's melee target, so it doesn't keep teleporting into the champion's collision

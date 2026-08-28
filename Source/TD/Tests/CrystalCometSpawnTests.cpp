@@ -52,6 +52,22 @@ bool FCrystalCometWaveTransitionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCrystalCometDedicatedLandingMarkerTest,
+	"TD.Crystals.Comets.UsesDedicatedLandingMarker",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCrystalCometDedicatedLandingMarkerTest::RunTest(const FString& Parameters)
+{
+	const FString MarkerPath = UCrystalCometWorldSubsystem::GetLandingMarkerClassPath().ToString();
+	TestEqual(TEXT("Comets land on a dedicated marker class"),
+		MarkerPath,
+		TEXT("/Game/TD/BP_CrystalCometMarker.BP_CrystalCometMarker_C"));
+	TestFalse(TEXT("Comets do not reuse capturable-resource spawn markers"),
+		MarkerPath.Contains(TEXT("BP_CrystalSpawnMarker")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FCrystalCometLandingClearanceTest,
 	"TD.Crystals.Comets.RejectsOccupiedLandingLocations",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/SoftObjectPath.h"
 #include "CrystalCometWorldSubsystem.generated.h"
 
 UCLASS(Config=Game, DefaultConfig)
@@ -19,6 +20,7 @@ public:
 	static bool DidWaveJustClear(bool bWasWaitingForClear, bool bIsWaitingForClear);
 	static bool IsLandingLocationClear(const FVector& Candidate,
 		const TArray<FVector>& OccupiedLocations, float ExclusionRadius);
+	static FSoftClassPath GetLandingMarkerClassPath();
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category="Crystal Comets", meta=(ClampMin="0.0", ClampMax="1.0"))
 	float SpawnChancePerClearedWave = 0.10f;

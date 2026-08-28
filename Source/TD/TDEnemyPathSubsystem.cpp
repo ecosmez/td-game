@@ -35,6 +35,12 @@ bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(8.1f, 8.f));
 	TestTrue(TEXT("Twelve melee capsules receive a ring large enough not to overlap"),
 		UTDEnemyPathSubsystem::MinimumEngagementRingRadius(45.f, 12, 4.f) >= 177.f);
+	const FVector PlanarStep = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
+		FVector(0.f, 0.f, 90.f), FVector(100.f, 0.f, 400.f), 0.1f, 300.f);
+	TestTrue(TEXT("Engagement movement never changes the minion height"),
+		FMath::IsNearlyEqual(PlanarStep.Z, 90.0));
+	TestTrue(TEXT("Engagement movement still advances horizontally"),
+		FMath::IsNearlyEqual(PlanarStep.X, 30.0));
 	return true;
 }
 #endif
@@ -47,6 +53,7 @@ void UTDEnemyPathSubsystem::Tick(float DeltaTime)
 	{
 		if (AActor* Actor = Enemy.Get())
 		{
+			UTDEnemyPathLibrary::UpdateEnemyHealthBar(Actor);
 			UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(Actor);
 		}
 	}
@@ -116,6 +123,14 @@ float UTDEnemyPathSubsystem::MinimumEngagementRingRadius(float EnemyRadius, int3
 
 	const float HalfChordAngle = PI / static_cast<float>(SlotCount);
 	return (EnemyRadius + FMath::Max(0.f, Gap)) / FMath::Sin(HalfChordAngle);
+}
+
+FVector UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
+	const FVector& Current, const FVector& Desired, float DeltaSeconds, float MoveSpeed)
+{
+	const FVector PlanarDesired(Desired.X, Desired.Y, Current.Z);
+	return FMath::VInterpConstantTo(
+		Current, PlanarDesired, FMath::Max(0.f, DeltaSeconds), FMath::Max(0.f, MoveSpeed));
 }
 
 int32 UTDEnemyPathSubsystem::FindOrAssignEngagementSlot(AActor* Enemy, AActor* Target, int32 SlotCount)
