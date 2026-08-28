@@ -79,6 +79,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
 	float DirectMoveAcceptanceRadius = 90.0f;
 
+	/** Horizontal search radius when snapping a click onto NavMesh (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
+	float NavProjectHorizontalExtent = 500.0f;
+
+	/** Vertical search radius when snapping a click onto NavMesh (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
+	float NavProjectVerticalExtent = 1000.0f;
+
 	/** Right-click on an enemy attacks it instead of moving there (walks into range first). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
 	bool bEnableChampionAttack = true;
@@ -258,8 +266,9 @@ public:
 
 	/**
 	 * Issue a ground move to the controlled champion.
-	 * Uses NavMesh when a complete path exists; otherwise steers in XY toward
-	 * lower ground so the champion can walk off cliffs and fall.
+	 * Projects the click onto NavMesh when possible. Uses path following for
+	 * reachable ground; otherwise steers in XY toward lower / off-mesh clicks
+	 * so the champion can walk off cliffs instead of stalling.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void MoveChampionToLocation(const FVector& WorldLocation);
@@ -354,6 +363,15 @@ protected:
 
 	/** True when a complete (non-partial) NavMesh path exists to Dest. */
 	bool HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const;
+
+	/** Cursor trace that skips the champion and prefers enemy hits over ground. */
+	bool TraceChampionClick(APawn* Champion, FHitResult& OutHit, AActor*& OutAttackTarget) const;
+
+	/** Snap a world click onto NavMesh within NavProject* extents. */
+	bool ProjectClickToNavMesh(APawn* Champion, const FVector& Point, FVector& OutProjected) const;
+
+	/** Path-follow to Dest, projecting the goal onto NavMesh so off-mesh clicks still move. */
+	void IssueChampionNavMove(APawn* Champion, const FVector& Dest);
 
 	/** Abort PathFollowing on the champion's AI controller. */
 	void AbortChampionPathFollowing(APawn* Champion);

@@ -42,6 +42,30 @@ namespace CrystalHealthBarPrivate
 	static FLinearColor TimerDim(0.40f, 0.50f, 0.58f, 1.f);
 	static FLinearColor EnemyCountHot(1.0f, 0.55f, 0.18f, 1.f);
 	static FLinearColor EnemyCountIdle(0.40f, 0.50f, 0.58f, 1.f);
+	static FLinearColor ThreatLow(0.96f, 0.78f, 0.20f, 1.f);
+	static FLinearColor ThreatMedium(1.0f, 0.48f, 0.12f, 1.f);
+	static FLinearColor ThreatHigh(0.95f, 0.16f, 0.12f, 1.f);
+}
+
+FCrystalWaveThreat UCrystalHealthBarWidget::CalculateCrystalWaveThreat(float EnemyResourcePool)
+{
+	const float Pool = FMath::Max(0.f, EnemyResourcePool);
+	FCrystalWaveThreat Result;
+	Result.ExtraEnemies = FMath::Min(FMath::FloorToInt(Pool / 15.f), 5);
+	Result.EmpowermentPercent = FMath::RoundToInt(FMath::Clamp(Pool * 0.03f, 0.f, 1.f) * 100.f);
+	if (Result.ExtraEnemies >= 5)
+	{
+		Result.ThreatLevel = ECrystalThreatLevel::High;
+	}
+	else if (Result.ExtraEnemies >= 3)
+	{
+		Result.ThreatLevel = ECrystalThreatLevel::Medium;
+	}
+	else if (Pool > KINDA_SMALL_NUMBER)
+	{
+		Result.ThreatLevel = ECrystalThreatLevel::Low;
+	}
+	return Result;
 }
 
 UCrystalHealthBarWidget::UCrystalHealthBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -80,7 +104,7 @@ void UCrystalHealthBarWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 
 void UCrystalHealthBarWidget::EnsureBuilt()
 {
-	if (bBuilt && HealthBar && NextWaveButton && EnemiesCountLabel)
+	if (bBuilt && HealthBar && NextWaveButton && EnemiesCountLabel && ThreatImpactLabel && ThreatSourceLabel)
 	{
 		return;
 	}
@@ -90,13 +114,14 @@ void UCrystalHealthBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !HealthBar || !NextWaveButton || !EnemiesCountLabel)
+	if (!WidgetTree->RootWidget || !HealthBar || !NextWaveButton || !EnemiesCountLabel || !ThreatImpactLabel || !ThreatSourceLabel)
 	{
 		BuildDefaultUI();
 	}
 
 	bBuilt = HealthBar != nullptr && ValueLabel != nullptr && NextWaveButton != nullptr
-		&& WaveChrome != nullptr && EnemiesCountLabel != nullptr;
+		&& WaveChrome != nullptr && EnemiesCountLabel != nullptr
+		&& ThreatImpactLabel != nullptr && ThreatSourceLabel != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
@@ -125,6 +150,10 @@ void UCrystalHealthBarWidget::ApplyHitTestPolicy()
 	if (EnemiesCountLabel)
 	{
 		EnemiesCountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	if (ThreatChrome)
+	{
+		ThreatChrome->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 	if (NextWaveButton)
 	{
@@ -179,6 +208,7 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 	BarChrome = nullptr;
 	WaveChrome = nullptr;
 	EnemiesChrome = nullptr;
+	ThreatChrome = nullptr;
 	BarSizeBox = nullptr;
 	HealthBar = nullptr;
 	TitleLabel = nullptr;
@@ -191,6 +221,8 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 	NextWaveButton = nullptr;
 	NextWaveLabel = nullptr;
 	EnemiesCountLabel = nullptr;
+	ThreatImpactLabel = nullptr;
+	ThreatSourceLabel = nullptr;
 	TimerLabel = nullptr;
 	BuiltDotCount = 0;
 
@@ -325,6 +357,42 @@ void UCrystalHealthBarWidget::BuildDefaultUI()
 		EnemiesCountLabel->SetFont(Font);
 	}
 	EnemiesChrome->SetContent(EnemiesCountLabel);
+
+	ThreatChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CrystalThreatChrome"));
+	ThreatChrome->SetPadding(FMargin(14.f, 7.f));
+	ApplyRoundedBrush(ThreatChrome, CrystalHealthBarPrivate::ChromeBg, CrystalHealthBarPrivate::ThreatLow, 1.6f, false);
+	if (UVerticalBoxSlot* ThreatSlot = HudColumn->AddChildToVerticalBox(ThreatChrome))
+	{
+		ThreatSlot->SetHorizontalAlignment(HAlign_Fill);
+		ThreatSlot->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f));
+	}
+
+	UVerticalBox* ThreatColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("CrystalThreatColumn"));
+	ThreatChrome->SetContent(ThreatColumn);
+
+	ThreatImpactLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWaveCrystalImpact"));
+	ThreatImpactLabel->SetJustification(ETextJustify::Center);
+	ThreatImpactLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+	ThreatImpactLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
+	{
+		FSlateFontInfo Font = ThreatImpactLabel->GetFont();
+		Font.Size = 15.f;
+		Font.TypefaceFontName = TEXT("Bold");
+		ThreatImpactLabel->SetFont(Font);
+	}
+	ThreatColumn->AddChildToVerticalBox(ThreatImpactLabel);
+
+	ThreatSourceLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EnemyCrystalAccumulation"));
+	ThreatSourceLabel->SetJustification(ETextJustify::Center);
+	{
+		FSlateFontInfo Font = ThreatSourceLabel->GetFont();
+		Font.Size = 11.f;
+		ThreatSourceLabel->SetFont(Font);
+	}
+	if (UVerticalBoxSlot* SourceSlot = ThreatColumn->AddChildToVerticalBox(ThreatSourceLabel))
+	{
+		SourceSlot->SetPadding(FMargin(0.f, 3.f, 0.f, 0.f));
+	}
 
 	ApplyHitTestPolicy();
 }
@@ -641,6 +709,8 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	bool bSpawning = false;
 	bool bWaitingClear = false;
 	float Countdown = 0.f;
+	float EnemyResourcePool = 0.f;
+	float EnemyBonusPerSecond = 0.f;
 
 	if (Spawner)
 	{
@@ -664,6 +734,43 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 				Countdown = static_cast<float>(CountdownInt);
 			}
 		}
+		ReadFloatProp(Spawner, FName(TEXT("EnemyResourcePool")), EnemyResourcePool);
+		ReadFloatProp(Spawner, FName(TEXT("EnemyBonusPerSecond")), EnemyBonusPerSecond);
+	}
+
+	if (ThreatImpactLabel && ThreatSourceLabel && ThreatChrome)
+	{
+		const FCrystalWaveThreat Threat = CalculateCrystalWaveThreat(EnemyResourcePool);
+		FLinearColor ThreatColor = CrystalHealthBarPrivate::EnemyCountIdle;
+		const TCHAR* ThreatName = TEXT("NONE");
+		switch (Threat.ThreatLevel)
+		{
+		case ECrystalThreatLevel::Low:
+			ThreatColor = CrystalHealthBarPrivate::ThreatLow;
+			ThreatName = TEXT("LOW");
+			break;
+		case ECrystalThreatLevel::Medium:
+			ThreatColor = CrystalHealthBarPrivate::ThreatMedium;
+			ThreatName = TEXT("MEDIUM");
+			break;
+		case ECrystalThreatLevel::High:
+			ThreatColor = CrystalHealthBarPrivate::ThreatHigh;
+			ThreatName = TEXT("HIGH");
+			break;
+		default:
+			break;
+		}
+
+		ThreatImpactLabel->SetText(FText::FromString(FString::Printf(
+			TEXT("NEXT WAVE  +%d ENEMIES  |  +%d%% HP & DAMAGE"),
+			Threat.ExtraEnemies, Threat.EmpowermentPercent)));
+		ThreatImpactLabel->SetColorAndOpacity(FSlateColor(ThreatColor));
+		ThreatSourceLabel->SetText(FText::FromString(
+			EnemyBonusPerSecond > KINDA_SMALL_NUMBER
+				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  •  THREAT %s"), EnemyBonusPerSecond, ThreatName)
+				: FString::Printf(TEXT("ACCUMULATION STOPPED  •  THREAT %s"), ThreatName)));
+		ThreatSourceLabel->SetColorAndOpacity(FSlateColor(ThreatColor.CopyWithNewOpacity(0.82f)));
+		ApplyRoundedBrush(ThreatChrome, CrystalHealthBarPrivate::ChromeBg, ThreatColor, 1.6f, false);
 	}
 
 	// The boss dot is whichever wave-dot index matches BossWaveNumber (1-based); it stays marked

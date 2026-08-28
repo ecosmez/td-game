@@ -20,5 +20,6 @@
     (elif (Variables|Construction|GetIsConstructing)
       (CallFunction|UpdateConstruction))))
 
-; IsAoe routes to UpdateAoEBehavior instead of TryFire/fire-points combat.
+; IsAoe then → UpdateAoEBehavior. IsAoe else MUST call TryFire (Arrow/Cannon/etc).
+; A disconnected else pin leaves combat towers idle after they finish building.
 ; See Tower_UpdateAoEBehavior.dsl.txt (Mine tower: BP_Tower_Mine).

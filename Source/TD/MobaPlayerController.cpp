@@ -8,6 +8,7 @@
 #include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDChampionClickMove.h"
 #include "FloatingDamageTextWidget.h"
 
 #include "AIController.h"
@@ -727,22 +728,20 @@ void AMobaPlayerController::HandleClickToMoveChampion()
 	}
 
 	FHitResult Hit;
-	const bool bHit = GetHitResultUnderCursor(ClickMoveTraceChannel, true, Hit);
-	if (!bHit || !Hit.bBlockingHit)
+	AActor* AttackTarget = nullptr;
+	if (!TraceChampionClick(Champion, Hit, AttackTarget))
 	{
 		return;
 	}
 
-	// Ignore invalid / very high hits (sky / empty).
 	if (Hit.ImpactPoint.ContainsNaN())
 	{
 		return;
 	}
 
-	AActor* HitActor = Hit.GetActor();
-	if (bEnableChampionAttack && HitActor && HitActor != Champion && UTDEnemyPathLibrary::IsAttackableEnemy(HitActor))
+	if (AttackTarget)
 	{
-		BeginChampionAttack(Champion, HitActor);
+		BeginChampionAttack(Champion, AttackTarget);
 		return;
 	}
 
@@ -762,8 +761,7 @@ void AMobaPlayerController::BeginChampionAttack(APawn* Champion, AActor* Target)
 	ChampionAttackRepathCooldown = 0.0f;
 	ChampionAttackLastChaseTarget = Target->GetActorLocation();
 
-	EnsureChampionHasAIController(Champion);
-	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), ChampionAttackLastChaseTarget);
+	IssueChampionNavMove(Champion, ChampionAttackLastChaseTarget);
 }
 
 void AMobaPlayerController::StopChampionAttack()
@@ -817,8 +815,7 @@ void AMobaPlayerController::UpdateChampionAttack(float DeltaTime)
 		{
 			ChampionAttackRepathCooldown = 0.5f;
 			ChampionAttackLastChaseTarget = TargetLoc;
-			EnsureChampionHasAIController(Champion);
-			UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), TargetLoc);
+			IssueChampionNavMove(Champion, TargetLoc);
 		}
 		return;
 	}
@@ -981,28 +978,130 @@ void AMobaPlayerController::MoveChampionToLocation(const FVector& WorldLocation)
 	StopChampionAttack();
 	EnsureChampionHasAIController(Champion);
 
-	const float DropZ = Champion->GetActorLocation().Z - WorldLocation.Z;
-	const bool bDestinationLower = DropZ >= CliffDropFallbackZ;
+	FVector Projected = WorldLocation;
+	const bool bHasProjection = ProjectClickToNavMesh(Champion, WorldLocation, Projected);
 	const bool bNavOk = HasCompleteNavPathTo(Champion, WorldLocation);
+	const ETDChampionGroundMoveMode Mode = FTDChampionClickMove::ChooseMoveMode(
+		bNavOk,
+		bHasProjection,
+		Champion->GetActorLocation().Z,
+		WorldLocation.Z,
+		CliffDropFallbackZ);
+	const FVector Dest = FTDChampionClickMove::ResolveMoveDestination(
+		WorldLocation, Mode, bHasProjection, Projected);
 
-	if (bNavOk)
+	if (Mode == ETDChampionGroundMoveMode::DirectXY)
 	{
-		StopDirectMove();
-		UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), WorldLocation);
-		return;
-	}
-
-	// No complete NavMesh path. If the click is lower (cliff / ledge), steer in XY
-	// so CharacterMovement can walk off and fall. Same-height / higher clicks still
-	// go through SimpleMove (partial path / nearest poly) as before.
-	if (bDestinationLower)
-	{
-		StartDirectMoveTo(WorldLocation);
+		StartDirectMoveTo(Dest);
 		return;
 	}
 
 	StopDirectMove();
-	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), WorldLocation);
+	IssueChampionNavMove(Champion, Dest);
+}
+
+bool AMobaPlayerController::TraceChampionClick(APawn* Champion, FHitResult& OutHit, AActor*& OutAttackTarget) const
+{
+	OutAttackTarget = nullptr;
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	FVector WorldOrigin;
+	FVector WorldDirection;
+	if (!DeprojectMousePositionToWorld(WorldOrigin, WorldDirection) || WorldDirection.IsNearlyZero())
+	{
+		return false;
+	}
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ChampionClickMove), false, Champion);
+	if (Champion)
+	{
+		Params.AddIgnoredActor(Champion);
+		TArray<AActor*> Attached;
+		Champion->GetAttachedActors(Attached, true, true);
+		for (AActor* Child : Attached)
+		{
+			Params.AddIgnoredActor(Child);
+		}
+	}
+
+	TArray<FHitResult> Hits;
+	const FVector TraceEnd = WorldOrigin + WorldDirection * 100000.f;
+	World->LineTraceMultiByChannel(Hits, WorldOrigin, TraceEnd, ClickMoveTraceChannel, Params);
+
+	for (const FHitResult& Hit : Hits)
+	{
+		if (!Hit.bBlockingHit)
+		{
+			continue;
+		}
+
+		AActor* HitActor = Hit.GetActor();
+		const ETDChampionClickIntent Intent = FTDChampionClickMove::ClassifyHit(
+			HitActor == Champion,
+			bEnableChampionAttack,
+			HitActor && UTDEnemyPathLibrary::IsAttackableEnemy(HitActor));
+
+		if (Intent == ETDChampionClickIntent::SkipHit)
+		{
+			continue;
+		}
+
+		OutHit = Hit;
+		if (Intent == ETDChampionClickIntent::Attack)
+		{
+			OutAttackTarget = HitActor;
+		}
+		return true;
+	}
+
+	return false;
+}
+
+bool AMobaPlayerController::ProjectClickToNavMesh(APawn* Champion, const FVector& Point, FVector& OutProjected) const
+{
+	if (!GetWorld())
+	{
+		return false;
+	}
+
+	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!NavSys)
+	{
+		return false;
+	}
+
+	const FVector Extent(NavProjectHorizontalExtent, NavProjectHorizontalExtent, NavProjectVerticalExtent);
+	FNavLocation NavLoc;
+	const FNavAgentProperties* AgentProps = Champion ? &Champion->GetNavAgentPropertiesRef() : nullptr;
+	if (!NavSys->ProjectPointToNavigation(Point, NavLoc, Extent, AgentProps))
+	{
+		return false;
+	}
+
+	OutProjected = NavLoc.Location;
+	return true;
+}
+
+void AMobaPlayerController::IssueChampionNavMove(APawn* Champion, const FVector& Dest)
+{
+	if (!Champion)
+	{
+		return;
+	}
+
+	EnsureChampionHasAIController(Champion);
+	if (AAIController* AIC = Cast<AAIController>(Champion->GetController()))
+	{
+		AIC->MoveToLocation(Dest, -1.f, true, true, true, true, {}, true);
+		return;
+	}
+
+	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), Dest);
 }
 
 bool AMobaPlayerController::HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const
