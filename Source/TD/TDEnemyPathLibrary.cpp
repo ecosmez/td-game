@@ -73,19 +73,19 @@ bool FTDEnemyHealthBarFillTest::RunTest(const FString& Parameters)
 	FVector Location = FVector::ZeroVector;
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(30.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.f);
-	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.f);
-	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.f);
+	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.0);
+	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.0);
+	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(15.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.f);
-	TestEqual(TEXT("Half HP shifts the fill so the left edge stays put"), Location.X, -50.f);
+	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.0);
+	TestEqual(TEXT("Half HP shifts the fill so the left edge stays put"), Location.X, -50.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(0.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Zero HP collapses the fill"), Scale.X, 0.f);
+	TestEqual(TEXT("Zero HP collapses the fill"), Scale.X, 0.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(10.f, 0.f, Scale, Location);
-	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.f);
+	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.0);
 	return true;
 }
 #endif
