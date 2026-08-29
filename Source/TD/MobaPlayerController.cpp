@@ -9,6 +9,7 @@
 #include "TDUIInputLibrary.h"
 #include "TDEnemyPathLibrary.h"
 #include "TDChampionClickMove.h"
+#include "TDChampionDropLand.h"
 #include "FloatingDamageTextWidget.h"
 
 #include "AIController.h"
@@ -26,6 +27,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "LandscapeProxy.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 #include "UObject/UObjectIterator.h"
@@ -173,7 +175,7 @@ void AMobaPlayerController::BeginPlay()
 		{
 			MapDiscovery->SetWorldBounds(MinimapWidget->WorldMin, MinimapWidget->WorldMax);
 		}
-		// Crystal (green) + first spawner (red): markers + permanent FOW clear.
+		// Crystal (green) + first spawner (red) markers; crystal also grants live vision.
 		MinimapWidget->RefreshLandmarks();
 	}
 }
@@ -790,6 +792,13 @@ void AMobaPlayerController::UpdateChampionAttack(float DeltaTime)
 		return;
 	}
 
+	if (bEnableWorldFogOfWar && bEnableMapDiscovery && MapDiscovery
+		&& !MapDiscovery->IsLocationVisible(Target->GetActorLocation()))
+	{
+		StopChampionAttack();
+		return;
+	}
+
 	const FVector ChampionLoc = Champion->GetActorLocation();
 	const FVector TargetLoc = Target->GetActorLocation();
 	const float Dist = FVector::Dist2D(ChampionLoc, TargetLoc);
@@ -1017,17 +1026,7 @@ bool AMobaPlayerController::TraceChampionClick(APawn* Champion, FHitResult& OutH
 		return false;
 	}
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(ChampionClickMove), false, Champion);
-	if (Champion)
-	{
-		Params.AddIgnoredActor(Champion);
-		TArray<AActor*> Attached;
-		Champion->GetAttachedActors(Attached, true, true);
-		for (AActor* Child : Attached)
-		{
-			Params.AddIgnoredActor(Child);
-		}
-	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ChampionClickMove), false);
 
 	TArray<FHitResult> Hits;
 	const FVector TraceEnd = WorldOrigin + WorldDirection * 100000.f;
@@ -1041,14 +1040,26 @@ bool AMobaPlayerController::TraceChampionClick(APawn* Champion, FHitResult& OutH
 		}
 
 		AActor* HitActor = Hit.GetActor();
+		const bool bIsAttackableEnemy = HitActor && UTDEnemyPathLibrary::IsAttackableEnemy(HitActor);
+		const bool bConcealMinions = bEnableWorldFogOfWar && bEnableMapDiscovery && MapDiscovery;
+		const bool bEnemyVisible = !bIsAttackableEnemy
+			|| !bConcealMinions
+			|| MapDiscovery->IsLocationVisible(HitActor->GetActorLocation());
+
 		const ETDChampionClickIntent Intent = FTDChampionClickMove::ClassifyHit(
 			HitActor == Champion,
 			bEnableChampionAttack,
-			HitActor && UTDEnemyPathLibrary::IsAttackableEnemy(HitActor));
+			bIsAttackableEnemy,
+			HitActor && HitActor->IsA<ALandscapeProxy>(),
+			bEnemyVisible);
 
-		if (Intent == ETDChampionClickIntent::SkipHit)
+		if (Intent == ETDChampionClickIntent::ContinueTrace)
 		{
 			continue;
+		}
+		if (Intent == ETDChampionClickIntent::IgnoreClick)
+		{
+			return false;
 		}
 
 		OutHit = Hit;
@@ -1230,6 +1241,78 @@ void AMobaPlayerController::WireChampionFromPawn(APawn* InPawn)
 	}
 }
 
+AActor* AMobaPlayerController::FindMainCrystal() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	static const FSoftClassPath CrystalClassPath(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C"));
+	UClass* CrystalClass = CrystalClassPath.TryLoadClass<AActor>();
+	if (!CrystalClass)
+	{
+		return nullptr;
+	}
+
+	AActor* First = nullptr;
+	for (TActorIterator<AActor> It(World, CrystalClass); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor))
+		{
+			continue;
+		}
+		if (!First || Actor->GetName() < First->GetName())
+		{
+			First = Actor;
+		}
+	}
+	return First;
+}
+
+bool AMobaPlayerController::TryGetChampionDropLocationNearMainCrystal(FVector& OutLocation) const
+{
+	if (!bLandChampionNearMainCrystal)
+	{
+		return false;
+	}
+
+	AActor* Crystal = FindMainCrystal();
+	if (!Crystal)
+	{
+		return false;
+	}
+
+	AActor* Spawner = UTDEnemyPathLibrary::GetPrimaryWaveSpawner(this, nullptr);
+	OutLocation = FTDChampionDropLand::ComputeLocationNearCrystal(
+		Crystal->GetActorLocation(),
+		Spawner != nullptr,
+		Spawner ? Spawner->GetActorLocation() : FVector::ZeroVector,
+		ChampionCrystalLandOffset);
+	return true;
+}
+
+void AMobaPlayerController::PlaceChampionNearMainCrystal(APawn* Champion)
+{
+	if (!Champion)
+	{
+		return;
+	}
+
+	FVector LandLocation;
+	if (!TryGetChampionDropLocationNearMainCrystal(LandLocation))
+	{
+		return;
+	}
+
+	FVector Loc = Champion->GetActorLocation();
+	Loc.X = LandLocation.X;
+	Loc.Y = LandLocation.Y;
+	Champion->SetActorLocation(Loc, false, nullptr, ETeleportType::TeleportPhysics);
+}
+
 void AMobaPlayerController::InitializeMobaCamera()
 {
 	// Capture champion if we still possess a non-camera pawn (do not force AI yet).
@@ -1249,13 +1332,19 @@ void AMobaPlayerController::InitializeMobaCamera()
 		}
 	}
 
+	if (APawn* ExistingChamp = GetControlledChampion())
+	{
+		PlaceChampionNearMainCrystal(ExistingChamp);
+	}
+
 	// Spawn champion when not already set (free-camera GameMode path).
 	if (!GetControlledChampion() && ChampionClass && GetWorld())
 	{
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 		Params.Owner = this;
-		const FVector SpawnLoc = FVector::ZeroVector;
+		FVector SpawnLoc = FVector::ZeroVector;
+		TryGetChampionDropLocationNearMainCrystal(SpawnLoc);
 		if (APawn* SpawnedChamp = GetWorld()->SpawnActor<APawn>(ChampionClass, SpawnLoc, FRotator::ZeroRotator, Params))
 		{
 			ControlledChampion = SpawnedChamp;

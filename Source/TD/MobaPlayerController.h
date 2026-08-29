@@ -61,6 +61,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	TSubclassOf<APawn> ChampionClass;
 
+	/**
+	 * Place the champion's sky-drop over a point next to the main crystal
+	 * instead of PlayerStart / world origin.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop")
+	bool bLandChampionNearMainCrystal = true;
+
+	/** Horizontal distance from the main crystal to the drop (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop", meta = (ClampMin = "0.0"))
+	float ChampionCrystalLandOffset = 500.0f;
+
 	/** RMB click-to-move for the controlled champion (uses AI move). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	bool bEnableClickToMoveChampion = true;
@@ -170,7 +181,7 @@ public:
 	TSubclassOf<UCameraOrbitGizmoWidget> CameraOrbitGizmoWidgetClass;
 
 	/**
-	 * Persistent map discovery + 3D fog of war (Diablo-style permanent reveal).
+	 * League-style live vision + 3D fog of war (dim map, clear around champion/crystal).
 	 * Shared with the minimap fog overlay when enabled.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Discovery")
@@ -183,7 +194,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
 	bool bEnableMapDiscovery = true;
 
-	/** When true, apply dark world fog over unexplored terrain. */
+	/** When true, apply dim world fog outside current vision. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
 	bool bEnableWorldFogOfWar = true;
 
@@ -193,7 +204,7 @@ public:
 
 	/**
 	 * Hotkey that toggles 3D fog of war (and matching minimap fog visuals).
-	 * Discovery continues under the fog so reveal progress is preserved.
+	 * Discovery continues under the fog so vision sources keep updating.
 	 * Default: J
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
@@ -346,6 +357,9 @@ public:
 protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
+	AActor* FindMainCrystal() const;
+	bool TryGetChampionDropLocationNearMainCrystal(FVector& OutLocation) const;
+	void PlaceChampionNearMainCrystal(APawn* Champion);
 	void HandleClickToMoveChampion();
 	void UpdateChampionAttack(float DeltaTime);
 	void BeginChampionAttack(APawn* Champion, AActor* Target);
@@ -364,7 +378,7 @@ protected:
 	/** True when a complete (non-partial) NavMesh path exists to Dest. */
 	bool HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const;
 
-	/** Cursor trace that skips the champion and prefers enemy hits over ground. */
+	/** First-hit cursor trace: enemies attack, Landscape moves, everything else rejects the click. */
 	bool TraceChampionClick(APawn* Champion, FHitResult& OutHit, AActor*& OutAttackTarget) const;
 
 	/** Snap a world click onto NavMesh within NavProject* extents. */

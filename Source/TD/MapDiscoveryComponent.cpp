@@ -16,9 +16,15 @@ UMapDiscoveryComponent::UMapDiscoveryComponent()
 void UMapDiscoveryComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	// Diablo-era overlay was nearly opaque (A ~0.96). LoL dim vision must read terrain.
+	if (UndiscoveredColor.A > 0.85f)
+	{
+		UndiscoveredColor.A = 0.52f;
+	}
 	if (bEnabled)
 	{
 		EnsureFogTexture();
+		RebuildVisionMask();
 	}
 }
 
@@ -37,7 +43,7 @@ void UMapDiscoveryComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	if (bEnabled)
 	{
-		UpdateFromExplorer();
+		RebuildVisionMask();
 	}
 }
 
@@ -50,7 +56,7 @@ void UMapDiscoveryComponent::SetEnabled(bool bInEnabled)
 	}
 	EnsureFogTexture();
 	bHasStamp = false;
-	UpdateFromExplorer();
+	RebuildVisionMask();
 }
 
 void UMapDiscoveryComponent::SetWorldBounds(FVector2D InMin, FVector2D InMax)
@@ -74,89 +80,128 @@ void UMapDiscoveryComponent::SetExplorer(AActor* InExplorer)
 		return;
 	}
 	Explorer = InExplorer;
-	// Force an immediate stamp for the new explorer.
 	bHasStamp = false;
 }
 
 void UMapDiscoveryComponent::ResetDiscovery()
 {
-	ClearFogTexture();
 	bHasStamp = false;
-	ApplyPermanentReveals(true);
-	UpdateFromExplorer();
+	RebuildVisionMask();
 }
 
 void UMapDiscoveryComponent::RevealAtWorldLocation(const FVector& WorldLocation)
 {
-	if (!bEnabled)
-	{
-		return;
-	}
-	EnsureFogTexture();
-	EnsureExplorerInsideBounds(WorldLocation);
-	StampAtNormalized(WorldToNormalized(WorldLocation), DiscoveryRadius);
-	LastStampLocation = WorldLocation;
-	bHasStamp = true;
-	FlushFogTexture();
+	RegisterVisionSourceAt(WorldLocation, DiscoveryRadius);
 }
 
 void UMapDiscoveryComponent::RegisterPermanentReveal(const FVector& WorldLocation, float RadiusWorldCm)
 {
-	const float R = RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : DiscoveryRadius;
-	// Update existing registration at nearly the same spot, else append.
-	for (FPermanentReveal& Entry : PermanentReveals)
+	RegisterVisionSourceAt(WorldLocation, RadiusWorldCm);
+}
+
+void UMapDiscoveryComponent::RegisterVisionSource(AActor* Actor, float RadiusWorldCm)
+{
+	if (!IsValid(Actor))
 	{
-		if (FVector::DistSquared2D(Entry.Location, WorldLocation) < FMath::Square(50.f))
+		return;
+	}
+
+	const float R = RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : CrystalVisionRadius;
+	for (FVisionSource& Entry : VisionSources)
+	{
+		if (Entry.Actor.Get() == Actor)
 		{
-			Entry.Location = WorldLocation;
+			Entry.Location = Actor->GetActorLocation();
 			Entry.RadiusCm = R;
-			if (bEnabled)
-			{
-				EnsureFogTexture();
-				EnsureExplorerInsideBounds(WorldLocation);
-				StampAtNormalized(WorldToNormalized(WorldLocation), R);
-				FlushFogTexture();
-			}
 			return;
 		}
 	}
 
-	FPermanentReveal NewEntry;
+	FVisionSource NewEntry;
+	NewEntry.Actor = Actor;
+	NewEntry.Location = Actor->GetActorLocation();
+	NewEntry.RadiusCm = R;
+	VisionSources.Add(NewEntry);
+	EnsurePointInsideBounds(NewEntry.Location, R);
+}
+
+void UMapDiscoveryComponent::RegisterVisionSourceAt(const FVector& WorldLocation, float RadiusWorldCm)
+{
+	const float R = RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : CrystalVisionRadius;
+	for (FVisionSource& Entry : VisionSources)
+	{
+		if (Entry.Actor.IsValid())
+		{
+			continue;
+		}
+		if (FVector::DistSquared2D(Entry.Location, WorldLocation) < FMath::Square(50.f))
+		{
+			Entry.Location = WorldLocation;
+			Entry.RadiusCm = R;
+			return;
+		}
+	}
+
+	FVisionSource NewEntry;
 	NewEntry.Location = WorldLocation;
 	NewEntry.RadiusCm = R;
-	PermanentReveals.Add(NewEntry);
+	VisionSources.Add(NewEntry);
+	EnsurePointInsideBounds(WorldLocation, R);
+}
 
-	if (bEnabled)
-	{
-		EnsureFogTexture();
-		EnsureExplorerInsideBounds(WorldLocation);
-		StampAtNormalized(WorldToNormalized(WorldLocation), R);
-		FlushFogTexture();
-	}
+void UMapDiscoveryComponent::ClearVisionSources()
+{
+	VisionSources.Reset();
 }
 
 void UMapDiscoveryComponent::ClearPermanentReveals()
 {
-	PermanentReveals.Reset();
+	ClearVisionSources();
 }
 
-void UMapDiscoveryComponent::ApplyPermanentReveals(bool bFlush)
+void UMapDiscoveryComponent::GatherVisionSources(TArray<FTDFogVisionSource>& OutSources) const
 {
-	if (!bEnabled || PermanentReveals.Num() == 0)
+	OutSources.Reset();
+
+	if (AActor* Actor = Explorer.Get())
 	{
-		return;
+		if (IsValid(Actor))
+		{
+			FTDFogVisionSource ExplorerSource;
+			ExplorerSource.Location = Actor->GetActorLocation();
+			ExplorerSource.RadiusCm = DiscoveryRadius;
+			OutSources.Add(ExplorerSource);
+		}
 	}
-	EnsureFogTexture();
-	for (const FPermanentReveal& Entry : PermanentReveals)
+
+	for (const FVisionSource& Entry : VisionSources)
 	{
-		EnsureExplorerInsideBounds(Entry.Location);
-		const float R = Entry.RadiusCm > KINDA_SMALL_NUMBER ? Entry.RadiusCm : DiscoveryRadius;
-		StampAtNormalized(WorldToNormalized(Entry.Location), R);
+		FTDFogVisionSource Source;
+		Source.RadiusCm = Entry.RadiusCm > KINDA_SMALL_NUMBER ? Entry.RadiusCm : CrystalVisionRadius;
+		if (AActor* Actor = Entry.Actor.Get())
+		{
+			if (IsValid(Actor))
+			{
+				Source.Location = Actor->GetActorLocation();
+				OutSources.Add(Source);
+				continue;
+			}
+		}
+		Source.Location = Entry.Location;
+		OutSources.Add(Source);
 	}
-	if (bFlush)
+}
+
+bool UMapDiscoveryComponent::IsLocationVisible(const FVector& WorldLocation) const
+{
+	if (!bEnabled)
 	{
-		FlushFogTexture();
+		return true;
 	}
+
+	TArray<FTDFogVisionSource> Sources;
+	GatherVisionSources(Sources);
+	return FTDFogVision::IsLocationVisible(WorldLocation, Sources);
 }
 
 void UMapDiscoveryComponent::GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, float& OutOrthoWidth) const
@@ -184,9 +229,9 @@ FVector2D UMapDiscoveryComponent::WorldToNormalized(const FVector& WorldLoc) con
 	return FVector2D(FMath::Clamp(U, 0.f, 1.f), FMath::Clamp(V, 0.f, 1.f));
 }
 
-void UMapDiscoveryComponent::EnsureExplorerInsideBounds(const FVector& WorldLocation)
+void UMapDiscoveryComponent::EnsurePointInsideBounds(const FVector& WorldLocation, float RadiusWorldCm)
 {
-	const float Margin = FMath::Max(DiscoveryRadius * 1.25f, 500.f);
+	const float Margin = FMath::Max(RadiusWorldCm * 1.25f, 500.f);
 	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
 	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
 	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
@@ -217,14 +262,12 @@ void UMapDiscoveryComponent::EnsureExplorerInsideBounds(const FVector& WorldLoca
 		bExpanded = true;
 	}
 
-	// Refuse absurd default free-cam clamps that crush discovery UV precision (±50k with no authored volume).
 	const float ExtX = NewMax.X - NewMin.X;
 	const float ExtY = NewMax.Y - NewMin.Y;
 	const float Ortho = FMath::Max(ExtX, ExtY);
-	if (Ortho > 80000.f && DiscoveryRadius > 0.f)
+	if (Ortho > 80000.f && RadiusWorldCm > 0.f)
 	{
-		// Shrink around the explorer + current revealed footprint seed.
-		const float Half = FMath::Max(DiscoveryRadius * 8.f, 6000.f);
+		const float Half = FMath::Max(RadiusWorldCm * 8.f, 6000.f);
 		NewMin = FVector2D(WorldLocation.X - Half, WorldLocation.Y - Half);
 		NewMax = FVector2D(WorldLocation.X + Half, WorldLocation.Y + Half);
 		bExpanded = true;
@@ -262,13 +305,11 @@ void UMapDiscoveryComponent::EnsureFogTexture()
 		FogTexture->UpdateResource();
 	}
 
-	ClearFogTexture();
-	// Restore always-visible landmarks after a fresh mask.
-	ApplyPermanentReveals(true);
+	FillDimFog();
 	bHasStamp = false;
 }
 
-void UMapDiscoveryComponent::ClearFogTexture()
+void UMapDiscoveryComponent::FillDimFog()
 {
 	if (FogTextureSize <= 0 || FogPixels.Num() != FogTextureSize * FogTextureSize)
 	{
@@ -282,7 +323,6 @@ void UMapDiscoveryComponent::ClearFogTexture()
 		P = Pixel;
 	}
 	bFogDirty = true;
-	FlushFogTexture();
 }
 
 void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV, float RadiusWorldCm)
@@ -303,16 +343,11 @@ void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV, fl
 
 	const float RadiusWorld = FMath::Max(50.f, RadiusWorldCm > KINDA_SMALL_NUMBER ? RadiusWorldCm : DiscoveryRadius);
 	const float RadiusUV = RadiusWorld / Ortho;
-	const float Soft = FMath::Clamp(DiscoverySoftness, 0.f, 1.f);
-	const float HardUV = RadiusUV * (1.f - Soft);
-	const float SoftUV = FMath::Max(RadiusUV * Soft, 1.f / static_cast<float>(FogTextureSize));
-
 	const int32 Size = FogTextureSize;
+	const float WorldPerPx = Ortho / static_cast<float>(Size);
 	const float Cx = FMath::Clamp(NormalizedUV.X, 0.f, 1.f) * static_cast<float>(Size - 1);
 	const float Cy = FMath::Clamp(NormalizedUV.Y, 0.f, 1.f) * static_cast<float>(Size - 1);
 	const float RadiusPx = RadiusUV * static_cast<float>(Size);
-	const float HardPx = HardUV * static_cast<float>(Size);
-	const float SoftPx = SoftUV * static_cast<float>(Size);
 	const uint8 MaxFogAlpha = UndiscoveredColor.ToFColor(true).A;
 	const FColor FullFog = UndiscoveredColor.ToFColor(true);
 
@@ -328,20 +363,10 @@ void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV, fl
 		{
 			const float DX = static_cast<float>(X) - Cx;
 			const float DY = static_cast<float>(Y) - Cy;
-			const float Dist = FMath::Sqrt(DX * DX + DY * DY);
-
-			uint8 TargetAlpha = MaxFogAlpha;
-			if (Dist <= HardPx)
-			{
-				TargetAlpha = 0;
-			}
-			else if (Dist < HardPx + SoftPx)
-			{
-				const float T = (Dist - HardPx) / SoftPx;
-				TargetAlpha = static_cast<uint8>(FMath::Clamp(
-					FMath::RoundToInt(T * static_cast<float>(MaxFogAlpha)), 0, static_cast<int32>(MaxFogAlpha)));
-			}
-			else
+			const float DistPx = FMath::Sqrt(DX * DX + DY * DY);
+			const uint8 TargetAlpha = FTDFogVision::CompositeFogAlpha(
+				DistPx * WorldPerPx, RadiusWorld, DiscoverySoftness, MaxFogAlpha);
+			if (TargetAlpha >= MaxFogAlpha)
 			{
 				continue;
 			}
@@ -349,7 +374,6 @@ void UMapDiscoveryComponent::StampAtNormalized(const FVector2D& NormalizedUV, fl
 			FColor& Pixel = FogPixels[Y * Size + X];
 			if (TargetAlpha < Pixel.A)
 			{
-				// Premultiply soft edge toward transparent so emissive/opacity both clear.
 				const float A01 = static_cast<float>(TargetAlpha) / 255.f;
 				Pixel.R = static_cast<uint8>(FMath::RoundToInt(FullFog.R * A01));
 				Pixel.G = static_cast<uint8>(FMath::RoundToInt(FullFog.G * A01));
@@ -398,7 +422,7 @@ void UMapDiscoveryComponent::FlushFogTexture()
 	bFogDirty = false;
 }
 
-void UMapDiscoveryComponent::UpdateFromExplorer()
+void UMapDiscoveryComponent::RebuildVisionMask()
 {
 	if (!bEnabled)
 	{
@@ -406,26 +430,25 @@ void UMapDiscoveryComponent::UpdateFromExplorer()
 	}
 	EnsureFogTexture();
 
-	AActor* Actor = Explorer.Get();
-	if (!IsValid(Actor))
+	TArray<FTDFogVisionSource> Sources;
+	GatherVisionSources(Sources);
+
+	for (const FTDFogVisionSource& Source : Sources)
 	{
-		return;
+		EnsurePointInsideBounds(Source.Location, Source.RadiusCm);
 	}
 
-	const FVector Loc = Actor->GetActorLocation();
-	EnsureExplorerInsideBounds(Loc);
-
-	const bool bMovedFarEnough = !bHasStamp
-		|| FVector::DistSquared2D(Loc, LastStampLocation)
-			>= FMath::Square(FMath::Max(0.f, StampDistance));
-
-	if (bMovedFarEnough)
+	FillDimFog();
+	for (const FTDFogVisionSource& Source : Sources)
 	{
-		StampAtNormalized(WorldToNormalized(Loc), DiscoveryRadius);
-		LastStampLocation = Loc;
+		StampAtNormalized(WorldToNormalized(Source.Location), Source.RadiusCm);
+	}
+
+	if (Sources.Num() > 0)
+	{
+		LastStampLocation = Sources[0].Location;
 		bHasStamp = true;
-		// Keep permanent landmarks punched through if bounds shifted.
-		ApplyPermanentReveals(false);
-		FlushFogTexture();
 	}
+
+	FlushFogTexture();
 }

@@ -1,5 +1,11 @@
 #include "TDEnemyPathSubsystem.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDFogVision.h"
+#include "MapDiscoveryComponent.h"
+#include "MobaPlayerController.h"
+
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
@@ -47,12 +53,35 @@ bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 
 void UTDEnemyPathSubsystem::Tick(float DeltaTime)
 {
+	UWorld* World = GetWorld();
+	UMapDiscoveryComponent* Discovery = nullptr;
+	bool bConcealMinions = false;
+	if (World)
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			Discovery = PC->FindComponentByClass<UMapDiscoveryComponent>();
+			if (const AMobaPlayerController* MPC = Cast<AMobaPlayerController>(PC))
+			{
+				bConcealMinions = MPC->IsWorldFogOfWarEnabled() && MPC->bEnableMapDiscovery && Discovery != nullptr;
+			}
+			else
+			{
+				bConcealMinions = Discovery && Discovery->IsDiscoveryEnabled();
+			}
+		}
+	}
+
 	TArray<TWeakObjectPtr<AActor>> Enemies;
 	States.GenerateKeyArray(Enemies);
 	for (const TWeakObjectPtr<AActor>& Enemy : Enemies)
 	{
 		if (AActor* Actor = Enemy.Get())
 		{
+			const bool bVisible = !bConcealMinions
+				|| Discovery->IsLocationVisible(Actor->GetActorLocation());
+			Actor->SetActorHiddenInGame(FTDFogVision::ShouldHideEnemy(bVisible));
+
 			UTDEnemyPathLibrary::UpdateEnemyHealthBar(Actor);
 			UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(Actor);
 		}

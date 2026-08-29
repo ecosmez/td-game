@@ -138,7 +138,7 @@ void UMinimapWidget::BuildDefaultUI()
 		ImageSlot->SetZOrder(0);
 	}
 
-	// Diablo-style fog: black overlay with alpha punched out as the champion explores.
+	// Live vision fog: dim overlay with holes around champion + crystal vision.
 	FogImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapFog"));
 	FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 	FogImage->SetColorAndOpacity(FLinearColor::White);
@@ -1364,15 +1364,9 @@ void UMinimapWidget::RegisterLandmarkFogReveals()
 		return;
 	}
 
-	const float Radius = FMath::Max(100.f, LandmarkRevealRadius);
-
 	if (AActor* Crystal = CachedCrystalActor.Get())
 	{
-		DiscoverySource->RegisterPermanentReveal(Crystal->GetActorLocation(), Radius);
-	}
-	if (AActor* Spawn = CachedEnemySpawnActor.Get())
-	{
-		DiscoverySource->RegisterPermanentReveal(Spawn->GetActorLocation(), Radius);
+		DiscoverySource->RegisterVisionSource(Crystal, DiscoverySource->CrystalVisionRadius);
 	}
 }
 

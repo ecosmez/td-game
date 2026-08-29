@@ -4,9 +4,10 @@
 
 enum class ETDChampionClickIntent : uint8
 {
-	SkipHit,
+	IgnoreClick,
 	Attack,
-	MoveToHit
+	MoveToHit,
+	ContinueTrace
 };
 
 enum class ETDChampionGroundMoveMode : uint8
@@ -19,13 +20,15 @@ enum class ETDChampionGroundMoveMode : uint8
 struct FTDChampionClickMove
 {
 	/**
-	 * Champion capsule / mesh hits must be skipped so the trace can reach the
-	 * ground behind the player. Enemy hits issue an attack; everything else is a move.
+	 * Enemy hits issue an attack and Landscape hits issue a move. Any other first
+	 * blocking hit rejects the click so objects cannot expose the ground below them.
 	 */
 	static ETDChampionClickIntent ClassifyHit(
 		bool bHitActorIsChampion,
 		bool bEnableAttack,
-		bool bHitActorIsAttackableEnemy);
+		bool bHitActorIsAttackableEnemy,
+		bool bHitActorIsLandscape,
+		bool bHitEnemyIsVisible = true);
 
 	/**
 	 * Prefer a complete NavMesh path. If the click is much lower and unreachable,

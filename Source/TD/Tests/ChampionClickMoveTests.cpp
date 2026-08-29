@@ -4,14 +4,16 @@
 #include "../TDChampionClickMove.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FChampionClickSkipsSelfHitTest,
-	"TD.Champion.ClickMove.SkipsChampionMeshHits",
+	FChampionClickRejectsNonLandscapeHitTest,
+	"TD.Champion.ClickMove.RejectsNonLandscapeHits",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FChampionClickSkipsSelfHitTest::RunTest(const FString& Parameters)
+bool FChampionClickRejectsNonLandscapeHitTest::RunTest(const FString& Parameters)
 {
-	TestTrue(TEXT("A click on the champion is skipped so the ground behind them can be used"),
-		FTDChampionClickMove::ClassifyHit(true, true, false) == ETDChampionClickIntent::SkipHit);
+	TestTrue(TEXT("A click on the champion is rejected instead of reaching the landscape behind it"),
+		FTDChampionClickMove::ClassifyHit(true, true, false, false) == ETDChampionClickIntent::IgnoreClick);
+	TestTrue(TEXT("A click on a world object is rejected instead of moving onto the landscape below it"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, false) == ETDChampionClickIntent::IgnoreClick);
 	return true;
 }
 
@@ -23,11 +25,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FChampionClickAttacksEnemyTest::RunTest(const FString& Parameters)
 {
 	TestTrue(TEXT("A right-click on an attackable enemy issues an attack"),
-		FTDChampionClickMove::ClassifyHit(false, true, true) == ETDChampionClickIntent::Attack);
-	TestTrue(TEXT("The same enemy hit is a ground move when attacks are disabled"),
-		FTDChampionClickMove::ClassifyHit(false, false, true) == ETDChampionClickIntent::MoveToHit);
-	TestTrue(TEXT("A non-enemy world hit is a ground move"),
-		FTDChampionClickMove::ClassifyHit(false, true, false) == ETDChampionClickIntent::MoveToHit);
+		FTDChampionClickMove::ClassifyHit(false, true, true, false) == ETDChampionClickIntent::Attack);
+	TestTrue(TEXT("An enemy is ignored rather than treated as terrain when attacks are disabled"),
+		FTDChampionClickMove::ClassifyHit(false, false, true, false) == ETDChampionClickIntent::IgnoreClick);
+	TestTrue(TEXT("A Landscape hit issues a ground move"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, true) == ETDChampionClickIntent::MoveToHit);
 	return true;
 }
 

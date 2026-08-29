@@ -1,19 +1,30 @@
 #include "TDChampionClickMove.h"
+#include "TDFogVision.h"
 
 ETDChampionClickIntent FTDChampionClickMove::ClassifyHit(
 	bool bHitActorIsChampion,
 	bool bEnableAttack,
-	bool bHitActorIsAttackableEnemy)
+	bool bHitActorIsAttackableEnemy,
+	bool bHitActorIsLandscape,
+	bool bHitEnemyIsVisible)
 {
 	if (bHitActorIsChampion)
 	{
-		return ETDChampionClickIntent::SkipHit;
+		return ETDChampionClickIntent::IgnoreClick;
+	}
+	if (FTDFogVision::ShouldSkipClickThroughFoggedEnemy(bHitActorIsAttackableEnemy, bHitEnemyIsVisible))
+	{
+		return ETDChampionClickIntent::ContinueTrace;
 	}
 	if (bEnableAttack && bHitActorIsAttackableEnemy)
 	{
 		return ETDChampionClickIntent::Attack;
 	}
-	return ETDChampionClickIntent::MoveToHit;
+	if (bHitActorIsLandscape)
+	{
+		return ETDChampionClickIntent::MoveToHit;
+	}
+	return ETDChampionClickIntent::IgnoreClick;
 }
 
 ETDChampionGroundMoveMode FTDChampionClickMove::ChooseMoveMode(
