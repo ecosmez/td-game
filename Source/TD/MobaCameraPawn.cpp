@@ -693,6 +693,46 @@ float AMobaCameraPawn::GetZoomSpeedScale() const
 	return FMath::Lerp(0.85f, 1.25f, Alpha);
 }
 
+FVector2D AMobaCameraPawn::CalculateEdgeScrollDirection(
+	const FVector2D& MousePosition,
+	const FVector2D& ViewportSize,
+	float Threshold)
+{
+	if (ViewportSize.X <= KINDA_SMALL_NUMBER || ViewportSize.Y <= KINDA_SMALL_NUMBER)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const float SafeThreshold = FMath::Max(1.f, Threshold);
+	const bool bLeftEdge = MousePosition.X <= SafeThreshold;
+	const bool bRightEdge = MousePosition.X >= ViewportSize.X - SafeThreshold;
+	const bool bTopEdge = MousePosition.Y <= SafeThreshold;
+	const bool bBottomEdge = MousePosition.Y >= ViewportSize.Y - SafeThreshold;
+	if (!bLeftEdge && !bRightEdge && !bTopEdge && !bBottomEdge)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const float HorizontalBlend = FMath::Clamp(
+		(MousePosition.X - ViewportSize.X * 0.5f) / (ViewportSize.X * 0.5f), -1.f, 1.f);
+	const float VerticalBlend = FMath::Clamp(
+		(ViewportSize.Y * 0.5f - MousePosition.Y) / (ViewportSize.Y * 0.5f), -1.f, 1.f);
+
+	FVector2D Direction = FVector2D::ZeroVector;
+	if (bTopEdge || bBottomEdge)
+	{
+		Direction.X = HorizontalBlend;
+		Direction.Y = bTopEdge ? 1.f : -1.f;
+	}
+	else
+	{
+		Direction.X = bLeftEdge ? -1.f : 1.f;
+		Direction.Y = VerticalBlend;
+	}
+
+	return Direction.GetSafeNormal();
+}
+
 void AMobaCameraPawn::UpdateKeyboardMove(float DeltaTime)
 {
 	// Arrow keys always pan; WASD only when explicitly enabled (it doubles as ability keys).
@@ -747,27 +787,10 @@ void AMobaCameraPawn::UpdateEdgeScroll(float DeltaTime)
 		return;
 	}
 
-	const float Threshold = FMath::Max(1.0f, EdgeScrollThreshold);
-	FVector2D EdgeDir = FVector2D::ZeroVector;
-
-	if (MouseX <= Threshold)
-	{
-		EdgeDir.X -= 1.0f;
-	}
-	else if (MouseX >= static_cast<float>(SizeX) - Threshold)
-	{
-		EdgeDir.X += 1.0f;
-	}
-
-	// Top of screen = forward (negative mouse Y from top-left origin).
-	if (MouseY <= Threshold)
-	{
-		EdgeDir.Y += 1.0f;
-	}
-	else if (MouseY >= static_cast<float>(SizeY) - Threshold)
-	{
-		EdgeDir.Y -= 1.0f;
-	}
+	const FVector2D EdgeDir = CalculateEdgeScrollDirection(
+		FVector2D(MouseX, MouseY),
+		FVector2D(static_cast<float>(SizeX), static_cast<float>(SizeY)),
+		EdgeScrollThreshold);
 
 	// After a fresh lock (Space / recenter), require the cursor to leave the edge once
 	// before it can pan again — avoids the camera instantly fighting the recenter.
@@ -795,7 +818,6 @@ void AMobaCameraPawn::UpdateEdgeScroll(float DeltaTime)
 		CancelChampionFollow();
 	}
 
-	EdgeDir.Normalize();
 	const FVector WorldDir = (RightPlanar * EdgeDir.X + ForwardPlanar * EdgeDir.Y).GetSafeNormal();
 	DesiredVelocity += WorldDir * (EdgeScrollSpeed * GetZoomSpeedScale());
 }

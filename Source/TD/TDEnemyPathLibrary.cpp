@@ -43,6 +43,59 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector(13.f, 4.f, 0.f), StraightPath), 5.f);
 	TestTrue(TEXT("An absent path cannot accept placement"),
 		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector::ZeroVector, {}) >= BIG_NUMBER);
+
+	const TArray<FVector> Guide = {
+		FVector(0.f, 0.f, 0.f),
+		FVector(100.f, 0.f, 0.f),
+		FVector(200.f, 0.f, 0.f)
+	};
+	TestEqual(TEXT("Real position advances progress by projecting onto the guide"),
+		UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(75.f, 30.f, 0.f), Guide), 75.f);
+	TestEqual(TEXT("Progress projection continues across later guide segments"),
+		UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(160.f, -20.f, 0.f), Guide), 160.f);
+	const TArray<FVector> SlopedGuide = { FVector(0.f, 0.f, 0.f), FVector(100.f, 0.f, 100.f) };
+	TestTrue(TEXT("Projected progress uses the guide's 3D distance on sloped terrain"),
+		FMath::IsNearlyEqual(
+			UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(50.f, 20.f, 500.f), SlopedGuide),
+			70.710678f, 0.001f));
+	TestTrue(TEXT("A navigation detour inside the guide corridor is accepted"),
+		UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 80.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A navigation detour outside the guide corridor is rejected"),
+		UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 140.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A failed route waits for its repath interval instead of retrying every frame"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.2f, false, false, 500.f, 100.f));
+	TestTrue(TEXT("A failed route retries after its repath interval"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, false, false, 500.f, 100.f));
+	TestFalse(TEXT("A usable route is not rebuilt just because the timer elapsed"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, true, false, 50.f, 100.f));
+	TestTrue(TEXT("A usable route refreshes after its goal moved and the timer elapsed"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, true, false, 150.f, 100.f));
+	TestEqual(TEXT("Accepting the final navigation point marks the route finished"),
+		UTDEnemyPathLibrary::AdvanceNavigationRouteIndex(
+			FVector(200.f, 0.f, 0.f),
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 0.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			2, 55.f), 3);
+	TestTrue(TEXT("A route may return monotonically from outside the guide corridor"),
+		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 150.f, 0.f), FVector(100.f, 80.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A route outside the corridor may not move farther away before returning"),
+		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 250.f, 0.f), FVector(100.f, 80.f, 0.f) },
+			Guide, 100.f));
+	TestEqual(TEXT("Without a verified NavMesh route the enemy holds instead of steering through terrain"),
+		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+			FVector(10.f, 20.f, 30.f), FVector(200.f, 0.f, 0.f), {}, 0),
+		FVector(10.f, 20.f, 30.f));
+	TestEqual(TEXT("A verified NavMesh route supplies the steering target"),
+		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+			FVector::ZeroVector, FVector(200.f, 0.f, 0.f),
+			{ FVector::ZeroVector, FVector(80.f, 40.f, 0.f) }, 1),
+		FVector(80.f, 40.f, 0.f));
 	return true;
 }
 
@@ -98,6 +151,9 @@ namespace TDEnemyPathPrivate
 		1000.f,
 		TEXT("Maximum 2D distance a champion-engaged enemy may leave its own path before returning."));
 	constexpr float DefaultLookAhead = 220.f;
+	constexpr float DefaultPathCorridorRadius = 650.f;
+	constexpr float DefaultPathRepathInterval = 0.35f;
+	constexpr float NavigationPointAcceptanceRadius = 55.f;
 	constexpr int32 DefaultSamplesPerSegment = 12;
 	constexpr float WalkableFloorZ = 0.7f;
 	constexpr float DefaultCapsuleHalfHeight = 90.f;
@@ -1040,12 +1096,70 @@ namespace TDEnemyPathPrivate
 		return FMath::Lerp(A, B, Alpha);
 	}
 
+	static bool BuildGuidedNavigationRoute(
+		UWorld* World,
+		AActor* Enemy,
+		const FVector& From,
+		const FVector& GuideGoal,
+		const TArray<FVector>& Guide,
+		float CorridorRadius,
+		TArray<FVector>& OutRoute)
+	{
+		OutRoute.Reset();
+		if (!World || !Enemy || Guide.Num() < 2)
+		{
+			return false;
+		}
+
+		FVector ReachableGoal = GuideGoal;
+		if (UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+		{
+			FNavLocation Projected;
+			if (Nav->ProjectPointToNavigation(GuideGoal, Projected, FVector(250.f, 250.f, 500.f)))
+			{
+				ReachableGoal = Projected.Location;
+			}
+		}
+
+		UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(
+			World, From, ReachableGoal, Enemy);
+		if (!NavPath || NavPath->IsPartial() || NavPath->PathPoints.Num() < 2)
+		{
+			return false;
+		}
+
+		TArray<FVector> CorridorSamples;
+		for (int32 i = 1; i < NavPath->PathPoints.Num(); ++i)
+		{
+			const FVector& A = NavPath->PathPoints[i - 1];
+			const FVector& B = NavPath->PathPoints[i];
+			const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist2D(A, B) / 25.f));
+			for (int32 Step = 0; Step <= Steps; ++Step)
+			{
+				CorridorSamples.Add(FMath::Lerp(A, B, static_cast<float>(Step) / Steps));
+			}
+		}
+		if (!UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(CorridorSamples, Guide, CorridorRadius))
+		{
+			return false;
+		}
+
+		OutRoute = NavPath->PathPoints;
+		return true;
+	}
+
 	static void BuildState(UWorld* World, AActor* Enemy, FTDEnemyPathState& State, const TArray<FVector>& Waypoints)
 	{
 		State.Waypoints = Waypoints;
 		State.Distance = 0.f;
 		State.Samples.Reset();
 		State.CumLength.Reset();
+		State.NavigationRoute.Reset();
+		State.NavigationRouteIndex = 0;
+		State.RepathRemaining = Enemy
+			? FMath::Fmod(static_cast<float>(Enemy->GetUniqueID()) * 0.173f, DefaultPathRepathInterval)
+			: 0.f;
+		State.NavigationGoal = FVector::ZeroVector;
 		State.TotalLength = 0.f;
 		State.bValid = false;
 		State.bReachedNotified = false;
@@ -1486,6 +1600,124 @@ float UTDEnemyPathLibrary::DistanceToPolyline2D(FVector Location, const TArray<F
 	return FMath::Sqrt(BestDistSq);
 }
 
+float UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector Location, const TArray<FVector>& Points)
+{
+	if (Points.Num() < 2)
+	{
+		return 0.f;
+	}
+
+	Location.Z = 0.f;
+	float BestDistSq = BIG_NUMBER;
+	float BestDistanceAlong = 0.f;
+	float DistanceBeforeSegment = 0.f;
+	for (int32 i = 1; i < Points.Num(); ++i)
+	{
+		const FVector Start3D = Points[i - 1];
+		const FVector End3D = Points[i];
+		FVector Start2D = Start3D;
+		FVector End2D = End3D;
+		Start2D.Z = 0.f;
+		End2D.Z = 0.f;
+		const FVector Segment2D = End2D - Start2D;
+		const float SegmentLength2DSq = Segment2D.SizeSquared();
+		const float SegmentLength3D = FVector::Distance(Start3D, End3D);
+		const float T = SegmentLength2DSq > UE_SMALL_NUMBER
+			? FMath::Clamp(FVector::DotProduct(Location - Start2D, Segment2D) / SegmentLength2DSq, 0.f, 1.f)
+			: 0.f;
+		const float DistSq = FVector::DistSquared(Location, Start2D + Segment2D * T);
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			BestDistanceAlong = DistanceBeforeSegment + SegmentLength3D * T;
+		}
+		DistanceBeforeSegment += SegmentLength3D;
+	}
+	return BestDistanceAlong;
+}
+
+bool UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+	const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius)
+{
+	if (Route.Num() == 0 || Guide.Num() < 2 || CorridorRadius < 0.f)
+	{
+		return false;
+	}
+	for (const FVector& Point : Route)
+	{
+		if (DistanceToPolyline2D(Point, Guide) > CorridorRadius)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(
+	float RepathRemaining, bool bHasRoute, bool bRouteFinished, float GoalDelta, float GoalMoveThreshold)
+{
+	if (bHasRoute && bRouteFinished)
+	{
+		return true;
+	}
+	if (RepathRemaining > 0.f)
+	{
+		return false;
+	}
+	return !bHasRoute || GoalDelta > FMath::Max(0.f, GoalMoveThreshold);
+}
+
+int32 UTDEnemyPathLibrary::AdvanceNavigationRouteIndex(
+	FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float AcceptanceRadius)
+{
+	RouteIndex = FMath::Max(0, RouteIndex);
+	while (Route.IsValidIndex(RouteIndex)
+		&& FVector::Dist2D(Location, Route[RouteIndex]) <= FMath::Max(0.f, AcceptanceRadius))
+	{
+		++RouteIndex;
+	}
+	return RouteIndex;
+}
+
+bool UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+	const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius)
+{
+	if (Route.Num() == 0 || Guide.Num() < 2 || CorridorRadius < 0.f)
+	{
+		return false;
+	}
+
+	float PreviousDistance = DistanceToPolyline2D(Route[0], Guide);
+	bool bInside = PreviousDistance <= CorridorRadius;
+	for (int32 i = 1; i < Route.Num(); ++i)
+	{
+		const float Distance = DistanceToPolyline2D(Route[i], Guide);
+		if (bInside)
+		{
+			if (Distance > CorridorRadius)
+			{
+				return false;
+			}
+		}
+		else
+		{
+			if (Distance > PreviousDistance + 1.f)
+			{
+				return false;
+			}
+			bInside = Distance <= CorridorRadius;
+		}
+		PreviousDistance = Distance;
+	}
+	return true;
+}
+
+FVector UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+	FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex)
+{
+	return Route.IsValidIndex(RouteIndex) ? Route[RouteIndex] : CurrentLocation;
+}
+
 float UTDEnemyPathLibrary::GetDistanceToNearestPath(const UObject* WorldContextObject, FVector Location)
 {
 	using namespace TDEnemyPathPrivate;
@@ -1684,37 +1916,79 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	float LookAhead = DefaultLookAhead;
 	ReadFloat(Enemy, { TEXT("PathLookAhead") }, LookAhead);
 
-	const float DesiredDistance = FMath::Min(
-		State->Distance + MoveSpeed * SlowFactor * DeltaSeconds, State->TotalLength);
-	State->Distance = DesiredDistance;
+	const FVector PrevLoc = Enemy->GetActorLocation();
+	const float ProjectedProgress = DistanceAlongPolyline2D(PrevLoc, State->Samples);
+	State->Distance = FMath::Clamp(FMath::Max(State->Distance, ProjectedProgress), 0.f, State->TotalLength);
 
+	float CorridorRadius = DefaultPathCorridorRadius;
+	ReadFloat(Enemy, { TEXT("PathCorridorRadius") }, CorridorRadius);
+	CorridorRadius = FMath::Max(100.f, CorridorRadius);
+	float RepathInterval = DefaultPathRepathInterval;
+	ReadFloat(Enemy, { TEXT("PathRepathInterval") }, RepathInterval);
+	RepathInterval = FMath::Max(0.1f, RepathInterval);
+
+	const float GuideDistance = FMath::Min(State->Distance + LookAhead, State->TotalLength);
 	FVector Tangent = FVector::ForwardVector;
-	FVector Location = SampleAtDistance(*State, State->Distance, Tangent);
+	FVector GuideLocation = SampleAtDistance(*State, GuideDistance, Tangent);
 	const float AvoidanceRadius = ReadFloatOr(Enemy, { TEXT("EnemySpacing"), TEXT("PathSpacing") }, 90.f);
 	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
 	const float TargetOffset = Sys->ComputeAvoidanceOffset(
-		Enemy, *State, Location, Tangent, AvoidanceRadius, SideStepDistance);
+		Enemy, *State, GuideLocation, Tangent, AvoidanceRadius, SideStepDistance);
 	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, TargetOffset, DeltaSeconds, 6.f);
 	const FVector PathRight(-Tangent.GetSafeNormal2D().Y, Tangent.GetSafeNormal2D().X, 0.f);
-	Location += PathRight * State->LateralOffset;
-	const FVector PrevLoc = Enemy->GetActorLocation();
+	GuideLocation += PathRight * State->LateralOffset;
+
+	State->RepathRemaining -= DeltaSeconds;
+	const bool bHasRoute = State->NavigationRoute.Num() > 0;
+	const bool bRouteFinished = bHasRoute && State->NavigationRouteIndex >= State->NavigationRoute.Num();
+	const float GoalDelta = FVector::Dist2D(State->NavigationGoal, GuideLocation);
+	if (ShouldRefreshNavigationRoute(
+		State->RepathRemaining, bHasRoute, bRouteFinished, GoalDelta, FMath::Max(150.f, LookAhead * 0.75f)))
+	{
+		TArray<FVector> NewRoute;
+		if (BuildGuidedNavigationRoute(
+			World, Enemy, PrevLoc, GuideLocation, State->Samples, CorridorRadius, NewRoute))
+		{
+			State->NavigationRoute = MoveTemp(NewRoute);
+			State->NavigationRouteIndex = State->NavigationRoute.Num() > 1 ? 1 : 0;
+		}
+		else if (bRouteFinished)
+		{
+			State->NavigationRoute.Reset();
+			State->NavigationRouteIndex = 0;
+		}
+		State->NavigationGoal = GuideLocation;
+		State->RepathRemaining = RepathInterval;
+	}
+
+	State->NavigationRouteIndex = AdvanceNavigationRouteIndex(
+		PrevLoc, State->NavigationRoute, State->NavigationRouteIndex, NavigationPointAcceptanceRadius);
+	const FVector SteeringTarget = ResolveNavigationSteeringTarget(
+		PrevLoc, GuideLocation, State->NavigationRoute, State->NavigationRouteIndex);
+
+	const float ActualSpeed = FMath::Max(0.f, MoveSpeed * SlowFactor);
+	FVector Location = FMath::VInterpConstantTo(PrevLoc, SteeringTarget, DeltaSeconds, ActualSpeed);
 	int32 SteerSide = 0;
-	FVector LookTangent = Tangent;
-	FVector LookPoint = SampleAtDistance(*State, State->Distance + LookAhead, LookTangent);
-	const FVector LookRight(-LookTangent.GetSafeNormal2D().Y, LookTangent.GetSafeNormal2D().X, 0.f);
-	LookPoint += LookRight * State->LateralOffset;
-	Location = PushOffBadTerrain(World, PrevLoc, Location, LookPoint, Enemy, GroundOffset, SteerSide);
+	Location = PushOffBadTerrain(World, PrevLoc, Location, SteeringTarget, Enemy, GroundOffset, SteerSide);
 	Location = SnapToGround(World, Location, GroundOffset, Enemy, PrevLoc.Z);
 
-	FRotator NewRot = (LookPoint - Location).GetSafeNormal().Rotation();
-	if ((LookPoint - Location).SizeSquared() < 1.f)
+	FRotator NewRot = (SteeringTarget - Location).GetSafeNormal().Rotation();
+	if ((SteeringTarget - Location).SizeSquared() < 1.f)
 	{
 		NewRot = Tangent.Rotation();
 	}
 	NewRot.Pitch = 0.f;
 	NewRot.Roll = 0.f;
 
-	Enemy->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	FHitResult MovementHit;
+	Enemy->SetActorLocation(Location, true, &MovementHit, ETeleportType::None);
+	Location = Enemy->GetActorLocation();
+	if (MovementHit.bBlockingHit)
+	{
+		State->NavigationRoute.Reset();
+		State->NavigationRouteIndex = 0;
+		State->RepathRemaining = 0.1f;
+	}
 	Enemy->SetActorRotation(NewRot, ETeleportType::TeleportPhysics);
 
 	if (State->Waypoints.Num() > 0)

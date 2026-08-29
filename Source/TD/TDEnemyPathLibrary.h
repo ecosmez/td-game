@@ -21,6 +21,17 @@ public:
 
 	/** Pure geometry helper used by GetDistanceToNearestPath and automation tests. */
 	static float DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points);
+	static float DistanceAlongPolyline2D(FVector Location, const TArray<FVector>& Points);
+	static bool IsRouteInsideCorridor2D(
+		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius);
+	static bool ShouldRefreshNavigationRoute(
+		float RepathRemaining, bool bHasRoute, bool bRouteFinished, float GoalDelta, float GoalMoveThreshold);
+	static int32 AdvanceNavigationRouteIndex(
+		FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float AcceptanceRadius);
+	static bool IsRouteReturningToCorridor2D(
+		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius);
+	static FVector ResolveNavigationSteeringTarget(
+		FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex);
 
 	/** True once a champion pursuit has carried an enemy beyond its lane leash. */
 	static bool ShouldAbandonChampionPursuit(float DistanceToOwnPath, float MaxPathLeashRange);

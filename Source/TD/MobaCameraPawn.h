@@ -219,6 +219,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Moba Camera")
 	void RefreshBoundsFromSource();
 
+	/**
+	 * Returns a normalized edge-scroll direction in screen-relative axes.
+	 * Along an edge, the secondary axis grows continuously from zero at the
+	 * edge midpoint to full strength at either corner.
+	 */
+	static FVector2D CalculateEdgeScrollDirection(
+		const FVector2D& MousePosition,
+		const FVector2D& ViewportSize,
+		float Threshold);
+
 protected:
 	void EnsureInputAssets();
 	void BindEnhancedInput(UEnhancedInputComponent* EIC);
