@@ -5,6 +5,8 @@
 #include "MobaPlayerController.h"
 
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -54,6 +56,7 @@ bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 void UTDEnemyPathSubsystem::Tick(float DeltaTime)
 {
 	UWorld* World = GetWorld();
+	PrepareLaneDecorations();
 	UMapDiscoveryComponent* Discovery = nullptr;
 	bool bConcealMinions = false;
 	if (World)
@@ -271,6 +274,29 @@ void UTDEnemyPathSubsystem::Prune()
 		if (!It.Key().IsValid())
 		{
 			It.RemoveCurrent();
+		}
+	}
+}
+
+void UTDEnemyPathSubsystem::PrepareLaneDecorations()
+{
+	if (bLaneDecorationsPrepared)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	bLaneDecorationsPrepared = true;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (UTDEnemyPathLibrary::IsLaneDecorationClassName(It->GetClass()->GetName()))
+		{
+			UTDEnemyPathLibrary::ApplyLaneDecorationCollision(*It);
 		}
 	}
 }

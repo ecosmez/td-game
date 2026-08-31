@@ -98,6 +98,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
 	float NavProjectVerticalExtent = 1000.0f;
 
+	/** Show a short League-style pulse at accepted RMB move destinations. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator")
+	bool bShowMoveDestinationIndicator = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "0.05"))
+	float MoveIndicatorDuration = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "1.0"))
+	float MoveIndicatorRadius = 55.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator")
+	FLinearColor MoveIndicatorColor = FLinearColor(0.1f, 0.9f, 0.85f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "0.5"))
+	float MoveIndicatorThickness = 4.0f;
+
 	/** Right-click on an enemy attacks it instead of moving there (walks into range first). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
 	bool bEnableChampionAttack = true;
@@ -174,7 +190,7 @@ public:
 
 	/** Show circular camera-orbit gizmo (docked to the minimap). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
-	bool bShowCameraOrbitGizmo = true;
+	bool bShowCameraOrbitGizmo = false;
 
 	/** Optional custom orbit gizmo class; defaults to UCameraOrbitGizmoWidget. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
@@ -366,6 +382,8 @@ protected:
 	void UpdateChampionDamageTaken();
 	void SpawnFloatingDamageText(const FVector& WorldLocation, float Amount, const FLinearColor& Color);
 	void UpdateFloatingDamageTexts(float DeltaTime);
+	void BeginMoveDestinationIndicator(const FVector& WorldLocation);
+	void UpdateMoveDestinationIndicator(float DeltaTime);
 	void HandleSkipSkyDropInput();
 	void HandleToggleFogOfWarInput();
 	void HandleToggleStoreInput();
@@ -436,6 +454,16 @@ protected:
 	/** Active floating damage numbers currently rising/fading in the viewport. */
 	UPROPERTY(Transient)
 	TArray<FTDFloatingDamageEntry> FloatingDamageEntries;
+
+	/** Runtime state for the latest accepted ground-move pulse. */
+	UPROPERTY(Transient)
+	bool bMoveIndicatorActive = false;
+
+	UPROPERTY(Transient)
+	FVector MoveIndicatorLocation = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	float MoveIndicatorElapsed = 0.0f;
 
 	/** Champion CurrentHealth last tick, used to detect incoming hits for red floating text. -1 = not yet sampled. */
 	UPROPERTY(Transient)

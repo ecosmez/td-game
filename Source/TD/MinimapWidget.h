@@ -223,7 +223,7 @@ public:
 
 	/** World-space radius (cm) of current vision around the champion. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "100.0", EditCondition = "bMapDiscoveryEnabled"))
-	float DiscoveryRadius = 2500.0f;
+	float DiscoveryRadius = 4000.0f;
 
 	/** Soft edge width as a fraction of DiscoveryRadius (0 = hard circle, 1 = fully soft). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bMapDiscoveryEnabled"))
@@ -239,7 +239,7 @@ public:
 
 	/** Fog tint for dim (no-vision) minimap regions (alpha = overlay opacity). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (EditCondition = "bMapDiscoveryEnabled"))
-	FLinearColor UndiscoveredColor = FLinearColor(0.02f, 0.03f, 0.04f, 0.52f);
+	FLinearColor UndiscoveredColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.32f);
 
 	UFUNCTION(BlueprintCallable, Category = "Minimap")
 	void SetWorldBounds(FVector2D InMin, FVector2D InMax);

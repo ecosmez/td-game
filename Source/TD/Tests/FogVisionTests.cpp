@@ -38,6 +38,32 @@ bool FFogVisionOutsideAllCirclesIsHiddenTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFogVisionEnvironmentBlocksChampionVisionTest,
+	"TD.Fog.Vision.EnvironmentBlocksChampionVision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFogVisionEnvironmentBlocksChampionVisionTest::RunTest(const FString& Parameters)
+{
+	TestFalse(TEXT("An enemy inside the radius stays hidden behind blocking environment"),
+		FTDFogVision::IsChampionLocationVisible(true, true));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFogVisionClearLineRevealsChampionTargetTest,
+	"TD.Fog.Vision.ClearLineRevealsChampionTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFogVisionClearLineRevealsChampionTargetTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("An enemy inside the radius is visible through a clear line"),
+		FTDFogVision::IsChampionLocationVisible(true, false));
+	TestFalse(TEXT("A clear line never reveals an enemy beyond the vision radius"),
+		FTDFogVision::IsChampionLocationVisible(false, false));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFogVisionCrystalCoversFarFromChampionTest,
 	"TD.Fog.Vision.CrystalCoversFarFromChampion",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

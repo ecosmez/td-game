@@ -31,7 +31,7 @@ public:
 
 	/** World-space radius (cm) of current vision around the explorer (champion). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "100.0", EditCondition = "bEnabled"))
-	float DiscoveryRadius = 2500.0f;
+	float DiscoveryRadius = 4000.0f;
 
 	/** World-space radius (cm) of current vision around the main crystal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "100.0", EditCondition = "bEnabled"))
@@ -40,6 +40,26 @@ public:
 	/** Soft edge as a fraction of each vision radius. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
 	float DiscoverySoftness = 0.35f;
+
+	/** Number of environment traces used to shape champion vision. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Line Of Sight", meta = (ClampMin = "32", ClampMax = "512", EditCondition = "bEnabled"))
+	int32 VisionRayCount = 128;
+
+	/** Trace height above the champion ground position. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Line Of Sight", meta = (ClampMin = "0.0", EditCondition = "bEnabled"))
+	float VisionTraceHeight = 100.0f;
+
+	/** Pull the visible edge back from a blocking surface to avoid leaking around walls. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Line Of Sight", meta = (ClampMin = "0.0", EditCondition = "bEnabled"))
+	float VisionBlockerPadding = 20.0f;
+
+	/** Width in world units of the soft visual edge around the champion's visible area. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Line Of Sight", meta = (ClampMin = "1.0", EditCondition = "bEnabled"))
+	float VisionEdgeSoftnessCm = 180.0f;
+
+	/** Speed of the visual fog transition while the champion moves. Enemies still hide immediately. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Line Of Sight", meta = (ClampMin = "0.1", EditCondition = "bEnabled"))
+	float FogTransitionSpeed = 10.0f;
 
 	/** Square fog mask resolution. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "64", ClampMax = "1024", EditCondition = "bEnabled"))
@@ -51,7 +71,7 @@ public:
 
 	/** Dim overlay RGB/A where there is no current vision (A = overlay opacity). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (EditCondition = "bEnabled"))
-	FLinearColor UndiscoveredColor = FLinearColor(0.02f, 0.03f, 0.04f, 0.52f);
+	FLinearColor UndiscoveredColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.32f);
 
 	/** World XY bounds used for UV mapping (same square ortho as the minimap). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|World")
@@ -79,6 +99,10 @@ public:
 	/** Register a static live vision circle at a world point. */
 	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
 	void RegisterVisionSourceAt(const FVector& WorldLocation, float RadiusWorldCm = 0.f);
+
+	/** Remove this actor's live vision circle. Leaves other sources (crystal, etc.) intact. */
+	UFUNCTION(BlueprintCallable, Category = "Map Discovery")
+	bool UnregisterVisionSource(AActor* Actor);
 
 	/** @deprecated Live vision replacement for the old Diablo permanent reveal. */
 	UFUNCTION(BlueprintCallable, Category = "Map Discovery", meta = (DeprecatedFunction, DeprecationMessage = "Use RegisterVisionSource / RegisterVisionSourceAt"))
@@ -126,7 +150,10 @@ protected:
 	void FillDimFog();
 	void FlushFogTexture();
 	void StampAtNormalized(const FVector2D& NormalizedUV, float RadiusWorldCm);
-	void RebuildVisionMask();
+	void StampExplorerLineOfSight();
+	void BuildExplorerVisionRayDistances(TArray<float>& OutRayDistances) const;
+	bool IsEnvironmentBlockingExplorerLine(const FVector& WorldLocation) const;
+	void RebuildVisionMask(float DeltaTime = 0.0f);
 	void GatherVisionSources(TArray<FTDFogVisionSource>& OutSources) const;
 
 	/** Grow XY bounds so the point + radius always sits inside the fog UV domain. */

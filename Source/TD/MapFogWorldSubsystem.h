@@ -29,6 +29,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Map Fog")
 	bool bAutoEnable = true;
 
+	UMapDiscoveryComponent* GetBoundDiscovery() const { return BoundDiscovery; }
+
 protected:
 	void EnsureOnLocalPlayer();
 	AActor* ResolveExplorer(APlayerController* PC) const;

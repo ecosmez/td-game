@@ -87,15 +87,68 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
 			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 250.f, 0.f), FVector(100.f, 80.f, 0.f) },
 			Guide, 100.f));
-	TestEqual(TEXT("Without a verified NavMesh route the enemy holds instead of steering through terrain"),
+	TestEqual(TEXT("Without a NavMesh route the enemy keeps steering along the lane"),
 		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
 			FVector(10.f, 20.f, 30.f), FVector(200.f, 0.f, 0.f), {}, 0),
-		FVector(10.f, 20.f, 30.f));
+		FVector(200.f, 0.f, 0.f));
 	TestEqual(TEXT("A verified NavMesh route supplies the steering target"),
 		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
 			FVector::ZeroVector, FVector(200.f, 0.f, 0.f),
 			{ FVector::ZeroVector, FVector(80.f, 40.f, 0.f) }, 1),
 		FVector(80.f, 40.f, 0.f));
+	TestFalse(TEXT("A goal snapped back onto the current poly does not count as progress"),
+		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+			FVector(0.f, 0.f, 0.f), FVector(40.f, 0.f, 0.f), 55.f));
+	TestTrue(TEXT("A goal farther than the acceptance radius counts as progress"),
+		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+			FVector(0.f, 0.f, 0.f), FVector(80.f, 0.f, 0.f), 55.f));
+	TestEqual(TEXT("An unwalkable step stays put instead of entering terrain"),
+		UTDEnemyPathLibrary::ResolveUnwalkableStep(
+			false, FVector(100.f, 0.f, 0.f), FVector(10.f, 20.f, 30.f)),
+		FVector(10.f, 20.f, 30.f));
+	TestEqual(TEXT("A walkable detour is used when one exists"),
+		UTDEnemyPathLibrary::ResolveUnwalkableStep(
+			true, FVector(100.f, 0.f, 0.f), FVector(10.f, 20.f, 30.f)),
+		FVector(100.f, 0.f, 0.f));
+	TestTrue(TEXT("The final crystal cannot be mistaken for walkable ground"),
+		UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(TEXT("BP_Crystal_C")));
+	TestFalse(TEXT("Landscape remains eligible as walkable ground"),
+		UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(TEXT("Landscape")));
+	TestTrue(TEXT("Touching a large crystal's surface counts as reaching it"),
+		UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+			FVector(990.f, 0.f, -1800.f), FVector::ZeroVector, FVector(800.f, 800.f, 800.f), 200.f));
+	TestFalse(TEXT("An enemy outside the crystal surface padding has not reached it"),
+		UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+			FVector(1001.f, 0.f, -1800.f), FVector::ZeroVector, FVector(800.f, 800.f, 800.f), 200.f));
+	TestEqual(TEXT("A blocked slope keeps swept XY but restores the ground-snapped height"),
+		UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
+			FVector(10.f, 20.f, 35.f), FVector(12.f, 22.f, 90.f)),
+		FVector(10.f, 20.f, 90.f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyPathIgnoresLaneDecorationsTest,
+	"TD.EnemyPath.IgnoresCaptureAndResourceDecorations",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyPathIgnoresLaneDecorationsTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Capture bases are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("CaptureBase")));
+	TestTrue(TEXT("Capture base blueprints are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_CaptureBase_C")));
+	TestTrue(TEXT("Resource crystals are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_ResourceCrystal_C")));
+	TestTrue(TEXT("Capturable-resource spawn markers are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_CrystalSpawnMarker_C")));
+	TestTrue(TEXT("Hex pads are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_HexPad_C")));
+	TestFalse(TEXT("The attackable crystal objective is not a lane decoration"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_Crystal_C")));
+	TestFalse(TEXT("Environment rocks stay as blocking terrain"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("StaticMeshActor")));
+	UTDEnemyPathLibrary::ApplyLaneDecorationCollision(nullptr);
 	return true;
 }
 
@@ -537,6 +590,16 @@ namespace TDEnemyPathPrivate
 		return FromProp > 1.f ? FromProp : DefaultCapsuleHalfHeight;
 	}
 
+	static bool IsLaneDecorationActor(const AActor* Actor)
+	{
+		return Actor && UTDEnemyPathLibrary::IsLaneDecorationClassName(Actor->GetClass()->GetName());
+	}
+
+	static bool IsGroundTraceIgnoredActor(const AActor* Actor)
+	{
+		return Actor && UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(Actor->GetClass()->GetName());
+	}
+
 	/** Player walls stay on the lane so minions can attack them instead of pathing around. */
 	static bool IsPlayerDefenseActor(const AActor* Actor)
 	{
@@ -560,7 +623,8 @@ namespace TDEnemyPathPrivate
 		{
 			return true;
 		}
-		if (IsPlayerDefenseActor(HitActor))
+		if (IsPlayerDefenseActor(HitActor) || IsLaneDecorationActor(HitActor)
+			|| IsGroundTraceIgnoredActor(HitActor))
 		{
 			return true;
 		}
@@ -633,7 +697,8 @@ namespace TDEnemyPathPrivate
 			{
 				continue;
 			}
-			if (IsPathIgnoreActor(Hit.GetActor(), Ignore) && IsPlayerDefenseActor(Hit.GetActor()))
+			if (IsPlayerDefenseActor(Hit.GetActor()) || IsLaneDecorationActor(Hit.GetActor())
+				|| IsGroundTraceIgnoredActor(Hit.GetActor()))
 			{
 				continue;
 			}
@@ -945,7 +1010,7 @@ namespace TDEnemyPathPrivate
 			}
 		}
 
-		return Best;
+		return UTDEnemyPathLibrary::ResolveUnwalkableStep(false, Best, Prev);
 	}
 
 	static void PushSamplesAroundTerrain(UWorld* World, AActor* Enemy, float GroundOffset, TArray<FVector>& Samples)
@@ -1115,7 +1180,9 @@ namespace TDEnemyPathPrivate
 		if (UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
 		{
 			FNavLocation Projected;
-			if (Nav->ProjectPointToNavigation(GuideGoal, Projected, FVector(250.f, 250.f, 500.f)))
+			if (Nav->ProjectPointToNavigation(GuideGoal, Projected, FVector(250.f, 250.f, 500.f))
+				&& UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+					From, Projected.Location, NavigationPointAcceptanceRadius))
 			{
 				ReachableGoal = Projected.Location;
 			}
@@ -1123,7 +1190,9 @@ namespace TDEnemyPathPrivate
 
 		UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(
 			World, From, ReachableGoal, Enemy);
-		if (!NavPath || NavPath->IsPartial() || NavPath->PathPoints.Num() < 2)
+		if (!NavPath || NavPath->PathPoints.Num() < 2
+			|| !UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+				From, NavPath->PathPoints.Last(), NavigationPointAcceptanceRadius))
 		{
 			return false;
 		}
@@ -1715,7 +1784,68 @@ bool UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
 FVector UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
 	FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex)
 {
-	return Route.IsValidIndex(RouteIndex) ? Route[RouteIndex] : CurrentLocation;
+	(void)CurrentLocation;
+	return Route.IsValidIndex(RouteIndex) ? Route[RouteIndex] : GuideLocation;
+}
+
+bool UTDEnemyPathLibrary::DoesNavigationGoalAdvance(FVector From, FVector Goal, float MinDistance)
+{
+	return FVector::Dist2D(From, Goal) > FMath::Max(0.f, MinDistance);
+}
+
+FVector UTDEnemyPathLibrary::ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous)
+{
+	return bFoundWalkable ? Walkable : Previous;
+}
+
+bool UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(const FString& ClassName)
+{
+	return ClassName.Equals(TEXT("BP_Crystal_C"), ESearchCase::IgnoreCase);
+}
+
+bool UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+	FVector EnemyLocation, FVector ObjectiveLocation, FVector ObjectiveBoundsExtent, float ReachDistance)
+{
+	const float HorizontalRadius = FMath::Max(
+		FMath::Abs(ObjectiveBoundsExtent.X), FMath::Abs(ObjectiveBoundsExtent.Y));
+	return FVector::Dist2D(EnemyLocation, ObjectiveLocation)
+		<= HorizontalRadius + FMath::Max(0.f, ReachDistance);
+}
+
+FVector UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
+	FVector SweptLocation, FVector GroundSnappedLocation)
+{
+	SweptLocation.Z = GroundSnappedLocation.Z;
+	return SweptLocation;
+}
+
+bool UTDEnemyPathLibrary::IsLaneDecorationClassName(const FString& ClassName)
+{
+	return ClassName.Contains(TEXT("ResourceCrystal"))
+		|| ClassName.Contains(TEXT("CaptureBase"))
+		|| ClassName.Contains(TEXT("CrystalSpawnMarker"))
+		|| ClassName.Contains(TEXT("CrystalCometMarker"))
+		|| ClassName.Contains(TEXT("HexPad"))
+		|| ClassName.Contains(TEXT("TowerPad"));
+}
+
+void UTDEnemyPathLibrary::ApplyLaneDecorationCollision(AActor* Actor)
+{
+	if (!Actor)
+	{
+		return;
+	}
+
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		if (!Primitive)
+		{
+			continue;
+		}
+		Primitive->SetCanEverAffectNavigation(false);
+		Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
 }
 
 float UTDEnemyPathLibrary::GetDistanceToNearestPath(const UObject* WorldContextObject, FVector Location)
@@ -1929,7 +2059,8 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	const float GuideDistance = FMath::Min(State->Distance + LookAhead, State->TotalLength);
 	FVector Tangent = FVector::ForwardVector;
-	FVector GuideLocation = SampleAtDistance(*State, GuideDistance, Tangent);
+	const FVector LaneGuide = SampleAtDistance(*State, GuideDistance, Tangent);
+	FVector GuideLocation = LaneGuide;
 	const float AvoidanceRadius = ReadFloatOr(Enemy, { TEXT("EnemySpacing"), TEXT("PathSpacing") }, 90.f);
 	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
 	const float TargetOffset = Sys->ComputeAvoidanceOffset(
@@ -1946,13 +2077,19 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		State->RepathRemaining, bHasRoute, bRouteFinished, GoalDelta, FMath::Max(150.f, LookAhead * 0.75f)))
 	{
 		TArray<FVector> NewRoute;
-		if (BuildGuidedNavigationRoute(
-			World, Enemy, PrevLoc, GuideLocation, State->Samples, CorridorRadius, NewRoute))
+		bool bBuilt = BuildGuidedNavigationRoute(
+			World, Enemy, PrevLoc, GuideLocation, State->Samples, CorridorRadius, NewRoute);
+		if (!bBuilt && FMath::Abs(State->LateralOffset) > 1.f)
+		{
+			bBuilt = BuildGuidedNavigationRoute(
+				World, Enemy, PrevLoc, LaneGuide, State->Samples, CorridorRadius, NewRoute);
+		}
+		if (bBuilt)
 		{
 			State->NavigationRoute = MoveTemp(NewRoute);
 			State->NavigationRouteIndex = State->NavigationRoute.Num() > 1 ? 1 : 0;
 		}
-		else if (bRouteFinished)
+		else if (!bHasRoute || bRouteFinished)
 		{
 			State->NavigationRoute.Reset();
 			State->NavigationRouteIndex = 0;
@@ -1964,7 +2101,7 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	State->NavigationRouteIndex = AdvanceNavigationRouteIndex(
 		PrevLoc, State->NavigationRoute, State->NavigationRouteIndex, NavigationPointAcceptanceRadius);
 	const FVector SteeringTarget = ResolveNavigationSteeringTarget(
-		PrevLoc, GuideLocation, State->NavigationRoute, State->NavigationRouteIndex);
+		PrevLoc, LaneGuide, State->NavigationRoute, State->NavigationRouteIndex);
 
 	const float ActualSpeed = FMath::Max(0.f, MoveSpeed * SlowFactor);
 	FVector Location = FMath::VInterpConstantTo(PrevLoc, SteeringTarget, DeltaSeconds, ActualSpeed);
@@ -1983,7 +2120,12 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	FHitResult MovementHit;
 	Enemy->SetActorLocation(Location, true, &MovementHit, ETeleportType::None);
 	Location = Enemy->GetActorLocation();
-	if (MovementHit.bBlockingHit)
+	const FVector GroundAtSweptLocation = SnapToGround(
+		World, Location, GroundOffset, Enemy, PrevLoc.Z);
+	Location = ResolveGroundCorrectionAfterSweep(Location, GroundAtSweptLocation);
+	Enemy->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	if (MovementHit.bBlockingHit
+		&& !IsLaneDecorationActor(MovementHit.GetActor()))
 	{
 		State->NavigationRoute.Reset();
 		State->NavigationRouteIndex = 0;
@@ -2009,8 +2151,16 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	const bool bFinished = State->TotalLength > 1.f && State->Distance >= State->TotalLength - 1.f;
 	AActor* Crystal = ReadActor(Enemy, { TEXT("CrystalActor") });
-	const float DistToCrystal = Crystal ? FVector::Dist(Location, Crystal->GetActorLocation()) : 0.f;
-	if (!State->bReachedNotified && (bFinished || (Crystal && DistToCrystal <= CrystalReachDistance)))
+	bool bReachedCrystalSurface = false;
+	if (Crystal)
+	{
+		FVector BoundsOrigin = FVector::ZeroVector;
+		FVector BoundsExtent = FVector::ZeroVector;
+		Crystal->GetActorBounds(false, BoundsOrigin, BoundsExtent);
+		bReachedCrystalSurface = IsWithinObjectiveReach2D(
+			Location, BoundsOrigin, BoundsExtent, CrystalReachDistance);
+	}
+	if (!State->bReachedNotified && (bFinished || bReachedCrystalSurface))
 	{
 		State->bReachedNotified = true;
 		CallNoParam(Enemy, TEXT("ReachCrystal"));

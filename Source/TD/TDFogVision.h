@@ -18,6 +18,9 @@ struct FTDFogVision
 	/** True when Location is inside any source's XY radius. */
 	static bool IsLocationVisible(const FVector& Location, TArrayView<const FTDFogVisionSource> Sources);
 
+	/** Champion vision requires both range and an unobstructed environment trace. */
+	static bool IsChampionLocationVisible(bool bInsideRadius, bool bEnvironmentBlocksLineOfSight);
+
 	/**
 	 * Fog texel alpha: 0 inside the hard vision radius, DimAlpha outside,
 	 * interpolated across the soft rim.

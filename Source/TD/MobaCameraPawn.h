@@ -48,10 +48,10 @@ public:
 	float CameraPitch = -55.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Framing")
-	float CameraYaw = 45.0f;
+	float CameraYaw = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Framing", meta = (ClampMin = "1.0"))
-	float DefaultZoom = 1800.0f;
+	float DefaultZoom = 2300.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Framing", meta = (ClampMin = "1.0"))
 	float MinimumZoom = 900.0f;
@@ -274,10 +274,10 @@ protected:
 	FVector DesiredVelocity = FVector::ZeroVector;
 	FVector CurrentVelocity = FVector::ZeroVector;
 
-	float TargetZoom = 1800.0f;
-	float CurrentZoom = 1800.0f;
-	float TargetYaw = 45.0f;
-	float CurrentYaw = 45.0f;
+	float TargetZoom = 2300.0f;
+	float CurrentZoom = 2300.0f;
+	float TargetYaw = 0.0f;
+	float CurrentYaw = 0.0f;
 
 	FVector ForwardPlanar = FVector::ForwardVector;
 	FVector RightPlanar = FVector::RightVector;

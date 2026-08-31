@@ -16,6 +16,11 @@ bool FTDFogVision::IsLocationVisible(const FVector& Location, TArrayView<const F
 	return false;
 }
 
+bool FTDFogVision::IsChampionLocationVisible(bool bInsideRadius, bool bEnvironmentBlocksLineOfSight)
+{
+	return bInsideRadius && !bEnvironmentBlocksLineOfSight;
+}
+
 uint8 FTDFogVision::CompositeFogAlpha(float Distance2D, float RadiusCm, float Softness, uint8 DimAlpha)
 {
 	if (RadiusCm <= KINDA_SMALL_NUMBER)

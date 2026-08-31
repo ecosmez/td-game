@@ -61,6 +61,7 @@ public:
 	FTDEnemyPathState* Find(AActor* Enemy);
 	void Remove(AActor* Enemy);
 	void Prune();
+	void PrepareLaneDecorations();
 
 	/** Spawner that owns the current wave countdown / spawn timer. */
 	TWeakObjectPtr<AActor> ActiveWaveSpawner;
@@ -72,4 +73,5 @@ public:
 
 private:
 	TMap<TWeakObjectPtr<AActor>, FTDEnemyPathState> States;
+	bool bLaneDecorationsPrepared = false;
 };

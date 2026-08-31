@@ -1,5 +1,6 @@
 #include "CrystalCometActor.h"
 
+#include "TDChampionClickMove.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -113,6 +114,7 @@ void ACrystalCometActor::Land()
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 		Crystal = GetWorld()->SpawnActor<AActor>(PendingCrystalClass, TargetLocation, FRotator::ZeroRotator, Params);
+		FTDChampionClickMove::StripActorTraceCollision(Crystal);
 	}
 	if (LandedCallback)
 	{
