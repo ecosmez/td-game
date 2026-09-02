@@ -178,7 +178,8 @@ bool FCaptureBaseLossOnLastStarterDestroyedTest::RunTest(const FString& Paramete
 	TestFalse(TEXT("Hold clears"), Out.bHeld);
 	TestFalse(TEXT("Vision off"), Out.bVisionOn);
 	TestFalse(TEXT("Extra towers unpowered"), Out.bExtraTowersPowered);
-	TestTrue(TEXT("Extra pads stay unlocked/visible"), Out.bExtraPadsVisible);
+	TestTrue(TEXT("Extra pads stay unlocked for recapture tracking"), Out.bExtraPadsUnlocked);
+	TestFalse(TEXT("Extra pads hide until the 3 starters are rebuilt"), Out.bExtraPadsVisible);
 	TestFalse(TEXT("Extra pads reject new builds"), Out.bExtraPadsBuildable);
 	TestFalse(TEXT("Starter pads hide until a new channel"), Out.bStarterPadsVisible);
 	TestFalse(TEXT("Channel completion is cleared"), Out.bChannelCompletedThisLife);
@@ -204,7 +205,8 @@ bool FCaptureBaseRecaptureRestoresHoldTest::RunTest(const FString& Parameters)
 	const FTDCaptureBaseOutput AfterChannel = FTDCaptureBaseLogic::Step(Channel);
 	TestTrue(TEXT("Recapture channel completes"), AfterChannel.bChannelCompletedThisLife);
 	TestFalse(TEXT("Vision still off until 3 starters"), AfterChannel.bVisionOn);
-	TestTrue(TEXT("Extra pads remain visible after unlock"), AfterChannel.bExtraPadsVisible);
+	TestFalse(TEXT("Extra pads stay hidden until the 3 starters are rebuilt"), AfterChannel.bExtraPadsVisible);
+	TestTrue(TEXT("Only starter pads are offered after the recapture channel"), AfterChannel.bStarterPadsVisible);
 
 	FTDCaptureBaseInput Rebuild = CaptureBaseTestPrivate::MakeIdleInput();
 	Rebuild.bChannelCompletedThisLife = AfterChannel.bChannelCompletedThisLife;
@@ -267,6 +269,34 @@ bool FCaptureBaseOccupiedPadNeverBuildableTest::RunTest(const FString& Parameter
 		FTDCaptureBaseLogic::IsPadBuildable(true, true, Held));
 	TestFalse(TEXT("An occupied extra pad is not buildable"),
 		FTDCaptureBaseLogic::IsPadBuildable(false, true, Held));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCaptureBaseOccupancyIgnoresPadsAndUnbuiltTest,
+	"TD.Capture.Base.OccupancyIgnoresPadsAndUnbuilt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCaptureBaseOccupancyIgnoresPadsAndUnbuiltTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("HexPad class names are pad-like"),
+		FTDCaptureBaseLogic::IsPadLikeClassName(TEXT("BP_HexPad_C")));
+	TestTrue(TEXT("TowerPad class names are pad-like"),
+		FTDCaptureBaseLogic::IsPadLikeClassName(TEXT("BP_TowerPad_C")));
+	TestFalse(TEXT("Placed towers are not pad-like"),
+		FTDCaptureBaseLogic::IsPadLikeClassName(TEXT("BP_Tower_Arrow_C")));
+	TestFalse(TEXT("The pad actor cannot occupy itself"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(true, false, false, false, true, 0.f, 180.f));
+	TestFalse(TEXT("A nearby hex pad is not a tower"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(false, true, false, false, true, 0.f, 180.f));
+	TestFalse(TEXT("Ghost previews do not occupy a pad"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(false, false, true, false, true, 10.f, 180.f));
+	TestFalse(TEXT("Unfinished construction does not occupy a pad"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(false, false, false, true, false, 10.f, 180.f));
+	TestFalse(TEXT("A tower outside occupancy radius does not count"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(false, false, false, true, true, 181.f, 180.f));
+	TestTrue(TEXT("A finished tower on the pad occupies it"),
+		FTDCaptureBaseLogic::ShouldCountOccupyingTower(false, false, false, true, true, 10.f, 180.f));
 	return true;
 }
 

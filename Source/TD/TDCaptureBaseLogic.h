@@ -53,6 +53,19 @@ struct FTDCaptureBaseLogic
 
 	static bool IsPadBuildable(bool bIsStarter, bool bOccupied, const FTDCaptureBaseOutput& State);
 
+	/** True when an actor is a pad, not a placed tower (HexPad / TowerPad). */
+	static bool IsPadLikeClassName(const FString& ClassName);
+
+	/** True when a nearby actor should occupy a capture pad. */
+	static bool ShouldCountOccupyingTower(
+		bool bSameAsPad,
+		bool bPadLike,
+		bool bGhost,
+		bool bHasBuiltFlag,
+		bool bIsBuilt,
+		float Dist2D,
+		float OccupancyRadius);
+
 	static FTDCaptureBaseOutput Step(const FTDCaptureBaseInput& Input);
 };
 

@@ -115,9 +115,11 @@ ETDChampionClickIntent FTDChampionClickMove::ClassifyHit(
 	{
 		return bEnableAttack ? ETDChampionClickIntent::Attack : ETDChampionClickIntent::IgnoreClick;
 	}
-	// Landscape, hex pads, and kit meshes are all valid move impacts.
-	(void)bHitActorIsLandscape;
-	return ETDChampionClickIntent::MoveToHit;
+	// Ground movement is authored exclusively on Landscape. World geometry,
+	// pads, and rocks continue so they can never seed a route from their NavMesh.
+	return bHitActorIsLandscape
+		? ETDChampionClickIntent::MoveToHit
+		: ETDChampionClickIntent::ContinueTrace;
 }
 
 ETDChampionGroundMoveMode FTDChampionClickMove::ChooseMoveMode(
@@ -127,6 +129,7 @@ ETDChampionGroundMoveMode FTDChampionClickMove::ChooseMoveMode(
 	float DestinationZ,
 	float CliffDropFallbackZ)
 {
+	(void)bHasNavProjection;
 	if (bHasCompleteNavPath)
 	{
 		return ETDChampionGroundMoveMode::NavMesh;
@@ -134,10 +137,6 @@ ETDChampionGroundMoveMode FTDChampionClickMove::ChooseMoveMode(
 	if ((ChampionZ - DestinationZ) >= CliffDropFallbackZ)
 	{
 		return ETDChampionGroundMoveMode::DirectXY;
-	}
-	if (bHasNavProjection)
-	{
-		return ETDChampionGroundMoveMode::NavMesh;
 	}
 	return ETDChampionGroundMoveMode::DirectXY;
 }
@@ -148,15 +147,64 @@ FVector FTDChampionClickMove::ResolveMoveDestination(
 	bool bHasNavProjection,
 	const FVector& ProjectedNavLocation)
 {
-	if (Mode == ETDChampionGroundMoveMode::DirectXY)
-	{
-		return ClickLocation;
-	}
-	if (bHasNavProjection)
-	{
-		return ProjectedNavLocation;
-	}
+	(void)Mode;
+	(void)bHasNavProjection;
+	(void)ProjectedNavLocation;
 	return ClickLocation;
+}
+
+bool FTDChampionClickMove::IsNavProjectionNearClick(
+	const FVector& ClickLocation,
+	const FVector& ProjectedNavLocation,
+	float MaxHorizontalDistance,
+	float MaxVerticalDistance)
+{
+	const float HorizontalDistance = FVector::Dist2D(ClickLocation, ProjectedNavLocation);
+	const float VerticalDistance = FMath::Abs(ClickLocation.Z - ProjectedNavLocation.Z);
+	return HorizontalDistance <= FMath::Max(0.0f, MaxHorizontalDistance)
+		&& VerticalDistance <= FMath::Max(0.0f, MaxVerticalDistance);
+}
+
+TArray<FVector2D> FTDChampionClickMove::BuildNavSearchOffsets(
+	float MaxRadius,
+	float RadiusStep,
+	int32 SamplesPerRing)
+{
+	TArray<FVector2D> Offsets;
+	Offsets.Add(FVector2D::ZeroVector);
+	if (MaxRadius <= 0.0f || RadiusStep <= 0.0f || SamplesPerRing <= 0)
+	{
+		return Offsets;
+	}
+
+	for (float Radius = RadiusStep; Radius <= MaxRadius + KINDA_SMALL_NUMBER; Radius += RadiusStep)
+	{
+		for (int32 Sample = 0; Sample < SamplesPerRing; ++Sample)
+		{
+			const float Angle = (2.0f * PI * static_cast<float>(Sample))
+				/ static_cast<float>(SamplesPerRing);
+			Offsets.Emplace(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius);
+		}
+	}
+	return Offsets;
+}
+
+FString FTDChampionClickMove::BuildTraceDiagnostic(
+	const FString& Stage,
+	const FString& ActorName,
+	const FString& ComponentName,
+	const FString& ClassName,
+	const FVector& ImpactPoint,
+	bool bBlockingHit)
+{
+	return FString::Printf(
+		TEXT("%s actor=%s component=%s class=%s point=%s blocking=%s"),
+		*Stage,
+		*ActorName,
+		*ComponentName,
+		*ClassName,
+		*ImpactPoint.ToString(),
+		bBlockingHit ? TEXT("true") : TEXT("false"));
 }
 
 bool FTDChampionClickMove::CalculateMoveIndicatorFrame(

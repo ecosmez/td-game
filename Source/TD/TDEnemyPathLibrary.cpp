@@ -124,6 +124,10 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
 			FVector(10.f, 20.f, 35.f), FVector(12.f, 22.f, 90.f)),
 		FVector(10.f, 20.f, 90.f));
+	TestEqual(TEXT("Champion engagement follows the Landscape height at its next XY"),
+		UTDEnemyPathLibrary::ResolveEngagementGroundLocation(
+			FVector(10.f, 20.f, 35.f), FVector(10.f, 20.f, 90.f)),
+		FVector(10.f, 20.f, 90.f));
 	return true;
 }
 
@@ -1819,6 +1823,12 @@ FVector UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
 	return SweptLocation;
 }
 
+FVector UTDEnemyPathLibrary::ResolveEngagementGroundLocation(
+	FVector PlanarLocation, FVector GroundSnappedLocation)
+{
+	return ResolveGroundCorrectionAfterSweep(PlanarLocation, GroundSnappedLocation);
+}
+
 bool UTDEnemyPathLibrary::IsLaneDecorationClassName(const FString& ClassName)
 {
 	return ClassName.Contains(TEXT("ResourceCrystal"))
@@ -2371,9 +2381,20 @@ void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
 	if (UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(
 		FVector::Dist2D(Current, Desired), EngagementStopTolerance))
 	{
-		const FVector Next = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
+		const FVector PlanarNext = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
 			Current, Desired, DeltaSeconds, MoveSpeed);
-		Enemy->SetActorLocation(Next, false, nullptr, ETeleportType::TeleportPhysics);
+		const float GroundOffset = ResolveGroundOffset(Enemy);
+		const FVector GroundedNext = SnapToGround(
+			Enemy->GetWorld(), PlanarNext, GroundOffset, Enemy, Current.Z);
+
+		FHitResult MovementHit;
+		Enemy->SetActorLocation(GroundedNext, true, &MovementHit, ETeleportType::None);
+		const FVector SweptLocation = Enemy->GetActorLocation();
+		const FVector GroundAtSweptLocation = SnapToGround(
+			Enemy->GetWorld(), SweptLocation, GroundOffset, Enemy, Current.Z);
+		const FVector CorrectedLocation = ResolveEngagementGroundLocation(
+			SweptLocation, GroundAtSweptLocation);
+		Enemy->SetActorLocation(CorrectedLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	const FVector ToChampion = Champion->GetActorLocation() - Enemy->GetActorLocation();

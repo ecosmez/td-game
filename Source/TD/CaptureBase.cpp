@@ -8,6 +8,7 @@
 
 #include "Blueprint/UserWidget.h"
 
+#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
@@ -28,12 +29,48 @@ namespace CaptureBasePrivate
 	{
 		return Path.TryLoadClass<AActor>();
 	}
+
+	void SetPadHiddenInGame(AActor* Pad, bool bHidden)
+	{
+		if (!IsValid(Pad))
+		{
+			return;
+		}
+
+		Pad->SetActorHiddenInGame(bHidden);
+		TInlineComponentArray<UPrimitiveComponent*> Primitives(Pad);
+		for (UPrimitiveComponent* Primitive : Primitives)
+		{
+			if (Primitive)
+			{
+				Primitive->SetHiddenInGame(bHidden, true);
+			}
+		}
+	}
+
+	bool ReadIsBuilt(const AActor* Actor, bool& bOutHasFlag, bool& bOutIsBuilt)
+	{
+		bOutHasFlag = false;
+		bOutIsBuilt = true;
+		if (!IsValid(Actor))
+		{
+			return false;
+		}
+		if (const FBoolProperty* Built = FindFProperty<FBoolProperty>(Actor->GetClass(), TEXT("IsBuilt")))
+		{
+			bOutHasFlag = true;
+			bOutIsBuilt = Built->GetPropertyValue_InContainer(Actor);
+			return true;
+		}
+		return false;
+	}
 }
 
 ACaptureBase::ACaptureBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+	PrimaryActorTick.TickGroup = TG_PostUpdateWork;
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(SceneRoot);
@@ -202,7 +239,7 @@ void ACaptureBase::HideAllPads()
 		{
 			return;
 		}
-		Pad->SetActorHiddenInGame(true);
+		CaptureBasePrivate::SetPadHiddenInGame(Pad, true);
 		Pad->SetActorEnableCollision(false);
 	};
 	for (AActor* Pad : StarterPads)
@@ -230,7 +267,7 @@ void ACaptureBase::ApplyPadPresentation(
 	const bool bVisible = bIsStarter
 		? (!bOccupied && State.bStarterPadsVisible)
 		: State.bExtraPadsVisible;
-	Pad->SetActorHiddenInGame(!bVisible);
+	CaptureBasePrivate::SetPadHiddenInGame(Pad, !bVisible);
 	Pad->SetActorEnableCollision(bBuildable);
 	UTDEnemyPathLibrary::ApplyLaneDecorationCollision(Pad);
 }
@@ -293,11 +330,26 @@ AActor* ACaptureBase::FindOccupyingTower(const AActor* Pad) const
 	for (TActorIterator<AActor> It(World, TowerClass); It; ++It)
 	{
 		AActor* Tower = *It;
-		if (!IsLivingActor(Tower) || IsGhostTower(Tower))
+		if (!IsLivingActor(Tower))
 		{
 			continue;
 		}
+
+		bool bHasBuiltFlag = false;
+		bool bIsBuilt = true;
+		CaptureBasePrivate::ReadIsBuilt(Tower, bHasBuiltFlag, bIsBuilt);
 		const float Dist = FVector::Dist2D(Pad->GetActorLocation(), Tower->GetActorLocation());
+		if (!FTDCaptureBaseLogic::ShouldCountOccupyingTower(
+				Tower == Pad,
+				FTDCaptureBaseLogic::IsPadLikeClassName(Tower->GetClass()->GetName()),
+				IsGhostTower(Tower),
+				bHasBuiltFlag,
+				bIsBuilt,
+				Dist,
+				OccupancyRadius))
+		{
+			continue;
+		}
 		if (Dist <= BestDist)
 		{
 			BestDist = Dist;

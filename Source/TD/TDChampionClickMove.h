@@ -22,9 +22,8 @@ enum class ETDChampionGroundMoveMode : uint8
 struct FTDChampionClickMove
 {
 	/**
-	 * Champion / overlay hits continue so the trace can reach walkable ground.
-	 * Visible enemies issue an attack. Remaining blocking hits (Landscape, pads,
-	 * kit meshes) issue a move to that impact — not a reject.
+	 * Champion / overlay / world-geometry hits continue so the trace can reach
+	 * Landscape. Visible enemies issue an attack. Only Landscape issues movement.
 	 */
 	static ETDChampionClickIntent ClassifyHit(
 		bool bHitActorIsChampion,
@@ -57,10 +56,8 @@ struct FTDChampionClickMove
 	static void UseComplexCollisionOnEnvironmentMesh(AActor* Actor);
 
 	/**
-	 * Prefer a complete NavMesh path. If the click is much lower and unreachable,
-	 * steer in XY so the champion can walk off a ledge. Otherwise, if the click
-	 * projected onto NavMesh, use that — never fall through to an unprojected
-	 * SimpleMove that fails silently. Last resort is DirectXY toward the click.
+	 * Prefer a complete NavMesh path to the Landscape click. Otherwise steer in XY
+	 * toward that exact point (cliff drops and unreachable nav both use DirectXY).
 	 */
 	static ETDChampionGroundMoveMode ChooseMoveMode(
 		bool bHasCompleteNavPath,
@@ -69,12 +66,34 @@ struct FTDChampionClickMove
 		float DestinationZ,
 		float CliffDropFallbackZ);
 
-	/** DirectXY keeps the raw click. NavMesh prefers the projected walkable point. */
+	/** The move order is always the Landscape click, regardless of path mode. */
 	static FVector ResolveMoveDestination(
 		const FVector& ClickLocation,
 		ETDChampionGroundMoveMode Mode,
 		bool bHasNavProjection,
 		const FVector& ProjectedNavLocation);
+
+	/** Reject NavMesh candidates from a different floor, cliff top, or nearby mountain. */
+	static bool IsNavProjectionNearClick(
+		const FVector& ClickLocation,
+		const FVector& ProjectedNavLocation,
+		float MaxHorizontalDistance,
+		float MaxVerticalDistance);
+
+	/** Exact point first, followed by evenly spaced rings used to escape isolated NavMesh polygons. */
+	static TArray<FVector2D> BuildNavSearchOffsets(
+		float MaxRadius,
+		float RadiusStep,
+		int32 SamplesPerRing);
+
+	/** Stable text used by RMB ray diagnostics in both the screen overlay and Output Log. */
+	static FString BuildTraceDiagnostic(
+		const FString& Stage,
+		const FString& ActorName,
+		const FString& ComponentName,
+		const FString& ClassName,
+		const FVector& ImpactPoint,
+		bool bBlockingHit);
 
 	/** Returns the expanding/fading frame for a short-lived move destination pulse. */
 	static bool CalculateMoveIndicatorFrame(

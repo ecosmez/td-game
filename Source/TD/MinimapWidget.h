@@ -19,7 +19,7 @@ class UMapDiscoveryComponent;
 
 /**
  * LoL-style minimap anchored bottom-right.
- * Top-down orthographic SceneCapture of the playable level (lit scene color),
+ * Top-down orthographic SceneCapture of the playable level (landscape base color),
  * champion / camera markers, LMB camera pan, and optional discovery fog.
  */
 UCLASS()
@@ -54,9 +54,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World")
 	FVector2D WorldMax = FVector2D(8000.0f, 8000.0f);
 
-	/** Height of the top-down capture cam above map center. */
+	/** Height of the top-down capture cam above the landscape (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "100.0"))
-	float CaptureHeight = 25000.0f;
+	float CaptureHeight = 8000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "32"))
 	int32 RenderTargetSize = 512;
@@ -81,12 +81,18 @@ public:
 	float AutoFitRescanInterval = 2.0f;
 
 	/**
-	 * Tightens the orthographic capture around the world-bounds center (1.0 = fit exactly,
-	 * smaller = zoom in / show less area). LoL-style minimaps read as a close, filled-frame
-	 * crop rather than the whole level with empty margins.
+	 * Tightens the orthographic capture around the world-bounds center (1.0 = fit the
+	 * rotated landscape, smaller = zoom in / show less area).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.1", ClampMax = "1.0"))
-	float MinimapZoomFactor = 0.6f;
+	float MinimapZoomFactor = 1.0f;
+
+	/**
+	 * Extra capture yaw (degrees) added on top of the look-down camera.
+	 * 90 matches a quarter-turn of the square landscape.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World")
+	float MapYawOffset = 90.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bShowChampionMarker = true;
@@ -219,7 +225,7 @@ public:
 	 * Prefer the shared UMapDiscoveryComponent from the player controller when set.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery")
-	bool bMapDiscoveryEnabled = true;
+	bool bMapDiscoveryEnabled = false;
 
 	/** World-space radius (cm) of current vision around the champion. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "100.0", EditCondition = "bMapDiscoveryEnabled"))

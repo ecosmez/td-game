@@ -18,6 +18,7 @@
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "EnhancedInputSubsystems.h"
@@ -194,6 +195,8 @@ void AMobaPlayerController::BeginPlay()
 	{
 		WorldFogOfWar->SetDiscoverySource(MapDiscovery);
 	}
+	// Minimap shows landscape + rocks; 3D world FOW stays independent.
+	bEnableMinimapDiscoveryFog = false;
 	ApplyFogOfWarVisualState();
 
 	if (bShowMinimap)
@@ -436,13 +439,12 @@ void AMobaPlayerController::ApplyFogOfWarVisualState()
 		WorldFogOfWar->SetEnabled(bShowWorldFog);
 	}
 
-	// Minimap fog overlay only — do not call SetMapDiscoveryEnabled (that would
-	// stop the shared discovery mask used by world FOW).
+	// Minimap fog overlay only — SetMapDiscoveryEnabled no longer stops shared discovery.
 	if (MinimapWidget)
 	{
 		const bool bShowMinimapFog =
 			bEnableWorldFogOfWar && bEnableMinimapDiscoveryFog && bEnableMapDiscovery;
-		MinimapWidget->bMapDiscoveryEnabled = bShowMinimapFog;
+		MinimapWidget->SetMapDiscoveryEnabled(bShowMinimapFog);
 	}
 }
 
@@ -803,12 +805,21 @@ void AMobaPlayerController::HandleClickToMoveChampion()
 		return;
 	}
 
+	DebugChampionClickRay(Champion);
+
 	FHitResult Hit;
 	AActor* AttackTarget = nullptr;
 	if (!TraceChampionClick(Champion, Hit, AttackTarget))
 	{
+		if (bDebugChampionClickTrace && GEngine)
+		{
+			const FString Message(TEXT("no valid Landscape / enemy hit"));
+			UE_LOG(LogTemp, Display, TEXT("CLICK_RAY %s"), *Message);
+			GEngine->AddOnScreenDebugMessage(91002, ChampionClickTraceDebugDuration, FColor::Yellow, Message);
+		}
 		return;
 	}
+	ReportChampionClickHit(TEXT("ACCEPTED"), Hit, FColor::Yellow, 91002);
 
 	if (Hit.ImpactPoint.ContainsNaN())
 	{
@@ -1061,17 +1072,17 @@ void AMobaPlayerController::MoveChampionToLocation(const FVector& WorldLocation)
 	StopChampionAttack();
 	EnsureChampionHasAIController(Champion);
 
-	FVector Projected = WorldLocation;
-	const bool bHasProjection = ProjectClickToNavMesh(Champion, WorldLocation, Projected);
-	const bool bNavOk = HasCompleteNavPathTo(Champion, WorldLocation);
+	// The Landscape impact point is the only move order the player issued.
+	const FVector Dest = WorldLocation;
+	const bool bNavOk = HasCompleteNavPathTo(Champion, Dest);
 	const ETDChampionGroundMoveMode Mode = FTDChampionClickMove::ChooseMoveMode(
 		bNavOk,
-		bHasProjection,
+		false,
 		Champion->GetActorLocation().Z,
-		WorldLocation.Z,
+		Dest.Z,
 		CliffDropFallbackZ);
-	const FVector Dest = FTDChampionClickMove::ResolveMoveDestination(
-		WorldLocation, Mode, bHasProjection, Projected);
+
+	ReportChampionClickDestination(Dest, false, Dest, Mode, Dest);
 	BeginMoveDestinationIndicator(Dest);
 
 	if (Mode == ETDChampionGroundMoveMode::DirectXY)
@@ -1082,6 +1093,112 @@ void AMobaPlayerController::MoveChampionToLocation(const FVector& WorldLocation)
 
 	StopDirectMove();
 	IssueChampionNavMove(Champion, Dest);
+}
+
+void AMobaPlayerController::DebugChampionClickRay(APawn* Champion) const
+{
+	if (!bDebugChampionClickTrace || !GetWorld())
+	{
+		return;
+	}
+
+	FVector Origin;
+	FVector Direction;
+	if (!DeprojectMousePositionToWorld(Origin, Direction) || Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector End = Origin + Direction * 100000.0f;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ChampionClickMoveRawDebug), true);
+	FHitResult RawHit;
+	GetWorld()->LineTraceSingleByChannel(RawHit, Origin, End, ClickMoveTraceChannel, Params);
+	DrawDebugLine(GetWorld(), Origin, RawHit.bBlockingHit ? RawHit.ImpactPoint : End,
+		FColor::Red, false, ChampionClickTraceDebugDuration, 0, 1.5f);
+
+	if (RawHit.bBlockingHit)
+	{
+		ReportChampionClickHit(TEXT("RAW"), RawHit, FColor::Red, 91001);
+	}
+	else if (GEngine)
+	{
+		const FString Message = FString::Printf(
+			TEXT("RAW no hit channel=%s"), *UEnum::GetValueAsString(ClickMoveTraceChannel.GetValue()));
+		UE_LOG(LogTemp, Display, TEXT("CLICK_RAY %s"), *Message);
+		GEngine->AddOnScreenDebugMessage(91001, ChampionClickTraceDebugDuration, FColor::Red, Message);
+	}
+}
+
+void AMobaPlayerController::ReportChampionClickHit(
+	const TCHAR* Stage,
+	const FHitResult& Hit,
+	const FColor& Color,
+	int32 ScreenKey) const
+{
+	if (!bDebugChampionClickTrace || !GetWorld())
+	{
+		return;
+	}
+
+	const AActor* Actor = Hit.GetActor();
+	const UPrimitiveComponent* Component = Hit.GetComponent();
+	FString Message = FTDChampionClickMove::BuildTraceDiagnostic(
+		Stage,
+		Actor ? Actor->GetName() : TEXT("None"),
+		Component ? Component->GetName() : TEXT("None"),
+		Actor ? Actor->GetClass()->GetName() : TEXT("None"),
+		Hit.ImpactPoint,
+		Hit.bBlockingHit);
+	Message += FString::Printf(
+		TEXT(" channel=%s objectType=%s"),
+		*UEnum::GetValueAsString(ClickMoveTraceChannel.GetValue()),
+		Component ? *UEnum::GetValueAsString(Component->GetCollisionObjectType()) : TEXT("None"));
+
+	UE_LOG(LogTemp, Display, TEXT("CLICK_RAY %s"), *Message);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(ScreenKey, ChampionClickTraceDebugDuration, Color, Message);
+	}
+	DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 24.0f, 12, Color, false, ChampionClickTraceDebugDuration, 0, 2.0f);
+}
+
+void AMobaPlayerController::ReportChampionClickDestination(
+	const FVector& RawClick,
+	bool bHasProjection,
+	const FVector& Projected,
+	ETDChampionGroundMoveMode Mode,
+	const FVector& Destination) const
+{
+	if (!bDebugChampionClickTrace || !GetWorld())
+	{
+		return;
+	}
+
+	const TCHAR* ModeName = Mode == ETDChampionGroundMoveMode::NavMesh ? TEXT("NavMesh") : TEXT("DirectXY");
+	const FString Message = FString::Printf(
+		TEXT("DEST mode=%s raw=%s projected=%s projection=%s final=%s"),
+		ModeName,
+		*RawClick.ToString(),
+		*Projected.ToString(),
+		bHasProjection ? TEXT("true") : TEXT("false"),
+		*Destination.ToString());
+	UE_LOG(LogTemp, Display, TEXT("CLICK_RAY %s"), *Message);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(91003, ChampionClickTraceDebugDuration, FColor::Green, Message);
+	}
+	if (bHasProjection)
+	{
+		DrawDebugSphere(GetWorld(), Projected, 20.0f, 12, FColor::Cyan, false, ChampionClickTraceDebugDuration, 0, 2.0f);
+	}
+	if (!Destination.Equals(RawClick, 1.0f))
+	{
+		DrawDebugSphere(GetWorld(), Destination, 30.0f, 12, FColor::Green, false, ChampionClickTraceDebugDuration, 0, 2.5f);
+	}
+	else
+	{
+		DrawDebugSphere(GetWorld(), RawClick, 30.0f, 12, FColor::Green, false, ChampionClickTraceDebugDuration, 0, 2.5f);
+	}
 }
 
 void AMobaPlayerController::BeginMoveDestinationIndicator(const FVector& WorldLocation)
@@ -1143,6 +1260,16 @@ bool AMobaPlayerController::TraceChampionClick(APawn* Champion, FHitResult& OutH
 	}
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ChampionClickMove), false);
+	if (Champion)
+	{
+		Params.AddIgnoredActor(Champion);
+		TArray<AActor*> Attached;
+		Champion->GetAttachedActors(Attached, true, true);
+		for (AActor* Child : Attached)
+		{
+			Params.AddIgnoredActor(Child);
+		}
+	}
 
 	// Mountains and decorative kit meshes remain solid for pawn movement, but they
 	// must not steal a map click from the Landscape behind them.
@@ -1204,31 +1331,6 @@ bool AMobaPlayerController::TraceChampionClick(APawn* Champion, FHitResult& OutH
 	return false;
 }
 
-bool AMobaPlayerController::ProjectClickToNavMesh(APawn* Champion, const FVector& Point, FVector& OutProjected) const
-{
-	if (!GetWorld())
-	{
-		return false;
-	}
-
-	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
-	if (!NavSys)
-	{
-		return false;
-	}
-
-	const FVector Extent(NavProjectHorizontalExtent, NavProjectHorizontalExtent, NavProjectVerticalExtent);
-	FNavLocation NavLoc;
-	const FNavAgentProperties* AgentProps = Champion ? &Champion->GetNavAgentPropertiesRef() : nullptr;
-	if (!NavSys->ProjectPointToNavigation(Point, NavLoc, Extent, AgentProps))
-	{
-		return false;
-	}
-
-	OutProjected = NavLoc.Location;
-	return true;
-}
-
 void AMobaPlayerController::IssueChampionNavMove(APawn* Champion, const FVector& Dest)
 {
 	if (!Champion)
@@ -1239,10 +1341,12 @@ void AMobaPlayerController::IssueChampionNavMove(APawn* Champion, const FVector&
 	EnsureChampionHasAIController(Champion);
 	if (AAIController* AIC = Cast<AAIController>(Champion->GetController()))
 	{
-		AIC->MoveToLocation(Dest, -1.f, true, true, true, true, {}, true);
+		StopDirectMove();
+		AIC->MoveToLocation(Dest, -1.f, true, true, false, true, {}, true);
 		return;
 	}
 
+	StopDirectMove();
 	UAIBlueprintHelperLibrary::SimpleMoveToLocation(Champion->GetController(), Dest);
 }
 

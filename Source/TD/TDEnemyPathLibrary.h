@@ -38,6 +38,7 @@ public:
 	static bool IsWithinObjectiveReach2D(
 		FVector EnemyLocation, FVector ObjectiveLocation, FVector ObjectiveBoundsExtent, float ReachDistance);
 	static FVector ResolveGroundCorrectionAfterSweep(FVector SweptLocation, FVector GroundSnappedLocation);
+	static FVector ResolveEngagementGroundLocation(FVector PlanarLocation, FVector GroundSnappedLocation);
 
 	/** Capture bases, resource crystals, and pads must not cut the minion lane. */
 	static bool IsLaneDecorationClassName(const FString& ClassName);

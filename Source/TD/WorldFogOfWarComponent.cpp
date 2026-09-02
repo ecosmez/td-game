@@ -128,6 +128,10 @@ void UWorldFogOfWarComponent::EnsureResources()
 			HostActor->SetActorEnableCollision(false);
 		}
 	}
+	if (HostActor)
+	{
+		HostActor->Tags.AddUnique(TEXT("WorldFogOfWar"));
+	}
 
 	if (HostActor && !PostProcess)
 	{
@@ -179,6 +183,7 @@ void UWorldFogOfWarComponent::EnsureResources()
 		FallbackMesh->SetTranslucentSortPriority(100);
 		FallbackMesh->SetRenderCustomDepth(false);
 		FallbackMesh->SetBoundsScale(2.f);
+		FallbackMesh->SetHiddenInSceneCapture(true);
 		FallbackMesh->RegisterComponent();
 
 		if (UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
@@ -337,6 +342,7 @@ void UWorldFogOfWarComponent::UpdateFallbackPlane(UTexture2D* FogTex, float Cent
 	HostActor->SetActorHiddenInGame(false);
 	HostActor->SetActorEnableCollision(false);
 	FallbackMesh->SetHiddenInGame(false);
+	FallbackMesh->SetHiddenInSceneCapture(true);
 	FallbackMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	HostActor->SetActorLocation(FVector(CenterX, CenterY, PlaneZ));
 	HostActor->SetActorRotation(FRotator::ZeroRotator);

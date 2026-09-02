@@ -12,6 +12,7 @@ class UInputMappingContext;
 class UMapDiscoveryComponent;
 class UWorldFogOfWarComponent;
 class UFloatingDamageTextWidget;
+enum class ETDChampionGroundMoveMode : uint8;
 
 /** One active floating combat-text number: owning widget, world anchor, and lifetime. */
 USTRUCT()
@@ -79,6 +80,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	TEnumAsByte<ECollisionChannel> ClickMoveTraceChannel = ECC_Visibility;
 
+	/** Print and draw the physical hit, accepted hit, NavMesh projection, and final RMB destination. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Debug")
+	bool bDebugChampionClickTrace = false;
+
+	/** Seconds that RMB ray diagnostic lines, points, and screen text remain visible. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Debug", meta = (ClampMin = "0.1"))
+	float ChampionClickTraceDebugDuration = 6.0f;
+
 	/**
 	 * If NavMesh has no complete path and the click is at least this much lower (cm),
 	 * steer directly in XY so the champion can walk off a ledge and fall.
@@ -97,6 +106,22 @@ public:
 	/** Vertical search radius when snapping a click onto NavMesh (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
 	float NavProjectVerticalExtent = 1000.0f;
+
+	/** Maximum lateral correction allowed when replacing a click with a NavMesh point. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float MaxNavProjectionHorizontalDistance = 150.0f;
+
+	/** Maximum height correction allowed; prevents ground clicks snapping onto mountain-top NavMesh. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float MaxNavProjectionVerticalDistance = 150.0f;
+
+	/** Furthest distance from an isolated clicked polygon to search for connected Landscape NavMesh. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float ReachableLandscapeSearchRadius = 500.0f;
+
+	/** Spacing between reachable-destination search rings. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
+	float ReachableLandscapeSearchStep = 100.0f;
 
 	/** Show a short League-style pulse at accepted RMB move destinations. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator")
@@ -214,9 +239,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
 	bool bEnableWorldFogOfWar = true;
 
-	/** Also paint discovery fog on the minimap. */
+	/** Also paint discovery fog on the minimap. Off: landscape + rocks only. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
-	bool bEnableMinimapDiscoveryFog = true;
+	bool bEnableMinimapDiscoveryFog = false;
 
 	/**
 	 * Hotkey that toggles 3D fog of war (and matching minimap fog visuals).
@@ -384,6 +409,14 @@ protected:
 	void UpdateFloatingDamageTexts(float DeltaTime);
 	void BeginMoveDestinationIndicator(const FVector& WorldLocation);
 	void UpdateMoveDestinationIndicator(float DeltaTime);
+	void DebugChampionClickRay(APawn* Champion) const;
+	void ReportChampionClickHit(const TCHAR* Stage, const FHitResult& Hit, const FColor& Color, int32 ScreenKey) const;
+	void ReportChampionClickDestination(
+		const FVector& RawClick,
+		bool bHasProjection,
+		const FVector& Projected,
+		ETDChampionGroundMoveMode Mode,
+		const FVector& Destination) const;
 	void HandleSkipSkyDropInput();
 	void HandleToggleFogOfWarInput();
 	void HandleToggleStoreInput();
@@ -396,13 +429,10 @@ protected:
 	/** True when a complete (non-partial) NavMesh path exists to Dest. */
 	bool HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const;
 
-	/** First-hit cursor trace: enemies attack, Landscape moves, everything else rejects the click. */
+	/** Cursor trace: enemies attack, Landscape moves, and all other hits continue. */
 	bool TraceChampionClick(APawn* Champion, FHitResult& OutHit, AActor*& OutAttackTarget) const;
 
-	/** Snap a world click onto NavMesh within NavProject* extents. */
-	bool ProjectClickToNavMesh(APawn* Champion, const FVector& Point, FVector& OutProjected) const;
-
-	/** Path-follow to Dest, projecting the goal onto NavMesh so off-mesh clicks still move. */
+	/** Path-follow to the Landscape click without re-projecting the goal onto NavMesh. */
 	void IssueChampionNavMove(APawn* Champion, const FVector& Dest);
 
 	/** Abort PathFollowing on the champion's AI controller. */

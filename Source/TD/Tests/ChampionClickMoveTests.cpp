@@ -4,6 +4,30 @@
 #include "../TDChampionClickMove.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionClickTraceDiagnosticTest,
+	"TD.Champion.ClickMove.FormatsTraceDiagnostic",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionClickTraceDiagnosticTest::RunTest(const FString& Parameters)
+{
+	const FString Diagnostic = FTDChampionClickMove::BuildTraceDiagnostic(
+		TEXT("RAW"),
+		TEXT("StaticMeshActor_69"),
+		TEXT("StaticMeshComponent0"),
+		TEXT("StaticMeshActor"),
+		FVector(-438.0f, 1144.0f, -2191.0f),
+		true);
+
+	TestTrue(TEXT("Diagnostic identifies the trace stage"), Diagnostic.Contains(TEXT("RAW")));
+	TestTrue(TEXT("Diagnostic identifies the actor"), Diagnostic.Contains(TEXT("StaticMeshActor_69")));
+	TestTrue(TEXT("Diagnostic identifies the component"), Diagnostic.Contains(TEXT("StaticMeshComponent0")));
+	TestTrue(TEXT("Diagnostic identifies the class"), Diagnostic.Contains(TEXT("StaticMeshActor")));
+	TestTrue(TEXT("Diagnostic includes the impact point"), Diagnostic.Contains(TEXT("X=-438.00")));
+	TestTrue(TEXT("Diagnostic states whether the hit blocked"), Diagnostic.Contains(TEXT("blocking=true")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FChampionClickContinuesThroughOverlaysTest,
 	"TD.Champion.ClickMove.ContinuesThroughOverlays",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -46,8 +70,8 @@ bool FChampionClickMovesToWorldGeometryTest::RunTest(const FString& Parameters)
 {
 	TestTrue(TEXT("A Landscape hit issues a ground move"),
 		FTDChampionClickMove::ClassifyHit(false, true, false, true) == ETDChampionClickIntent::MoveToHit);
-	TestTrue(TEXT("A hex-pad hit issues a move to that impact"),
-		FTDChampionClickMove::ClassifyHit(false, true, false, false) == ETDChampionClickIntent::MoveToHit);
+	TestTrue(TEXT("A non-Landscape world-geometry hit continues until the ray reaches Landscape"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, false) == ETDChampionClickIntent::ContinueTrace);
 	return true;
 }
 
@@ -77,8 +101,8 @@ bool FChampionClickMoveModeTest::RunTest(const FString& Parameters)
 		FTDChampionClickMove::ChooseMoveMode(true, true, 200.f, 0.f, CliffZ) == ETDChampionGroundMoveMode::NavMesh);
 	TestTrue(TEXT("An unreachable lower click walks off the ledge in XY"),
 		FTDChampionClickMove::ChooseMoveMode(false, false, 200.f, 0.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
-	TestTrue(TEXT("An unreachable same-height click that projected onto NavMesh uses that point"),
-		FTDChampionClickMove::ChooseMoveMode(false, true, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::NavMesh);
+	TestTrue(TEXT("An unreachable same-height click without a complete path steers in XY"),
+		FTDChampionClickMove::ChooseMoveMode(false, true, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
 	TestTrue(TEXT("An unreachable click with no NavMesh projection still steers in XY instead of stalling"),
 		FTDChampionClickMove::ChooseMoveMode(false, false, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
 	return true;
@@ -97,14 +121,53 @@ bool FChampionClickDestinationTest::RunTest(const FString& Parameters)
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::DirectXY, true, Projected),
 		Click);
-	TestEqual(TEXT("NavMesh moves walk to the projected walkable point"),
+	TestEqual(TEXT("NavMesh moves keep the Landscape click location"),
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::NavMesh, true, Projected),
-		Projected);
+		Click);
 	TestEqual(TEXT("NavMesh moves without a projection keep the click location"),
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::NavMesh, false, Projected),
 		Click);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionNavProjectionMatchesClickedSurfaceTest,
+	"TD.Champion.ClickMove.RejectsProjectionOnDifferentElevation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionNavProjectionMatchesClickedSurfaceTest::RunTest(const FString& Parameters)
+{
+	const FVector LandscapeClick(-7863.390f, -2850.649f, -2021.822f);
+	const FVector MountainNavPoint(-7847.000f, -2907.000f, -1070.000f);
+	const FVector NearbyGroundNavPoint(-7860.000f, -2854.000f, -2014.000f);
+
+	TestFalse(TEXT("A NavMesh point roughly 950 cm above the clicked Landscape is rejected"),
+		FTDChampionClickMove::IsNavProjectionNearClick(
+			LandscapeClick, MountainNavPoint, 150.0f, 150.0f));
+	TestTrue(TEXT("A nearby NavMesh point on the clicked ground remains valid"),
+		FTDChampionClickMove::IsNavProjectionNearClick(
+			LandscapeClick, NearbyGroundNavPoint, 150.0f, 150.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionReachableDestinationSearchTest,
+	"TD.Champion.ClickMove.SearchesNearbyReachableLandscape",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionReachableDestinationSearchTest::RunTest(const FString& Parameters)
+{
+	const TArray<FVector2D> Offsets = FTDChampionClickMove::BuildNavSearchOffsets(300.0f, 100.0f, 8);
+
+	TestEqual(TEXT("The exact clicked Landscape point is tried first"), Offsets[0], FVector2D::ZeroVector);
+	TestEqual(TEXT("Three rings of eight fallback points are generated"), Offsets.Num(), 25);
+	TestTrue(TEXT("The search reaches the configured fallback radius"),
+		Offsets.ContainsByPredicate([](const FVector2D& Offset)
+		{
+			return FMath::IsNearlyEqual(Offset.Size(), 300.0f, 0.1f);
+		}));
 	return true;
 }
 

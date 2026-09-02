@@ -54,6 +54,31 @@ bool FTDCaptureBaseLogic::IsPadBuildable(bool bIsStarter, bool bOccupied, const 
 	return bIsStarter ? State.bStarterPadsBuildable : State.bExtraPadsBuildable;
 }
 
+bool FTDCaptureBaseLogic::IsPadLikeClassName(const FString& ClassName)
+{
+	return ClassName.Contains(TEXT("HexPad")) || ClassName.Contains(TEXT("TowerPad"));
+}
+
+bool FTDCaptureBaseLogic::ShouldCountOccupyingTower(
+	bool bSameAsPad,
+	bool bPadLike,
+	bool bGhost,
+	bool bHasBuiltFlag,
+	bool bIsBuilt,
+	float Dist2D,
+	float OccupancyRadius)
+{
+	if (bSameAsPad || bPadLike || bGhost)
+	{
+		return false;
+	}
+	if (bHasBuiltFlag && !bIsBuilt)
+	{
+		return false;
+	}
+	return Dist2D <= OccupancyRadius;
+}
+
 FTDCaptureBaseOutput FTDCaptureBaseLogic::Step(const FTDCaptureBaseInput& Input)
 {
 	FTDCaptureBaseOutput Out;
@@ -101,7 +126,7 @@ FTDCaptureBaseOutput FTDCaptureBaseLogic::Step(const FTDCaptureBaseInput& Input)
 	Out.bExtraTowersPowered = Out.bHeld;
 	Out.bStarterPadsBuildable = Out.bChannelCompletedThisLife && Starters < 3;
 	Out.bStarterPadsVisible = Out.bStarterPadsBuildable;
-	Out.bExtraPadsVisible = Out.bExtraPadsUnlocked;
+	Out.bExtraPadsVisible = Out.bHeld;
 	Out.bExtraPadsBuildable = Out.bHeld;
 	Out.bShowChannelBar = Starters == 0
 		&& (Out.ChannelProgress > KINDA_SMALL_NUMBER || Input.bChampionInRadius);
