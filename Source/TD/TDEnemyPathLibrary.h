@@ -21,6 +21,30 @@ public:
 
 	/** Pure geometry helper used by GetDistanceToNearestPath and automation tests. */
 	static float DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points);
+	static float DistanceAlongPolyline2D(FVector Location, const TArray<FVector>& Points);
+	static bool IsRouteInsideCorridor2D(
+		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius);
+	static bool ShouldRefreshNavigationRoute(
+		float RepathRemaining, bool bHasRoute, bool bRouteFinished, float GoalDelta, float GoalMoveThreshold);
+	static int32 AdvanceNavigationRouteIndex(
+		FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float AcceptanceRadius);
+	static bool IsRouteReturningToCorridor2D(
+		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius);
+	static FVector ResolveNavigationSteeringTarget(
+		FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex);
+	static bool DoesNavigationGoalAdvance(FVector From, FVector Goal, float MinDistance);
+	static FVector ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous);
+	static bool IsGroundTraceIgnoredClassName(const FString& ClassName);
+	static bool IsWithinObjectiveReach2D(
+		FVector EnemyLocation, FVector ObjectiveLocation, FVector ObjectiveBoundsExtent, float ReachDistance);
+	static FVector ResolveGroundCorrectionAfterSweep(FVector SweptLocation, FVector GroundSnappedLocation);
+	static FVector ResolveEngagementGroundLocation(FVector PlanarLocation, FVector GroundSnappedLocation);
+
+	/** Capture bases, resource crystals, and pads must not cut the minion lane. */
+	static bool IsLaneDecorationClassName(const FString& ClassName);
+
+	/** Keep decorations queryable for capture/click, but do not carve NavMesh or block pawns. */
+	static void ApplyLaneDecorationCollision(AActor* Actor);
 
 	/** True once a champion pursuit has carried an enemy beyond its lane leash. */
 	static bool ShouldAbandonChampionPursuit(float DistanceToOwnPath, float MaxPathLeashRange);

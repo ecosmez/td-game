@@ -1,6 +1,5 @@
 #include "AbilityBarWidget.h"
 
-#include "CameraOrbitGizmoWidget.h"
 #include "ChampionFrameWidget.h"
 #include "CrystalHealthBarWidget.h"
 #include "MinimapWidget.h"
@@ -108,24 +107,6 @@ void UAbilityBarWidget::NativeConstruct()
 			if (UMinimapWidget* Mini = CreateWidget<UMinimapWidget>(PC, UMinimapWidget::StaticClass()))
 			{
 				Mini->AddToViewport(20);
-			}
-		}
-
-		bool bGizmoAlready = false;
-		for (TObjectIterator<UCameraOrbitGizmoWidget> It; It; ++It)
-		{
-			if (It->GetOwningPlayer() == PC && It->IsInViewport())
-			{
-				bGizmoAlready = true;
-				break;
-			}
-		}
-		if (!bGizmoAlready)
-		{
-			if (UCameraOrbitGizmoWidget* Gizmo =
-				CreateWidget<UCameraOrbitGizmoWidget>(PC, UCameraOrbitGizmoWidget::StaticClass()))
-			{
-				Gizmo->AddToViewport(21);
 			}
 		}
 

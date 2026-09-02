@@ -2,7 +2,10 @@
 
 #include "Components/DecalComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMeshActor.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"
+#include "LandscapeProxy.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
@@ -22,6 +25,22 @@ bool FAbilityAimProjectionYawTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Aim projection has no roll"), ProjectionRotation.Roll, 0.0);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAbilityAimLandscapeOnlyTest,
+	"TD.Abilities.AimProjectionAcceptsOnlyLandscape",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAbilityAimLandscapeOnlyTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Landscape terrain is a valid ability target"),
+		UAbilityTerrainProjectionComponent::IsValidTerrainClass(ALandscapeProxy::StaticClass()));
+	TestFalse(TEXT("Static meshes are not valid ability targets"),
+		UAbilityTerrainProjectionComponent::IsValidTerrainClass(AStaticMeshActor::StaticClass()));
+	TestFalse(TEXT("A missing hit actor is not a valid ability target"),
+		UAbilityTerrainProjectionComponent::IsValidTerrainClass(nullptr));
+	return true;
+}
 #endif
 
 UAbilityTerrainProjectionComponent::UAbilityTerrainProjectionComponent()
@@ -35,6 +54,7 @@ void UAbilityTerrainProjectionComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	ResolveComponents();
+	UpdateCursorTerrainValidity();
 	SyncIndicator(RangeDriver, RangeDecal, false);
 	SyncIndicator(AimDriver, AimDecal, true);
 }
@@ -51,8 +71,19 @@ void UAbilityTerrainProjectionComponent::TickComponent(
 		ResolveComponents();
 	}
 
+	UpdateCursorTerrainValidity();
 	SyncIndicator(RangeDriver, RangeDecal, false);
 	SyncIndicator(AimDriver, AimDecal, true);
+}
+
+bool UAbilityTerrainProjectionComponent::IsValidTerrainClass(const UClass* ActorClass)
+{
+	return ActorClass && ActorClass->IsChildOf(ALandscapeProxy::StaticClass());
+}
+
+bool UAbilityTerrainProjectionComponent::IsValidAbilityTerrainActor(const AActor* Actor)
+{
+	return Actor && IsValidTerrainClass(Actor->GetClass());
 }
 
 FRotator UAbilityTerrainProjectionComponent::CalculateProjectionRotation(
@@ -97,6 +128,23 @@ void UAbilityTerrainProjectionComponent::ResolveComponents()
 	}
 }
 
+void UAbilityTerrainProjectionComponent::UpdateCursorTerrainValidity()
+{
+	bCursorOnValidTerrain = false;
+	const UWorld* World = GetWorld();
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	FHitResult CursorHit;
+	if (PlayerController->GetHitResultUnderCursor(ECC_Visibility, true, CursorHit))
+	{
+		bCursorOnValidTerrain = IsValidAbilityTerrainActor(CursorHit.GetActor());
+	}
+}
+
 void UAbilityTerrainProjectionComponent::SyncIndicator(
 	UStaticMeshComponent* Driver,
 	UDecalComponent* Decal,
@@ -116,7 +164,7 @@ void UAbilityTerrainProjectionComponent::SyncIndicator(
 		ProjectionDepth,
 		BaseIndicatorRadius * FMath::Abs(DriverScale.X),
 		BaseIndicatorRadius * FMath::Abs(DriverScale.Y));
-	Decal->SetVisibility(Driver->IsVisible());
-	Decal->SetHiddenInGame(Driver->bHiddenInGame);
+	Decal->SetVisibility(bCursorOnValidTerrain && Driver->IsVisible());
+	Decal->SetHiddenInGame(!bCursorOnValidTerrain || Driver->bHiddenInGame);
 	Decal->MarkRenderStateDirty();
 }

@@ -19,7 +19,7 @@ class UMapDiscoveryComponent;
 
 /**
  * LoL-style minimap anchored bottom-right.
- * Top-down orthographic SceneCapture of the playable level (lit scene color),
+ * Top-down orthographic SceneCapture of the playable level (landscape base color),
  * champion / camera markers, LMB camera pan, and optional discovery fog.
  */
 UCLASS()
@@ -54,9 +54,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World")
 	FVector2D WorldMax = FVector2D(8000.0f, 8000.0f);
 
-	/** Height of the top-down capture cam above map center. */
+	/** Height of the top-down capture cam above the landscape (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "100.0"))
-	float CaptureHeight = 25000.0f;
+	float CaptureHeight = 8000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "32"))
 	int32 RenderTargetSize = 512;
@@ -81,12 +81,18 @@ public:
 	float AutoFitRescanInterval = 2.0f;
 
 	/**
-	 * Tightens the orthographic capture around the world-bounds center (1.0 = fit exactly,
-	 * smaller = zoom in / show less area). LoL-style minimaps read as a close, filled-frame
-	 * crop rather than the whole level with empty margins.
+	 * Tightens the orthographic capture around the world-bounds center (1.0 = fit the
+	 * rotated landscape, smaller = zoom in / show less area).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World", meta = (ClampMin = "0.1", ClampMax = "1.0"))
-	float MinimapZoomFactor = 0.6f;
+	float MinimapZoomFactor = 1.0f;
+
+	/**
+	 * Extra capture yaw (degrees) added on top of the look-down camera.
+	 * 90 matches a quarter-turn of the square landscape.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|World")
+	float MapYawOffset = 90.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bShowChampionMarker = true;
@@ -198,11 +204,11 @@ public:
 	float ViewFrustumThickness = 1.5f;
 
 	/**
-	 * World radius (cm) permanently revealed around crystal + first enemy spawn
-	 * (clears minimap fog and 3D FOW at those sites).
+	 * Unused for live vision (crystal radius lives on UMapDiscoveryComponent).
+	 * Kept so existing Blueprint defaults still serialize.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks", meta = (ClampMin = "100.0"))
-	float LandmarkRevealRadius = 2200.0f;
+	float LandmarkRevealRadius = 8000.0f;
 
 	/** Soft class path for BP_Crystal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Landmarks")
@@ -215,15 +221,15 @@ public:
 		FSoftClassPath(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C"));
 
 	/**
-	 * Diablo-style map discovery: unexplored areas stay fogged on the minimap.
+	 * League-style live vision overlay on the minimap (dim map, clear around vision).
 	 * Prefer the shared UMapDiscoveryComponent from the player controller when set.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery")
-	bool bMapDiscoveryEnabled = true;
+	bool bMapDiscoveryEnabled = false;
 
-	/** World-space radius (cm) revealed around the champion while exploring. */
+	/** World-space radius (cm) of current vision around the champion. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "100.0", EditCondition = "bMapDiscoveryEnabled"))
-	float DiscoveryRadius = 1800.0f;
+	float DiscoveryRadius = 4000.0f;
 
 	/** Soft edge width as a fraction of DiscoveryRadius (0 = hard circle, 1 = fully soft). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bMapDiscoveryEnabled"))
@@ -235,11 +241,11 @@ public:
 
 	/** Champion must move at least this far (cm) before stamping another reveal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (ClampMin = "0.0", EditCondition = "bMapDiscoveryEnabled"))
-	float DiscoveryStampDistance = 80.0f;
+	float DiscoveryStampDistance = 0.0f;
 
-	/** Fog tint for unexplored minimap regions (alpha = opacity over terrain). */
+	/** Fog tint for dim (no-vision) minimap regions (alpha = overlay opacity). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Discovery", meta = (EditCondition = "bMapDiscoveryEnabled"))
-	FLinearColor UndiscoveredColor = FLinearColor(0.02f, 0.03f, 0.04f, 0.96f);
+	FLinearColor UndiscoveredColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.32f);
 
 	UFUNCTION(BlueprintCallable, Category = "Minimap")
 	void SetWorldBounds(FVector2D InMin, FVector2D InMax);
@@ -341,7 +347,7 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UImage> MapImage = nullptr;
 
-	/** Black fog over unexplored regions; alpha punched out by champion discovery. */
+	/** Dim overlay outside current vision; alpha punched out by champion/crystal vision. */
 	UPROPERTY()
 	TObjectPtr<UImage> FogImage = nullptr;
 

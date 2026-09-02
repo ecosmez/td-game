@@ -139,7 +139,7 @@ void UMapFogWorldSubsystem::EnsureOnLocalPlayer()
 		BoundDiscovery->SetExplorer(Explorer);
 	}
 
-	// Permanent clear on crystal + first enemy spawner (minimap path also does this).
+	// Live vision around the main crystal (minimap path also registers this).
 	RegisterLandmarkReveals(BoundDiscovery);
 }
 
@@ -174,13 +174,8 @@ void UMapFogWorldSubsystem::RegisterLandmarkReveals(UMapDiscoveryComponent* Disc
 		return First;
 	};
 
-	constexpr float LandmarkRadius = 2200.f;
 	if (AActor* Crystal = FindFirst(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C")))
 	{
-		Discovery->RegisterPermanentReveal(Crystal->GetActorLocation(), LandmarkRadius);
-	}
-	if (AActor* Spawn = FindFirst(TEXT("/Game/TD/BP_EnemySpawner.BP_EnemySpawner_C")))
-	{
-		Discovery->RegisterPermanentReveal(Spawn->GetActorLocation(), LandmarkRadius);
+		Discovery->RegisterVisionSource(Crystal, Discovery->CrystalVisionRadius);
 	}
 }

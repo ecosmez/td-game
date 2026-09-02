@@ -45,3 +45,9 @@ else:
         setup_crystal_health_bar_ui.setup(force=False)
     except Exception as exc:
         unreal.log_warning("init_unreal setup_crystal_health_bar_ui failed: {}".format(exc))
+
+    try:
+        import setup_ability_preview_materials
+        setup_ability_preview_materials.setup()
+    except Exception as exc:
+        unreal.log_warning("init_unreal setup_ability_preview_materials failed: {}".format(exc))

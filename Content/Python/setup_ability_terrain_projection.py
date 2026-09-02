@@ -58,7 +58,7 @@ def _make_decal_material(name, color, ring):
     tint.set_editor_property("constant", unreal.LinearColor(*color, 1.0))
     alpha = mel.create_material_expression(material, unreal.MaterialExpressionMultiply, 80, 100)
     opacity = mel.create_material_expression(material, unreal.MaterialExpressionConstant, -80, 220)
-    opacity.set_editor_property("r", 0.82 if ring else 0.42)
+    opacity.set_editor_property("r", 0.42 if ring else 0.25)
     mel.connect_material_expressions(mask, "", alpha, "A")
     mel.connect_material_expressions(opacity, "", alpha, "B")
     mel.connect_material_property(tint, "", unreal.MaterialProperty.MP_BASE_COLOR)

@@ -128,6 +128,10 @@ void UWorldFogOfWarComponent::EnsureResources()
 			HostActor->SetActorEnableCollision(false);
 		}
 	}
+	if (HostActor)
+	{
+		HostActor->Tags.AddUnique(TEXT("WorldFogOfWar"));
+	}
 
 	if (HostActor && !PostProcess)
 	{
@@ -171,7 +175,6 @@ void UWorldFogOfWarComponent::EnsureResources()
 	{
 		FallbackMesh = NewObject<UStaticMeshComponent>(HostActor, TEXT("FOWPlane"));
 		FallbackMesh->SetupAttachment(HostActor->GetRootComponent());
-		FallbackMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		FallbackMesh->SetGenerateOverlapEvents(false);
 		FallbackMesh->SetCastShadow(false);
 		FallbackMesh->bReceivesDecals = false;
@@ -180,12 +183,20 @@ void UWorldFogOfWarComponent::EnsureResources()
 		FallbackMesh->SetTranslucentSortPriority(100);
 		FallbackMesh->SetRenderCustomDepth(false);
 		FallbackMesh->SetBoundsScale(2.f);
+		FallbackMesh->SetHiddenInSceneCapture(true);
 		FallbackMesh->RegisterComponent();
 
 		if (UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
 		{
 			FallbackMesh->SetStaticMesh(PlaneMesh);
 		}
+
+		// SetStaticMesh copies the engine plane's blocking collision — strip it after.
+		FallbackMesh->SetCollisionProfileName(TEXT("NoCollision"));
+		FallbackMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		FallbackMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+		FallbackMesh->SetGenerateOverlapEvents(false);
+		HostActor->SetActorEnableCollision(false);
 
 		// Prefer project plane material; fall back to Widget3D translucent.
 		UMaterialInterface* PlaneMat = PlaneMaterialOverride.Get();
@@ -329,7 +340,10 @@ void UWorldFogOfWarComponent::UpdateFallbackPlane(UTexture2D* FogTex, float Cent
 	}
 
 	HostActor->SetActorHiddenInGame(false);
+	HostActor->SetActorEnableCollision(false);
 	FallbackMesh->SetHiddenInGame(false);
+	FallbackMesh->SetHiddenInSceneCapture(true);
+	FallbackMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	HostActor->SetActorLocation(FVector(CenterX, CenterY, PlaneZ));
 	HostActor->SetActorRotation(FRotator::ZeroRotator);
 
@@ -349,7 +363,7 @@ void UWorldFogOfWarComponent::UpdateFallbackPlane(UTexture2D* FogTex, float Cent
 		const UMapDiscoveryComponent* Discovery = ResolveDiscovery();
 		const FLinearColor FogColor = Discovery
 			? Discovery->UndiscoveredColor
-			: FLinearColor(0.01f, 0.015f, 0.02f, 0.92f);
+			: FLinearColor(0.f, 0.f, 0.f, 0.32f);
 		FallbackMID->SetVectorParameterValue(TEXT("FogColor"), FogColor);
 		FallbackMID->SetScalarParameterValue(TEXT("FogIntensity"), FogIntensity);
 		FallbackMesh->SetMaterial(0, FallbackMID);

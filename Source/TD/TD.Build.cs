@@ -17,7 +17,8 @@ public class TD : ModuleRules
 			"Slate",
 			"SlateCore",
 			"AIModule",
-			"NavigationSystem"
+			"NavigationSystem",
+			"Landscape"
 		});
 	}
 }

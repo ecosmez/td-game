@@ -43,6 +43,116 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector(13.f, 4.f, 0.f), StraightPath), 5.f);
 	TestTrue(TEXT("An absent path cannot accept placement"),
 		UTDEnemyPathLibrary::DistanceToPolyline2D(FVector::ZeroVector, {}) >= BIG_NUMBER);
+
+	const TArray<FVector> Guide = {
+		FVector(0.f, 0.f, 0.f),
+		FVector(100.f, 0.f, 0.f),
+		FVector(200.f, 0.f, 0.f)
+	};
+	TestEqual(TEXT("Real position advances progress by projecting onto the guide"),
+		UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(75.f, 30.f, 0.f), Guide), 75.f);
+	TestEqual(TEXT("Progress projection continues across later guide segments"),
+		UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(160.f, -20.f, 0.f), Guide), 160.f);
+	const TArray<FVector> SlopedGuide = { FVector(0.f, 0.f, 0.f), FVector(100.f, 0.f, 100.f) };
+	TestTrue(TEXT("Projected progress uses the guide's 3D distance on sloped terrain"),
+		FMath::IsNearlyEqual(
+			UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector(50.f, 20.f, 500.f), SlopedGuide),
+			70.710678f, 0.001f));
+	TestTrue(TEXT("A navigation detour inside the guide corridor is accepted"),
+		UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 80.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A navigation detour outside the guide corridor is rejected"),
+		UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 140.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A failed route waits for its repath interval instead of retrying every frame"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.2f, false, false, 500.f, 100.f));
+	TestTrue(TEXT("A failed route retries after its repath interval"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, false, false, 500.f, 100.f));
+	TestFalse(TEXT("A usable route is not rebuilt just because the timer elapsed"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, true, false, 50.f, 100.f));
+	TestTrue(TEXT("A usable route refreshes after its goal moved and the timer elapsed"),
+		UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(0.f, true, false, 150.f, 100.f));
+	TestEqual(TEXT("Accepting the final navigation point marks the route finished"),
+		UTDEnemyPathLibrary::AdvanceNavigationRouteIndex(
+			FVector(200.f, 0.f, 0.f),
+			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 0.f, 0.f), FVector(200.f, 0.f, 0.f) },
+			2, 55.f), 3);
+	TestTrue(TEXT("A route may return monotonically from outside the guide corridor"),
+		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 150.f, 0.f), FVector(100.f, 80.f, 0.f) },
+			Guide, 100.f));
+	TestFalse(TEXT("A route outside the corridor may not move farther away before returning"),
+		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 250.f, 0.f), FVector(100.f, 80.f, 0.f) },
+			Guide, 100.f));
+	TestEqual(TEXT("Without a NavMesh route the enemy keeps steering along the lane"),
+		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+			FVector(10.f, 20.f, 30.f), FVector(200.f, 0.f, 0.f), {}, 0),
+		FVector(200.f, 0.f, 0.f));
+	TestEqual(TEXT("A verified NavMesh route supplies the steering target"),
+		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+			FVector::ZeroVector, FVector(200.f, 0.f, 0.f),
+			{ FVector::ZeroVector, FVector(80.f, 40.f, 0.f) }, 1),
+		FVector(80.f, 40.f, 0.f));
+	TestFalse(TEXT("A goal snapped back onto the current poly does not count as progress"),
+		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+			FVector(0.f, 0.f, 0.f), FVector(40.f, 0.f, 0.f), 55.f));
+	TestTrue(TEXT("A goal farther than the acceptance radius counts as progress"),
+		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+			FVector(0.f, 0.f, 0.f), FVector(80.f, 0.f, 0.f), 55.f));
+	TestEqual(TEXT("An unwalkable step stays put instead of entering terrain"),
+		UTDEnemyPathLibrary::ResolveUnwalkableStep(
+			false, FVector(100.f, 0.f, 0.f), FVector(10.f, 20.f, 30.f)),
+		FVector(10.f, 20.f, 30.f));
+	TestEqual(TEXT("A walkable detour is used when one exists"),
+		UTDEnemyPathLibrary::ResolveUnwalkableStep(
+			true, FVector(100.f, 0.f, 0.f), FVector(10.f, 20.f, 30.f)),
+		FVector(100.f, 0.f, 0.f));
+	TestTrue(TEXT("The final crystal cannot be mistaken for walkable ground"),
+		UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(TEXT("BP_Crystal_C")));
+	TestFalse(TEXT("Landscape remains eligible as walkable ground"),
+		UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(TEXT("Landscape")));
+	TestTrue(TEXT("Touching a large crystal's surface counts as reaching it"),
+		UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+			FVector(990.f, 0.f, -1800.f), FVector::ZeroVector, FVector(800.f, 800.f, 800.f), 200.f));
+	TestFalse(TEXT("An enemy outside the crystal surface padding has not reached it"),
+		UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+			FVector(1001.f, 0.f, -1800.f), FVector::ZeroVector, FVector(800.f, 800.f, 800.f), 200.f));
+	TestEqual(TEXT("A blocked slope keeps swept XY but restores the ground-snapped height"),
+		UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
+			FVector(10.f, 20.f, 35.f), FVector(12.f, 22.f, 90.f)),
+		FVector(10.f, 20.f, 90.f));
+	TestEqual(TEXT("Champion engagement follows the Landscape height at its next XY"),
+		UTDEnemyPathLibrary::ResolveEngagementGroundLocation(
+			FVector(10.f, 20.f, 35.f), FVector(10.f, 20.f, 90.f)),
+		FVector(10.f, 20.f, 90.f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyPathIgnoresLaneDecorationsTest,
+	"TD.EnemyPath.IgnoresCaptureAndResourceDecorations",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyPathIgnoresLaneDecorationsTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Capture bases are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("CaptureBase")));
+	TestTrue(TEXT("Capture base blueprints are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_CaptureBase_C")));
+	TestTrue(TEXT("Resource crystals are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_ResourceCrystal_C")));
+	TestTrue(TEXT("Capturable-resource spawn markers are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_CrystalSpawnMarker_C")));
+	TestTrue(TEXT("Hex pads are lane decorations"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_HexPad_C")));
+	TestFalse(TEXT("The attackable crystal objective is not a lane decoration"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("BP_Crystal_C")));
+	TestFalse(TEXT("Environment rocks stay as blocking terrain"),
+		UTDEnemyPathLibrary::IsLaneDecorationClassName(TEXT("StaticMeshActor")));
+	UTDEnemyPathLibrary::ApplyLaneDecorationCollision(nullptr);
 	return true;
 }
 
@@ -73,19 +183,19 @@ bool FTDEnemyHealthBarFillTest::RunTest(const FString& Parameters)
 	FVector Location = FVector::ZeroVector;
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(30.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.f);
-	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.f);
-	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.f);
+	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.0);
+	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.0);
+	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(15.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.f);
-	TestEqual(TEXT("Half HP shifts the fill so the left edge stays put"), Location.X, -50.f);
+	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.0);
+	TestEqual(TEXT("Half HP shifts the fill so the left edge stays put"), Location.X, -50.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(0.f, 30.f, Scale, Location);
-	TestEqual(TEXT("Zero HP collapses the fill"), Scale.X, 0.f);
+	TestEqual(TEXT("Zero HP collapses the fill"), Scale.X, 0.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(10.f, 0.f, Scale, Location);
-	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.f);
+	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.0);
 	return true;
 }
 #endif
@@ -98,6 +208,9 @@ namespace TDEnemyPathPrivate
 		1000.f,
 		TEXT("Maximum 2D distance a champion-engaged enemy may leave its own path before returning."));
 	constexpr float DefaultLookAhead = 220.f;
+	constexpr float DefaultPathCorridorRadius = 650.f;
+	constexpr float DefaultPathRepathInterval = 0.35f;
+	constexpr float NavigationPointAcceptanceRadius = 55.f;
 	constexpr int32 DefaultSamplesPerSegment = 12;
 	constexpr float WalkableFloorZ = 0.7f;
 	constexpr float DefaultCapsuleHalfHeight = 90.f;
@@ -481,6 +594,16 @@ namespace TDEnemyPathPrivate
 		return FromProp > 1.f ? FromProp : DefaultCapsuleHalfHeight;
 	}
 
+	static bool IsLaneDecorationActor(const AActor* Actor)
+	{
+		return Actor && UTDEnemyPathLibrary::IsLaneDecorationClassName(Actor->GetClass()->GetName());
+	}
+
+	static bool IsGroundTraceIgnoredActor(const AActor* Actor)
+	{
+		return Actor && UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(Actor->GetClass()->GetName());
+	}
+
 	/** Player walls stay on the lane so minions can attack them instead of pathing around. */
 	static bool IsPlayerDefenseActor(const AActor* Actor)
 	{
@@ -504,7 +627,8 @@ namespace TDEnemyPathPrivate
 		{
 			return true;
 		}
-		if (IsPlayerDefenseActor(HitActor))
+		if (IsPlayerDefenseActor(HitActor) || IsLaneDecorationActor(HitActor)
+			|| IsGroundTraceIgnoredActor(HitActor))
 		{
 			return true;
 		}
@@ -577,7 +701,8 @@ namespace TDEnemyPathPrivate
 			{
 				continue;
 			}
-			if (IsPathIgnoreActor(Hit.GetActor(), Ignore) && IsPlayerDefenseActor(Hit.GetActor()))
+			if (IsPlayerDefenseActor(Hit.GetActor()) || IsLaneDecorationActor(Hit.GetActor())
+				|| IsGroundTraceIgnoredActor(Hit.GetActor()))
 			{
 				continue;
 			}
@@ -889,7 +1014,7 @@ namespace TDEnemyPathPrivate
 			}
 		}
 
-		return Best;
+		return UTDEnemyPathLibrary::ResolveUnwalkableStep(false, Best, Prev);
 	}
 
 	static void PushSamplesAroundTerrain(UWorld* World, AActor* Enemy, float GroundOffset, TArray<FVector>& Samples)
@@ -1040,12 +1165,74 @@ namespace TDEnemyPathPrivate
 		return FMath::Lerp(A, B, Alpha);
 	}
 
+	static bool BuildGuidedNavigationRoute(
+		UWorld* World,
+		AActor* Enemy,
+		const FVector& From,
+		const FVector& GuideGoal,
+		const TArray<FVector>& Guide,
+		float CorridorRadius,
+		TArray<FVector>& OutRoute)
+	{
+		OutRoute.Reset();
+		if (!World || !Enemy || Guide.Num() < 2)
+		{
+			return false;
+		}
+
+		FVector ReachableGoal = GuideGoal;
+		if (UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+		{
+			FNavLocation Projected;
+			if (Nav->ProjectPointToNavigation(GuideGoal, Projected, FVector(250.f, 250.f, 500.f))
+				&& UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+					From, Projected.Location, NavigationPointAcceptanceRadius))
+			{
+				ReachableGoal = Projected.Location;
+			}
+		}
+
+		UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(
+			World, From, ReachableGoal, Enemy);
+		if (!NavPath || NavPath->PathPoints.Num() < 2
+			|| !UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
+				From, NavPath->PathPoints.Last(), NavigationPointAcceptanceRadius))
+		{
+			return false;
+		}
+
+		TArray<FVector> CorridorSamples;
+		for (int32 i = 1; i < NavPath->PathPoints.Num(); ++i)
+		{
+			const FVector& A = NavPath->PathPoints[i - 1];
+			const FVector& B = NavPath->PathPoints[i];
+			const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist2D(A, B) / 25.f));
+			for (int32 Step = 0; Step <= Steps; ++Step)
+			{
+				CorridorSamples.Add(FMath::Lerp(A, B, static_cast<float>(Step) / Steps));
+			}
+		}
+		if (!UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(CorridorSamples, Guide, CorridorRadius))
+		{
+			return false;
+		}
+
+		OutRoute = NavPath->PathPoints;
+		return true;
+	}
+
 	static void BuildState(UWorld* World, AActor* Enemy, FTDEnemyPathState& State, const TArray<FVector>& Waypoints)
 	{
 		State.Waypoints = Waypoints;
 		State.Distance = 0.f;
 		State.Samples.Reset();
 		State.CumLength.Reset();
+		State.NavigationRoute.Reset();
+		State.NavigationRouteIndex = 0;
+		State.RepathRemaining = Enemy
+			? FMath::Fmod(static_cast<float>(Enemy->GetUniqueID()) * 0.173f, DefaultPathRepathInterval)
+			: 0.f;
+		State.NavigationGoal = FVector::ZeroVector;
 		State.TotalLength = 0.f;
 		State.bValid = false;
 		State.bReachedNotified = false;
@@ -1486,6 +1673,191 @@ float UTDEnemyPathLibrary::DistanceToPolyline2D(FVector Location, const TArray<F
 	return FMath::Sqrt(BestDistSq);
 }
 
+float UTDEnemyPathLibrary::DistanceAlongPolyline2D(FVector Location, const TArray<FVector>& Points)
+{
+	if (Points.Num() < 2)
+	{
+		return 0.f;
+	}
+
+	Location.Z = 0.f;
+	float BestDistSq = BIG_NUMBER;
+	float BestDistanceAlong = 0.f;
+	float DistanceBeforeSegment = 0.f;
+	for (int32 i = 1; i < Points.Num(); ++i)
+	{
+		const FVector Start3D = Points[i - 1];
+		const FVector End3D = Points[i];
+		FVector Start2D = Start3D;
+		FVector End2D = End3D;
+		Start2D.Z = 0.f;
+		End2D.Z = 0.f;
+		const FVector Segment2D = End2D - Start2D;
+		const float SegmentLength2DSq = Segment2D.SizeSquared();
+		const float SegmentLength3D = FVector::Distance(Start3D, End3D);
+		const float T = SegmentLength2DSq > UE_SMALL_NUMBER
+			? FMath::Clamp(FVector::DotProduct(Location - Start2D, Segment2D) / SegmentLength2DSq, 0.f, 1.f)
+			: 0.f;
+		const float DistSq = FVector::DistSquared(Location, Start2D + Segment2D * T);
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			BestDistanceAlong = DistanceBeforeSegment + SegmentLength3D * T;
+		}
+		DistanceBeforeSegment += SegmentLength3D;
+	}
+	return BestDistanceAlong;
+}
+
+bool UTDEnemyPathLibrary::IsRouteInsideCorridor2D(
+	const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius)
+{
+	if (Route.Num() == 0 || Guide.Num() < 2 || CorridorRadius < 0.f)
+	{
+		return false;
+	}
+	for (const FVector& Point : Route)
+	{
+		if (DistanceToPolyline2D(Point, Guide) > CorridorRadius)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UTDEnemyPathLibrary::ShouldRefreshNavigationRoute(
+	float RepathRemaining, bool bHasRoute, bool bRouteFinished, float GoalDelta, float GoalMoveThreshold)
+{
+	if (bHasRoute && bRouteFinished)
+	{
+		return true;
+	}
+	if (RepathRemaining > 0.f)
+	{
+		return false;
+	}
+	return !bHasRoute || GoalDelta > FMath::Max(0.f, GoalMoveThreshold);
+}
+
+int32 UTDEnemyPathLibrary::AdvanceNavigationRouteIndex(
+	FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float AcceptanceRadius)
+{
+	RouteIndex = FMath::Max(0, RouteIndex);
+	while (Route.IsValidIndex(RouteIndex)
+		&& FVector::Dist2D(Location, Route[RouteIndex]) <= FMath::Max(0.f, AcceptanceRadius))
+	{
+		++RouteIndex;
+	}
+	return RouteIndex;
+}
+
+bool UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
+	const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius)
+{
+	if (Route.Num() == 0 || Guide.Num() < 2 || CorridorRadius < 0.f)
+	{
+		return false;
+	}
+
+	float PreviousDistance = DistanceToPolyline2D(Route[0], Guide);
+	bool bInside = PreviousDistance <= CorridorRadius;
+	for (int32 i = 1; i < Route.Num(); ++i)
+	{
+		const float Distance = DistanceToPolyline2D(Route[i], Guide);
+		if (bInside)
+		{
+			if (Distance > CorridorRadius)
+			{
+				return false;
+			}
+		}
+		else
+		{
+			if (Distance > PreviousDistance + 1.f)
+			{
+				return false;
+			}
+			bInside = Distance <= CorridorRadius;
+		}
+		PreviousDistance = Distance;
+	}
+	return true;
+}
+
+FVector UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+	FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex)
+{
+	(void)CurrentLocation;
+	return Route.IsValidIndex(RouteIndex) ? Route[RouteIndex] : GuideLocation;
+}
+
+bool UTDEnemyPathLibrary::DoesNavigationGoalAdvance(FVector From, FVector Goal, float MinDistance)
+{
+	return FVector::Dist2D(From, Goal) > FMath::Max(0.f, MinDistance);
+}
+
+FVector UTDEnemyPathLibrary::ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous)
+{
+	return bFoundWalkable ? Walkable : Previous;
+}
+
+bool UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(const FString& ClassName)
+{
+	return ClassName.Equals(TEXT("BP_Crystal_C"), ESearchCase::IgnoreCase);
+}
+
+bool UTDEnemyPathLibrary::IsWithinObjectiveReach2D(
+	FVector EnemyLocation, FVector ObjectiveLocation, FVector ObjectiveBoundsExtent, float ReachDistance)
+{
+	const float HorizontalRadius = FMath::Max(
+		FMath::Abs(ObjectiveBoundsExtent.X), FMath::Abs(ObjectiveBoundsExtent.Y));
+	return FVector::Dist2D(EnemyLocation, ObjectiveLocation)
+		<= HorizontalRadius + FMath::Max(0.f, ReachDistance);
+}
+
+FVector UTDEnemyPathLibrary::ResolveGroundCorrectionAfterSweep(
+	FVector SweptLocation, FVector GroundSnappedLocation)
+{
+	SweptLocation.Z = GroundSnappedLocation.Z;
+	return SweptLocation;
+}
+
+FVector UTDEnemyPathLibrary::ResolveEngagementGroundLocation(
+	FVector PlanarLocation, FVector GroundSnappedLocation)
+{
+	return ResolveGroundCorrectionAfterSweep(PlanarLocation, GroundSnappedLocation);
+}
+
+bool UTDEnemyPathLibrary::IsLaneDecorationClassName(const FString& ClassName)
+{
+	return ClassName.Contains(TEXT("ResourceCrystal"))
+		|| ClassName.Contains(TEXT("CaptureBase"))
+		|| ClassName.Contains(TEXT("CrystalSpawnMarker"))
+		|| ClassName.Contains(TEXT("CrystalCometMarker"))
+		|| ClassName.Contains(TEXT("HexPad"))
+		|| ClassName.Contains(TEXT("TowerPad"));
+}
+
+void UTDEnemyPathLibrary::ApplyLaneDecorationCollision(AActor* Actor)
+{
+	if (!Actor)
+	{
+		return;
+	}
+
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		if (!Primitive)
+		{
+			continue;
+		}
+		Primitive->SetCanEverAffectNavigation(false);
+		Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
+}
+
 float UTDEnemyPathLibrary::GetDistanceToNearestPath(const UObject* WorldContextObject, FVector Location)
 {
 	using namespace TDEnemyPathPrivate;
@@ -1684,37 +2056,91 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	float LookAhead = DefaultLookAhead;
 	ReadFloat(Enemy, { TEXT("PathLookAhead") }, LookAhead);
 
-	const float DesiredDistance = FMath::Min(
-		State->Distance + MoveSpeed * SlowFactor * DeltaSeconds, State->TotalLength);
-	State->Distance = DesiredDistance;
+	const FVector PrevLoc = Enemy->GetActorLocation();
+	const float ProjectedProgress = DistanceAlongPolyline2D(PrevLoc, State->Samples);
+	State->Distance = FMath::Clamp(FMath::Max(State->Distance, ProjectedProgress), 0.f, State->TotalLength);
 
+	float CorridorRadius = DefaultPathCorridorRadius;
+	ReadFloat(Enemy, { TEXT("PathCorridorRadius") }, CorridorRadius);
+	CorridorRadius = FMath::Max(100.f, CorridorRadius);
+	float RepathInterval = DefaultPathRepathInterval;
+	ReadFloat(Enemy, { TEXT("PathRepathInterval") }, RepathInterval);
+	RepathInterval = FMath::Max(0.1f, RepathInterval);
+
+	const float GuideDistance = FMath::Min(State->Distance + LookAhead, State->TotalLength);
 	FVector Tangent = FVector::ForwardVector;
-	FVector Location = SampleAtDistance(*State, State->Distance, Tangent);
+	const FVector LaneGuide = SampleAtDistance(*State, GuideDistance, Tangent);
+	FVector GuideLocation = LaneGuide;
 	const float AvoidanceRadius = ReadFloatOr(Enemy, { TEXT("EnemySpacing"), TEXT("PathSpacing") }, 90.f);
 	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
 	const float TargetOffset = Sys->ComputeAvoidanceOffset(
-		Enemy, *State, Location, Tangent, AvoidanceRadius, SideStepDistance);
+		Enemy, *State, GuideLocation, Tangent, AvoidanceRadius, SideStepDistance);
 	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, TargetOffset, DeltaSeconds, 6.f);
 	const FVector PathRight(-Tangent.GetSafeNormal2D().Y, Tangent.GetSafeNormal2D().X, 0.f);
-	Location += PathRight * State->LateralOffset;
-	const FVector PrevLoc = Enemy->GetActorLocation();
+	GuideLocation += PathRight * State->LateralOffset;
+
+	State->RepathRemaining -= DeltaSeconds;
+	const bool bHasRoute = State->NavigationRoute.Num() > 0;
+	const bool bRouteFinished = bHasRoute && State->NavigationRouteIndex >= State->NavigationRoute.Num();
+	const float GoalDelta = FVector::Dist2D(State->NavigationGoal, GuideLocation);
+	if (ShouldRefreshNavigationRoute(
+		State->RepathRemaining, bHasRoute, bRouteFinished, GoalDelta, FMath::Max(150.f, LookAhead * 0.75f)))
+	{
+		TArray<FVector> NewRoute;
+		bool bBuilt = BuildGuidedNavigationRoute(
+			World, Enemy, PrevLoc, GuideLocation, State->Samples, CorridorRadius, NewRoute);
+		if (!bBuilt && FMath::Abs(State->LateralOffset) > 1.f)
+		{
+			bBuilt = BuildGuidedNavigationRoute(
+				World, Enemy, PrevLoc, LaneGuide, State->Samples, CorridorRadius, NewRoute);
+		}
+		if (bBuilt)
+		{
+			State->NavigationRoute = MoveTemp(NewRoute);
+			State->NavigationRouteIndex = State->NavigationRoute.Num() > 1 ? 1 : 0;
+		}
+		else if (!bHasRoute || bRouteFinished)
+		{
+			State->NavigationRoute.Reset();
+			State->NavigationRouteIndex = 0;
+		}
+		State->NavigationGoal = GuideLocation;
+		State->RepathRemaining = RepathInterval;
+	}
+
+	State->NavigationRouteIndex = AdvanceNavigationRouteIndex(
+		PrevLoc, State->NavigationRoute, State->NavigationRouteIndex, NavigationPointAcceptanceRadius);
+	const FVector SteeringTarget = ResolveNavigationSteeringTarget(
+		PrevLoc, LaneGuide, State->NavigationRoute, State->NavigationRouteIndex);
+
+	const float ActualSpeed = FMath::Max(0.f, MoveSpeed * SlowFactor);
+	FVector Location = FMath::VInterpConstantTo(PrevLoc, SteeringTarget, DeltaSeconds, ActualSpeed);
 	int32 SteerSide = 0;
-	FVector LookTangent = Tangent;
-	FVector LookPoint = SampleAtDistance(*State, State->Distance + LookAhead, LookTangent);
-	const FVector LookRight(-LookTangent.GetSafeNormal2D().Y, LookTangent.GetSafeNormal2D().X, 0.f);
-	LookPoint += LookRight * State->LateralOffset;
-	Location = PushOffBadTerrain(World, PrevLoc, Location, LookPoint, Enemy, GroundOffset, SteerSide);
+	Location = PushOffBadTerrain(World, PrevLoc, Location, SteeringTarget, Enemy, GroundOffset, SteerSide);
 	Location = SnapToGround(World, Location, GroundOffset, Enemy, PrevLoc.Z);
 
-	FRotator NewRot = (LookPoint - Location).GetSafeNormal().Rotation();
-	if ((LookPoint - Location).SizeSquared() < 1.f)
+	FRotator NewRot = (SteeringTarget - Location).GetSafeNormal().Rotation();
+	if ((SteeringTarget - Location).SizeSquared() < 1.f)
 	{
 		NewRot = Tangent.Rotation();
 	}
 	NewRot.Pitch = 0.f;
 	NewRot.Roll = 0.f;
 
+	FHitResult MovementHit;
+	Enemy->SetActorLocation(Location, true, &MovementHit, ETeleportType::None);
+	Location = Enemy->GetActorLocation();
+	const FVector GroundAtSweptLocation = SnapToGround(
+		World, Location, GroundOffset, Enemy, PrevLoc.Z);
+	Location = ResolveGroundCorrectionAfterSweep(Location, GroundAtSweptLocation);
 	Enemy->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	if (MovementHit.bBlockingHit
+		&& !IsLaneDecorationActor(MovementHit.GetActor()))
+	{
+		State->NavigationRoute.Reset();
+		State->NavigationRouteIndex = 0;
+		State->RepathRemaining = 0.1f;
+	}
 	Enemy->SetActorRotation(NewRot, ETeleportType::TeleportPhysics);
 
 	if (State->Waypoints.Num() > 0)
@@ -1735,8 +2161,16 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	const bool bFinished = State->TotalLength > 1.f && State->Distance >= State->TotalLength - 1.f;
 	AActor* Crystal = ReadActor(Enemy, { TEXT("CrystalActor") });
-	const float DistToCrystal = Crystal ? FVector::Dist(Location, Crystal->GetActorLocation()) : 0.f;
-	if (!State->bReachedNotified && (bFinished || (Crystal && DistToCrystal <= CrystalReachDistance)))
+	bool bReachedCrystalSurface = false;
+	if (Crystal)
+	{
+		FVector BoundsOrigin = FVector::ZeroVector;
+		FVector BoundsExtent = FVector::ZeroVector;
+		Crystal->GetActorBounds(false, BoundsOrigin, BoundsExtent);
+		bReachedCrystalSurface = IsWithinObjectiveReach2D(
+			Location, BoundsOrigin, BoundsExtent, CrystalReachDistance);
+	}
+	if (!State->bReachedNotified && (bFinished || bReachedCrystalSurface))
 	{
 		State->bReachedNotified = true;
 		CallNoParam(Enemy, TEXT("ReachCrystal"));
@@ -1947,9 +2381,20 @@ void UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(AActor* Enemy)
 	if (UTDEnemyPathSubsystem::ShouldMoveToEngagementSlot(
 		FVector::Dist2D(Current, Desired), EngagementStopTolerance))
 	{
-		const FVector Next = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
+		const FVector PlanarNext = UTDEnemyPathSubsystem::ComputePlanarEngagementStep(
 			Current, Desired, DeltaSeconds, MoveSpeed);
-		Enemy->SetActorLocation(Next, false, nullptr, ETeleportType::TeleportPhysics);
+		const float GroundOffset = ResolveGroundOffset(Enemy);
+		const FVector GroundedNext = SnapToGround(
+			Enemy->GetWorld(), PlanarNext, GroundOffset, Enemy, Current.Z);
+
+		FHitResult MovementHit;
+		Enemy->SetActorLocation(GroundedNext, true, &MovementHit, ETeleportType::None);
+		const FVector SweptLocation = Enemy->GetActorLocation();
+		const FVector GroundAtSweptLocation = SnapToGround(
+			Enemy->GetWorld(), SweptLocation, GroundOffset, Enemy, Current.Z);
+		const FVector CorrectedLocation = ResolveEngagementGroundLocation(
+			SweptLocation, GroundAtSweptLocation);
+		Enemy->SetActorLocation(CorrectedLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	const FVector ToChampion = Champion->GetActorLocation() - Enemy->GetActorLocation();

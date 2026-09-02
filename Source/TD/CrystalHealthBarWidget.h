@@ -59,15 +59,15 @@ public:
 
 	/** Bar width in slate units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health", meta = (ClampMin = "120.0"))
-	float BarWidth = 460.f;
+	float BarWidth = 240.f;
 
 	/** Progress track height in slate units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health", meta = (ClampMin = "8.0"))
-	float BarHeight = 26.f;
+	float BarHeight = 12.f;
 
 	/** Distance from the top edge of the screen. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health")
-	float TopPad = 28.f;
+	float TopPad = 10.f;
 
 	/** Wave dots shown in the strip (spawner TotalWaves / MaxWaves overrides when set). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health", meta = (ClampMin = "1", ClampMax = "20"))
@@ -75,7 +75,7 @@ public:
 
 	/** Dot diameter in slate units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health", meta = (ClampMin = "8.0"))
-	float CircleSize = 16.f;
+	float CircleSize = 12.f;
 
 	/** Play / next-wave button diameter. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Health", meta = (ClampMin = "20.0"))
@@ -126,6 +126,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> ValueLabel = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WaveLabel = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> WaveDotsBox = nullptr;

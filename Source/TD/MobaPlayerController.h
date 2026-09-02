@@ -12,6 +12,7 @@ class UInputMappingContext;
 class UMapDiscoveryComponent;
 class UWorldFogOfWarComponent;
 class UFloatingDamageTextWidget;
+enum class ETDChampionGroundMoveMode : uint8;
 
 /** One active floating combat-text number: owning widget, world anchor, and lifetime. */
 USTRUCT()
@@ -61,12 +62,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	TSubclassOf<APawn> ChampionClass;
 
+	/**
+	 * Place the champion's sky-drop over a point next to the main crystal
+	 * instead of PlayerStart / world origin.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop")
+	bool bLandChampionNearMainCrystal = true;
+
+	/** Horizontal distance from the main crystal to the drop (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba|Sky Drop", meta = (ClampMin = "0.0"))
+	float ChampionCrystalLandOffset = 500.0f;
+
 	/** RMB click-to-move for the controlled champion (uses AI move). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	bool bEnableClickToMoveChampion = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion")
 	TEnumAsByte<ECollisionChannel> ClickMoveTraceChannel = ECC_Visibility;
+
+	/** Print and draw the physical hit, accepted hit, NavMesh projection, and final RMB destination. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Debug")
+	bool bDebugChampionClickTrace = false;
+
+	/** Seconds that RMB ray diagnostic lines, points, and screen text remain visible. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Debug", meta = (ClampMin = "0.1"))
+	float ChampionClickTraceDebugDuration = 6.0f;
 
 	/**
 	 * If NavMesh has no complete path and the click is at least this much lower (cm),
@@ -86,6 +106,38 @@ public:
 	/** Vertical search radius when snapping a click onto NavMesh (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
 	float NavProjectVerticalExtent = 1000.0f;
+
+	/** Maximum lateral correction allowed when replacing a click with a NavMesh point. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float MaxNavProjectionHorizontalDistance = 150.0f;
+
+	/** Maximum height correction allowed; prevents ground clicks snapping onto mountain-top NavMesh. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float MaxNavProjectionVerticalDistance = 150.0f;
+
+	/** Furthest distance from an isolated clicked polygon to search for connected Landscape NavMesh. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "0.0"))
+	float ReachableLandscapeSearchRadius = 500.0f;
+
+	/** Spacing between reachable-destination search rings. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion", meta = (ClampMin = "1.0"))
+	float ReachableLandscapeSearchStep = 100.0f;
+
+	/** Show a short League-style pulse at accepted RMB move destinations. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator")
+	bool bShowMoveDestinationIndicator = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "0.05"))
+	float MoveIndicatorDuration = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "1.0"))
+	float MoveIndicatorRadius = 55.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator")
+	FLinearColor MoveIndicatorColor = FLinearColor(0.1f, 0.9f, 0.85f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Move Indicator", meta = (ClampMin = "0.5"))
+	float MoveIndicatorThickness = 4.0f;
 
 	/** Right-click on an enemy attacks it instead of moving there (walks into range first). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba Camera|Champion|Attack")
@@ -163,14 +215,14 @@ public:
 
 	/** Show circular camera-orbit gizmo (docked to the minimap). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
-	bool bShowCameraOrbitGizmo = true;
+	bool bShowCameraOrbitGizmo = false;
 
 	/** Optional custom orbit gizmo class; defaults to UCameraOrbitGizmoWidget. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moba HUD")
 	TSubclassOf<UCameraOrbitGizmoWidget> CameraOrbitGizmoWidgetClass;
 
 	/**
-	 * Persistent map discovery + 3D fog of war (Diablo-style permanent reveal).
+	 * League-style live vision + 3D fog of war (dim map, clear around champion/crystal).
 	 * Shared with the minimap fog overlay when enabled.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Discovery")
@@ -183,17 +235,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
 	bool bEnableMapDiscovery = true;
 
-	/** When true, apply dark world fog over unexplored terrain. */
+	/** When true, apply dim world fog outside current vision. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
 	bool bEnableWorldFogOfWar = true;
 
-	/** Also paint discovery fog on the minimap. */
+	/** Also paint discovery fog on the minimap. Off: landscape + rocks only. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
-	bool bEnableMinimapDiscoveryFog = true;
+	bool bEnableMinimapDiscoveryFog = false;
 
 	/**
 	 * Hotkey that toggles 3D fog of war (and matching minimap fog visuals).
-	 * Discovery continues under the fog so reveal progress is preserved.
+	 * Discovery continues under the fog so vision sources keep updating.
 	 * Default: J
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery")
@@ -346,12 +398,25 @@ public:
 protected:
 	void InitializeMobaCamera();
 	void WireChampionFromPawn(APawn* InPawn);
+	AActor* FindMainCrystal() const;
+	bool TryGetChampionDropLocationNearMainCrystal(FVector& OutLocation) const;
+	void PlaceChampionNearMainCrystal(APawn* Champion);
 	void HandleClickToMoveChampion();
 	void UpdateChampionAttack(float DeltaTime);
 	void BeginChampionAttack(APawn* Champion, AActor* Target);
 	void UpdateChampionDamageTaken();
 	void SpawnFloatingDamageText(const FVector& WorldLocation, float Amount, const FLinearColor& Color);
 	void UpdateFloatingDamageTexts(float DeltaTime);
+	void BeginMoveDestinationIndicator(const FVector& WorldLocation);
+	void UpdateMoveDestinationIndicator(float DeltaTime);
+	void DebugChampionClickRay(APawn* Champion) const;
+	void ReportChampionClickHit(const TCHAR* Stage, const FHitResult& Hit, const FColor& Color, int32 ScreenKey) const;
+	void ReportChampionClickDestination(
+		const FVector& RawClick,
+		bool bHasProjection,
+		const FVector& Projected,
+		ETDChampionGroundMoveMode Mode,
+		const FVector& Destination) const;
 	void HandleSkipSkyDropInput();
 	void HandleToggleFogOfWarInput();
 	void HandleToggleStoreInput();
@@ -364,13 +429,10 @@ protected:
 	/** True when a complete (non-partial) NavMesh path exists to Dest. */
 	bool HasCompleteNavPathTo(APawn* Champion, const FVector& Dest) const;
 
-	/** Cursor trace that skips the champion and prefers enemy hits over ground. */
+	/** Cursor trace: enemies attack, Landscape moves, and all other hits continue. */
 	bool TraceChampionClick(APawn* Champion, FHitResult& OutHit, AActor*& OutAttackTarget) const;
 
-	/** Snap a world click onto NavMesh within NavProject* extents. */
-	bool ProjectClickToNavMesh(APawn* Champion, const FVector& Point, FVector& OutProjected) const;
-
-	/** Path-follow to Dest, projecting the goal onto NavMesh so off-mesh clicks still move. */
+	/** Path-follow to the Landscape click without re-projecting the goal onto NavMesh. */
 	void IssueChampionNavMove(APawn* Champion, const FVector& Dest);
 
 	/** Abort PathFollowing on the champion's AI controller. */
@@ -422,6 +484,16 @@ protected:
 	/** Active floating damage numbers currently rising/fading in the viewport. */
 	UPROPERTY(Transient)
 	TArray<FTDFloatingDamageEntry> FloatingDamageEntries;
+
+	/** Runtime state for the latest accepted ground-move pulse. */
+	UPROPERTY(Transient)
+	bool bMoveIndicatorActive = false;
+
+	UPROPERTY(Transient)
+	FVector MoveIndicatorLocation = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	float MoveIndicatorElapsed = 0.0f;
 
 	/** Champion CurrentHealth last tick, used to detect incoming hits for red floating text. -1 = not yet sampled. */
 	UPROPERTY(Transient)

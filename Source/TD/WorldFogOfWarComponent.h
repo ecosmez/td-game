@@ -12,7 +12,7 @@ class UStaticMeshComponent;
 class UTexture2D;
 
 /**
- * 3D world fog of war driven by UMapDiscoveryComponent.
+ * 3D world fog of war driven by UMapDiscoveryComponent live vision.
  * Spawns a world-hosted actor (PP + fog plane) so it works on rootless PlayerControllers.
  */
 UCLASS(ClassGroup = (TD), meta = (BlueprintSpawnableComponent))

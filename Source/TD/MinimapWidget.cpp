@@ -3,6 +3,7 @@
 #include "MapDiscoveryComponent.h"
 #include "MobaCameraPawn.h"
 #include "MobaPlayerController.h"
+#include "TDMinimapProjection.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -21,7 +22,9 @@
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "Engine/Scene.h"
 #include "EngineUtils.h"
+#include "LandscapeProxy.h"
 #include "GameFramework/Info.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -43,6 +46,9 @@ UMinimapWidget::UMinimapWidget(const FObjectInitializer& ObjectInitializer)
 void UMinimapWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+	MapYawOffset = 90.f;
+	CaptureHeight = 8000.f;
+	bMapDiscoveryEnabled = false;
 	EnsureBuilt();
 }
 
@@ -138,9 +144,9 @@ void UMinimapWidget::BuildDefaultUI()
 		ImageSlot->SetZOrder(0);
 	}
 
-	// Diablo-style fog: black overlay with alpha punched out as the champion explores.
+	// Live vision fog: dim overlay with holes around champion + crystal vision.
 	FogImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapFog"));
-	FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+	FogImage->SetVisibility(ESlateVisibility::Collapsed);
 	FogImage->SetColorAndOpacity(FLinearColor::White);
 	if (UCanvasPanelSlot* FogSlot = MapCanvas->AddChildToCanvas(FogImage))
 	{
@@ -333,10 +339,7 @@ void UMinimapWidget::SetDiscoverySource(UMapDiscoveryComponent* InDiscovery)
 void UMinimapWidget::SetMapDiscoveryEnabled(bool bEnabled)
 {
 	bMapDiscoveryEnabled = bEnabled;
-	if (DiscoverySource)
-	{
-		DiscoverySource->SetEnabled(bEnabled);
-	}
+	// Shared discovery stays running — 3D world FOW uses the same mask.
 	if (!bMapDiscoveryEnabled)
 	{
 		if (FogImage)
@@ -347,7 +350,6 @@ void UMinimapWidget::SetMapDiscoveryEnabled(bool bEnabled)
 	}
 
 	EnsureDiscoveryFog();
-	// Force a stamp at current position next tick / immediately.
 	bHasDiscoveryStamp = false;
 	UpdateMapDiscovery();
 }
@@ -526,6 +528,36 @@ void UMinimapWidget::RefitBoundsFromLevel()
 		return;
 	}
 
+	FBox LandscapeBox(ForceInit);
+	bool bHaveLandscape = false;
+	for (TActorIterator<ALandscapeProxy> LandscapeIt(World); LandscapeIt; ++LandscapeIt)
+	{
+		ALandscapeProxy* Landscape = *LandscapeIt;
+		if (!Landscape || !IsValid(Landscape) || Landscape->IsHidden())
+		{
+			continue;
+		}
+		LandscapeBox += Landscape->GetComponentsBoundingBox(true);
+		bHaveLandscape = true;
+	}
+
+	if (bHaveLandscape)
+	{
+		const FBox2D Fitted = FTDMinimapProjection::FitLandscapeBounds(LandscapeBox, AutoFitBoundsPadding);
+		if (Fitted.bIsValid && (Fitted.Max.X - Fitted.Min.X) >= 200.f && (Fitted.Max.Y - Fitted.Min.Y) >= 200.f)
+		{
+			WorldMin = Fitted.Min;
+			WorldMax = Fitted.Max;
+			bDidAutoFitBounds = true;
+			if (DiscoverySource)
+			{
+				DiscoverySource->SetWorldBounds(WorldMin, WorldMax);
+			}
+			RefreshCaptureSettings();
+			return;
+		}
+	}
+
 	FBox2D Accum(ForceInit);
 	bool bAny = false;
 
@@ -630,17 +662,33 @@ void UMinimapWidget::RefitBoundsFromLevel()
 
 void UMinimapWidget::GetOrthoWorldRect(float& OutCenterX, float& OutCenterY, float& OutOrthoWidth) const
 {
-	const float MinX = FMath::Min(WorldMin.X, WorldMax.X);
-	const float MaxX = FMath::Max(WorldMin.X, WorldMax.X);
-	const float MinY = FMath::Min(WorldMin.Y, WorldMax.Y);
-	const float MaxY = FMath::Max(WorldMin.Y, WorldMax.Y);
-	OutCenterX = (MinX + MaxX) * 0.5f;
-	OutCenterY = (MinY + MaxY) * 0.5f;
-	// Square orthographic volume: cover full bounds so the RT is a true top-down map projection.
-	const float ExtX = FMath::Max(100.f, MaxX - MinX);
-	const float ExtY = FMath::Max(100.f, MaxY - MinY);
-	// Zoom tightens the frame around the same center instead of showing the full fit bounds.
-	OutOrthoWidth = FMath::Max(ExtX, ExtY) * FMath::Clamp(MinimapZoomFactor, 0.1f, 1.0f);
+	FTDMinimapProjection::GetOrthoWorldRect(
+		WorldMin, WorldMax, MinimapZoomFactor, MapYawOffset, OutCenterX, OutCenterY, OutOrthoWidth);
+}
+
+namespace
+{
+	void HideWorldFogFromCapture(USceneCaptureComponent2D* Cap, UWorld* World)
+	{
+		if (!Cap || !World)
+		{
+			return;
+		}
+
+		Cap->HiddenActors.RemoveAll([](AActor* Actor)
+		{
+			return !IsValid(Actor) || Actor->ActorHasTag(TEXT("WorldFogOfWar"));
+		});
+
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (Actor && Actor->ActorHasTag(TEXT("WorldFogOfWar")))
+			{
+				Cap->HiddenActors.AddUnique(Actor);
+			}
+		}
+	}
 }
 
 void UMinimapWidget::ConfigureSceneCapture()
@@ -658,21 +706,27 @@ void UMinimapWidget::ConfigureSceneCapture()
 
 	Cap->TextureTarget = RenderTarget;
 	Cap->ProjectionType = ECameraProjectionMode::Orthographic;
-	// Lit final colour of the level — same identity as the playable scene, top-down.
-	Cap->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	// Base color, not FinalColorLDR: unbound world-FOW post-process paints LDR black,
+	// and player-camera ortho-plane correction clips the landscape out of the frustum.
+	Cap->CaptureSource = ESceneCaptureSource::SCS_BaseColor;
+	Cap->UnlitViewmode = ESceneCaptureUnlitViewmode::Capture;
 	Cap->bCaptureEveryFrame = false;
 	Cap->bCaptureOnMovement = false;
 	Cap->bAlwaysPersistRenderingState = true;
 	Cap->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 	Cap->bUseCustomProjectionMatrix = false;
 	Cap->MaxViewDistanceOverride = -1.f;
-	// Composite cleanly into UMG without HDR bloom wash.
 	Cap->CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
+	// SceneCapture defaults (not player-camera defaults): near=0, far=WORLD_MAX.
+	Cap->bAutoCalculateOrthoPlanes = false;
+	Cap->bUpdateOrthoPlanes = false;
+	Cap->bUseCameraHeightAsViewTarget = false;
+	Cap->AutoPlaneShift = 0.f;
+	Cap->PostProcessBlendWeight = 0.f;
 
 	FEngineShowFlags& Flags = Cap->ShowFlags;
-	// Readable map: lit geometry, no weather / heavy post that kills small-RT clarity.
-	Flags.SetLighting(true);
-	Flags.SetSkyLighting(true);
+	Flags.SetLighting(false);
+	Flags.SetSkyLighting(false);
 	Flags.SetStaticMeshes(true);
 	Flags.SetInstancedStaticMeshes(true);
 	Flags.SetLandscape(true);
@@ -696,13 +750,16 @@ void UMinimapWidget::ConfigureSceneCapture()
 	Flags.SetTemporalAA(false);
 	Flags.SetScreenSpaceReflections(false);
 	Flags.SetContactShadows(false);
-	Flags.SetDynamicShadows(true);
+	Flags.SetDynamicShadows(false);
 	Flags.SetAmbientOcclusion(false);
 	Flags.SetGlobalIllumination(false);
-	Flags.SetPostProcessing(true);
+	Flags.SetPostProcessing(false);
+	Flags.SetPostProcessMaterial(false);
 	Flags.SetParticles(false);
 	Flags.SetNiagara(false);
-	Flags.SetTranslucency(true);
+	Flags.SetTranslucency(false);
+
+	HideWorldFogFromCapture(Cap, GetWorld());
 }
 
 void UMinimapWidget::EnsureCapture()
@@ -727,7 +784,7 @@ void UMinimapWidget::EnsureCapture()
 	if (!RenderTarget)
 	{
 		RenderTarget = UKismetRenderingLibrary::CreateRenderTarget2D(
-			this, Size, Size, RTF_RGBA8, FLinearColor(0.05f, 0.07f, 0.06f, 1.f), false);
+			this, Size, Size, RTF_RGBA8, FLinearColor(0.08f, 0.22f, 0.12f, 1.f), false);
 	}
 
 	if (!CaptureActor)
@@ -736,12 +793,10 @@ void UMinimapWidget::EnsureCapture()
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		Params.ObjectFlags |= RF_Transient;
 		Params.Owner = GetOwningPlayer();
-		// Top-down: pitch -90 looks at ground. Yaw -90 for the RT; WorldToNormalized
-		// mirrors X so clicks/markers match the capture (pan left → camera left).
 		CaptureActor = World->SpawnActor<ASceneCapture2D>(
 			ASceneCapture2D::StaticClass(),
 			FVector::ZeroVector,
-			FRotator(-90.f, -90.f, 0.f),
+			FTDMinimapProjection::MakeCaptureRotation(MapYawOffset),
 			Params);
 	}
 
@@ -813,14 +868,28 @@ void UMinimapWidget::UpdateCaptureTransform()
 	float Ortho = 1000.f;
 	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 
-	CaptureActor->SetActorLocation(FVector(CenterX, CenterY, CaptureHeight));
-	CaptureActor->SetActorRotation(FRotator(-90.f, -90.f, 0.f));
+	float CaptureZ = CaptureHeight;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<ALandscapeProxy> LandscapeIt(World); LandscapeIt; ++LandscapeIt)
+		{
+			ALandscapeProxy* Landscape = *LandscapeIt;
+			if (Landscape && IsValid(Landscape))
+			{
+				CaptureZ = Landscape->GetComponentsBoundingBox(true).Max.Z + CaptureHeight;
+				break;
+			}
+		}
+	}
+	CaptureActor->SetActorLocation(FVector(CenterX, CenterY, CaptureZ));
+	CaptureActor->SetActorRotation(FTDMinimapProjection::MakeCaptureRotation(MapYawOffset));
 
 	if (USceneCaptureComponent2D* Cap = CaptureActor->GetCaptureComponent2D())
 	{
 		Cap->ProjectionType = ECameraProjectionMode::Orthographic;
 		Cap->OrthoWidth = Ortho;
 		Cap->TextureTarget = RenderTarget;
+		HideWorldFogFromCapture(Cap, GetWorld());
 	}
 }
 
@@ -850,18 +919,11 @@ void UMinimapWidget::UpdateCapture(float DeltaTime)
 
 FVector2D UMinimapWidget::WorldToNormalized(const FVector& WorldLoc) const
 {
-	// Same square orthographic footprint as the scene capture.
 	float CenterX = 0.f;
 	float CenterY = 0.f;
 	float Ortho = 1.f;
 	GetOrthoWorldRect(CenterX, CenterY, Ortho);
-	const float Half = Ortho * 0.5f;
-
-	// Capture yaw -90 mirrors world X on the RT; invert U so markers/clicks match the picture.
-	const float U = 0.5f - (WorldLoc.X - CenterX) / Ortho;
-	// Screen +Y is down; world +Y maps up the image with capture yaw -90.
-	const float V = 0.5f - (WorldLoc.Y - CenterY) / Ortho;
-	return FVector2D(FMath::Clamp(U, 0.f, 1.f), FMath::Clamp(V, 0.f, 1.f));
+	return FTDMinimapProjection::WorldToNormalized(WorldLoc, CenterX, CenterY, Ortho, MapYawOffset);
 }
 
 void UMinimapWidget::PlaceMarker(UBorder* Marker, UCanvasPanelSlot* MarkerSlot, const FVector2D& Normalized, float HalfSize)
@@ -1364,15 +1426,9 @@ void UMinimapWidget::RegisterLandmarkFogReveals()
 		return;
 	}
 
-	const float Radius = FMath::Max(100.f, LandmarkRevealRadius);
-
 	if (AActor* Crystal = CachedCrystalActor.Get())
 	{
-		DiscoverySource->RegisterPermanentReveal(Crystal->GetActorLocation(), Radius);
-	}
-	if (AActor* Spawn = CachedEnemySpawnActor.Get())
-	{
-		DiscoverySource->RegisterPermanentReveal(Spawn->GetActorLocation(), Radius);
+		DiscoverySource->RegisterVisionSource(Crystal, DiscoverySource->CrystalVisionRadius);
 	}
 }
 
@@ -1459,9 +1515,10 @@ bool UMinimapWidget::LocalToWorld(const FVector2D& LocalPos, const FGeometry& Ge
 	float Ortho = 1.f;
 	GetOrthoWorldRect(CenterX, CenterY, Ortho);
 
-	// Must match WorldToNormalized (X inverted for SceneCapture yaw -90).
-	const float WorldX = CenterX - (U - 0.5f) * Ortho;
-	const float WorldY = CenterY - (V - 0.5f) * Ortho;
+	const FVector2D WorldXY = FTDMinimapProjection::NormalizedToWorldXY(
+		FVector2D(U, V), CenterX, CenterY, Ortho, MapYawOffset);
+	const float WorldX = WorldXY.X;
+	const float WorldY = WorldXY.Y;
 
 	float Z = 0.f;
 	if (AMobaCameraPawn* Cam = ResolveCameraPawn())
@@ -1546,11 +1603,12 @@ void UMinimapWidget::ApplyCaptureBrush(UImage* TargetImage, UTexture* Texture, c
 void UMinimapWidget::ApplyMinimapAxisFlip() const
 {
 	// Markers/clicks use inverted U (SceneCapture yaw -90). Discovery fog stamps use
-	// the unflipped world FOW UV domain — mirror only the fog overlay so holes line up.
+	// the unflipped world FOW UV domain — mirror and yaw the fog overlay so holes line up.
 	if (FogImage)
 	{
 		FogImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
 		FogImage->SetRenderScale(FVector2D(-1.f, 1.f));
+		FogImage->SetRenderTransformAngle(MapYawOffset);
 	}
 }
 

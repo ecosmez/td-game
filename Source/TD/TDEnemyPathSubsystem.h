@@ -12,6 +12,10 @@ struct FTDEnemyPathState
 	float Distance = 0.f;
 	float TotalLength = 0.f;
 	float LateralOffset = 0.f;
+	TArray<FVector> NavigationRoute;
+	int32 NavigationRouteIndex = 0;
+	float RepathRemaining = 0.f;
+	FVector NavigationGoal = FVector::ZeroVector;
 	bool bValid = false;
 	bool bReachedNotified = false;
 
@@ -57,6 +61,7 @@ public:
 	FTDEnemyPathState* Find(AActor* Enemy);
 	void Remove(AActor* Enemy);
 	void Prune();
+	void PrepareLaneDecorations();
 
 	/** Spawner that owns the current wave countdown / spawn timer. */
 	TWeakObjectPtr<AActor> ActiveWaveSpawner;
@@ -68,4 +73,5 @@ public:
 
 private:
 	TMap<TWeakObjectPtr<AActor>, FTDEnemyPathState> States;
+	bool bLaneDecorationsPrepared = false;
 };

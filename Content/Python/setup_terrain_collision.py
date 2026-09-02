@@ -4,9 +4,25 @@ import unreal
 
 
 TERRAIN_MESHES = (
+	"/Game/TD/Assets/Terrain/BigCliffs/BigCliff_1",
+	"/Game/TD/Assets/Terrain/BigCliffs/BigCliff_2",
+	"/Game/TD/Assets/Terrain/BigCliffs/BigCliff_3",
+	"/Game/TD/Assets/Terrain/BigCliffs/BigCliff_4",
+	"/Game/TD/Assets/Terrain/BigCliffs/BigCliff_5",
+	"/Game/TD/Assets/Terrain/TallRocks/TallRock_1",
+	"/Game/TD/Assets/Terrain/TallRocks/TallRock_2",
+	"/Game/TD/Assets/Terrain/TallRocks/TallRock_3",
+	"/Game/TD/Assets/Terrain/TallRocks/TallRock_4",
+	"/Game/TD/Assets/Terrain/TallRocks/TallRock_5",
+	"/Game/TD/Assets/Terrain/Placements/Placement_1",
+	"/Game/TD/Assets/Terrain/Placements/Placement_2",
+	"/Game/TD/Assets/Terrain/Placements/Placement_3",
+	"/Game/TD/Assets/Terrain/Placements/Placement_4",
+	"/Game/TD/Assets/Terrain/Placements/Placement_5",
     "/Game/TD/Assets/Terrain/TDProject_Sculpted_A",
     "/Game/TD/Assets/Terrain/TDProject_Greybox_A",
     "/Game/TD/Assets/Terrain/TDProject_Greybox_MainGround_A1",
+	"/Game/TD/Assets/Terrain/TDProject_Greybox_Towerplacements_A1",
 )
 
 

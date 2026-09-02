@@ -4,14 +4,74 @@
 #include "../TDChampionClickMove.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FChampionClickSkipsSelfHitTest,
-	"TD.Champion.ClickMove.SkipsChampionMeshHits",
+	FChampionClickTraceDiagnosticTest,
+	"TD.Champion.ClickMove.FormatsTraceDiagnostic",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FChampionClickSkipsSelfHitTest::RunTest(const FString& Parameters)
+bool FChampionClickTraceDiagnosticTest::RunTest(const FString& Parameters)
 {
-	TestTrue(TEXT("A click on the champion is skipped so the ground behind them can be used"),
-		FTDChampionClickMove::ClassifyHit(true, true, false) == ETDChampionClickIntent::SkipHit);
+	const FString Diagnostic = FTDChampionClickMove::BuildTraceDiagnostic(
+		TEXT("RAW"),
+		TEXT("StaticMeshActor_69"),
+		TEXT("StaticMeshComponent0"),
+		TEXT("StaticMeshActor"),
+		FVector(-438.0f, 1144.0f, -2191.0f),
+		true);
+
+	TestTrue(TEXT("Diagnostic identifies the trace stage"), Diagnostic.Contains(TEXT("RAW")));
+	TestTrue(TEXT("Diagnostic identifies the actor"), Diagnostic.Contains(TEXT("StaticMeshActor_69")));
+	TestTrue(TEXT("Diagnostic identifies the component"), Diagnostic.Contains(TEXT("StaticMeshComponent0")));
+	TestTrue(TEXT("Diagnostic identifies the class"), Diagnostic.Contains(TEXT("StaticMeshActor")));
+	TestTrue(TEXT("Diagnostic includes the impact point"), Diagnostic.Contains(TEXT("X=-438.00")));
+	TestTrue(TEXT("Diagnostic states whether the hit blocked"), Diagnostic.Contains(TEXT("blocking=true")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionClickContinuesThroughOverlaysTest,
+	"TD.Champion.ClickMove.ContinuesThroughOverlays",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionClickContinuesThroughOverlaysTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("A click on the champion continues to the ground behind it"),
+		FTDChampionClickMove::ClassifyHit(true, true, false, false) == ETDChampionClickIntent::ContinueTrace);
+	TestTrue(TEXT("A click-through overlay (crystal / fog plane) continues to Landscape"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, false, true, true)
+			== ETDChampionClickIntent::ContinueTrace);
+	TestTrue(TEXT("A mountain occluding the map continues to the walkable ground behind it"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, false, true, false, true)
+			== ETDChampionClickIntent::ContinueTrace);
+	TestTrue(TEXT("Crystal class names are treated as click-through overlays"),
+		FTDChampionClickMove::IsClickThroughActorName(TEXT("BP_Crystal_C_0"), TEXT("BP_Crystal_C")));
+	TestTrue(TEXT("World fog host actors are treated as click-through overlays"),
+		FTDChampionClickMove::IsClickThroughActorName(TEXT("WorldFOW_Host"), TEXT("Actor")));
+	TestTrue(TEXT("Ability aim preview is treated as a click-through overlay"),
+		FTDChampionClickMove::IsClickThroughActorName(TEXT("BP_AbilityAimPreview_C_0"), TEXT("BP_AbilityAimPreview_C")));
+	TestFalse(TEXT("3DKit rocks are solid environment, not click-through overlays"),
+		FTDChampionClickMove::IsClickThroughActorName(TEXT("StaticMeshActor_2"), TEXT("StaticMeshActor")));
+	TestTrue(TEXT("Placed kit meshes are treated as environment collision"),
+		FTDChampionClickMove::IsKitEnvironmentActorName(TEXT("StaticMeshActor_2")));
+	TestFalse(TEXT("Sky spheres are not treated as kit rocks"),
+		FTDChampionClickMove::IsKitEnvironmentActorName(TEXT("SkySphere")));
+	TestFalse(TEXT("Persistent terrain collision must not rebuild navigation when Play begins"),
+		FTDChampionClickMove::ShouldConfigureEnvironmentCollisionAtRuntime());
+	FTDChampionClickMove::StripActorTraceCollision(nullptr);
+	FTDChampionClickMove::UseComplexCollisionOnEnvironmentMesh(nullptr);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionClickMovesToWorldGeometryTest,
+	"TD.Champion.ClickMove.MovesToWorldGeometry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionClickMovesToWorldGeometryTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("A Landscape hit issues a ground move"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, true) == ETDChampionClickIntent::MoveToHit);
+	TestTrue(TEXT("A non-Landscape world-geometry hit continues until the ray reaches Landscape"),
+		FTDChampionClickMove::ClassifyHit(false, true, false, false) == ETDChampionClickIntent::ContinueTrace);
 	return true;
 }
 
@@ -23,11 +83,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FChampionClickAttacksEnemyTest::RunTest(const FString& Parameters)
 {
 	TestTrue(TEXT("A right-click on an attackable enemy issues an attack"),
-		FTDChampionClickMove::ClassifyHit(false, true, true) == ETDChampionClickIntent::Attack);
-	TestTrue(TEXT("The same enemy hit is a ground move when attacks are disabled"),
-		FTDChampionClickMove::ClassifyHit(false, false, true) == ETDChampionClickIntent::MoveToHit);
-	TestTrue(TEXT("A non-enemy world hit is a ground move"),
-		FTDChampionClickMove::ClassifyHit(false, true, false) == ETDChampionClickIntent::MoveToHit);
+		FTDChampionClickMove::ClassifyHit(false, true, true, false) == ETDChampionClickIntent::Attack);
+	TestTrue(TEXT("An enemy is ignored rather than treated as terrain when attacks are disabled"),
+		FTDChampionClickMove::ClassifyHit(false, false, true, false) == ETDChampionClickIntent::IgnoreClick);
 	return true;
 }
 
@@ -43,8 +101,8 @@ bool FChampionClickMoveModeTest::RunTest(const FString& Parameters)
 		FTDChampionClickMove::ChooseMoveMode(true, true, 200.f, 0.f, CliffZ) == ETDChampionGroundMoveMode::NavMesh);
 	TestTrue(TEXT("An unreachable lower click walks off the ledge in XY"),
 		FTDChampionClickMove::ChooseMoveMode(false, false, 200.f, 0.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
-	TestTrue(TEXT("An unreachable same-height click that projected onto NavMesh uses that point"),
-		FTDChampionClickMove::ChooseMoveMode(false, true, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::NavMesh);
+	TestTrue(TEXT("An unreachable same-height click without a complete path steers in XY"),
+		FTDChampionClickMove::ChooseMoveMode(false, true, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
 	TestTrue(TEXT("An unreachable click with no NavMesh projection still steers in XY instead of stalling"),
 		FTDChampionClickMove::ChooseMoveMode(false, false, 100.f, 100.f, CliffZ) == ETDChampionGroundMoveMode::DirectXY);
 	return true;
@@ -63,14 +121,77 @@ bool FChampionClickDestinationTest::RunTest(const FString& Parameters)
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::DirectXY, true, Projected),
 		Click);
-	TestEqual(TEXT("NavMesh moves walk to the projected walkable point"),
+	TestEqual(TEXT("NavMesh moves keep the Landscape click location"),
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::NavMesh, true, Projected),
-		Projected);
+		Click);
 	TestEqual(TEXT("NavMesh moves without a projection keep the click location"),
 		FTDChampionClickMove::ResolveMoveDestination(
 			Click, ETDChampionGroundMoveMode::NavMesh, false, Projected),
 		Click);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionNavProjectionMatchesClickedSurfaceTest,
+	"TD.Champion.ClickMove.RejectsProjectionOnDifferentElevation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionNavProjectionMatchesClickedSurfaceTest::RunTest(const FString& Parameters)
+{
+	const FVector LandscapeClick(-7863.390f, -2850.649f, -2021.822f);
+	const FVector MountainNavPoint(-7847.000f, -2907.000f, -1070.000f);
+	const FVector NearbyGroundNavPoint(-7860.000f, -2854.000f, -2014.000f);
+
+	TestFalse(TEXT("A NavMesh point roughly 950 cm above the clicked Landscape is rejected"),
+		FTDChampionClickMove::IsNavProjectionNearClick(
+			LandscapeClick, MountainNavPoint, 150.0f, 150.0f));
+	TestTrue(TEXT("A nearby NavMesh point on the clicked ground remains valid"),
+		FTDChampionClickMove::IsNavProjectionNearClick(
+			LandscapeClick, NearbyGroundNavPoint, 150.0f, 150.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionReachableDestinationSearchTest,
+	"TD.Champion.ClickMove.SearchesNearbyReachableLandscape",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionReachableDestinationSearchTest::RunTest(const FString& Parameters)
+{
+	const TArray<FVector2D> Offsets = FTDChampionClickMove::BuildNavSearchOffsets(300.0f, 100.0f, 8);
+
+	TestEqual(TEXT("The exact clicked Landscape point is tried first"), Offsets[0], FVector2D::ZeroVector);
+	TestEqual(TEXT("Three rings of eight fallback points are generated"), Offsets.Num(), 25);
+	TestTrue(TEXT("The search reaches the configured fallback radius"),
+		Offsets.ContainsByPredicate([](const FVector2D& Offset)
+		{
+			return FMath::IsNearlyEqual(Offset.Size(), 300.0f, 0.1f);
+		}));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionMoveIndicatorAnimationTest,
+	"TD.Champion.ClickMove.IndicatorPulsesAndExpires",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionMoveIndicatorAnimationTest::RunTest(const FString& Parameters)
+{
+	float Scale = 0.0f;
+	float Intensity = 0.0f;
+	TestTrue(TEXT("A fresh move order shows the destination indicator"),
+		FTDChampionClickMove::CalculateMoveIndicatorFrame(0.0f, 0.6f, Scale, Intensity));
+	TestEqual(TEXT("The indicator starts at its base size"), Scale, 1.0f);
+	TestEqual(TEXT("The indicator starts fully bright"), Intensity, 1.0f);
+
+	TestTrue(TEXT("The indicator remains visible halfway through its pulse"),
+		FTDChampionClickMove::CalculateMoveIndicatorFrame(0.3f, 0.6f, Scale, Intensity));
+	TestTrue(TEXT("The pulse expands the ring before it disappears"), Scale > 1.0f);
+	TestTrue(TEXT("The ring fades as it ages"), Intensity < 1.0f && Intensity > 0.0f);
+
+	TestFalse(TEXT("The destination indicator expires at the configured duration"),
+		FTDChampionClickMove::CalculateMoveIndicatorFrame(0.6f, 0.6f, Scale, Intensity));
 	return true;
 }
 
