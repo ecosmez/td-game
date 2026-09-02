@@ -1503,6 +1503,19 @@ namespace TDEnemyPathPrivate
 		return Best;
 	}
 
+	static void FilterSpawnPointsForWave(
+		int32 WaveNumber, int32 PrimaryRouteId, TArray<FTDWaveSpawnSlot>& InOutPoints)
+	{
+		if (WaveNumber > 1)
+		{
+			return;
+		}
+		InOutPoints.RemoveAll([PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
+		{
+			return Slot.RouteId != PrimaryRouteId;
+		});
+	}
+
 	static bool IsPrimarySpawner(AActor* Spawner)
 	{
 		if (!IsValid(Spawner))
@@ -1538,6 +1551,21 @@ namespace TDEnemyPathPrivate
 		}
 
 		const int32 WaveNumber = FMath::Max(ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1), 1);
+		const int32 PrimaryRouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
+		FilterSpawnPointsForWave(WaveNumber, PrimaryRouteId, Points);
+		if (Points.Num() == 0)
+		{
+			FTDWaveSpawnSlot Fallback;
+			Fallback.RouteId = PrimaryRouteId;
+			Fallback.bOverLane = true;
+			Fallback.Location = SpawnXformFromRoute(World, PrimaryRouteId, true).GetLocation();
+			if (Fallback.Location.IsNearlyZero())
+			{
+				return false;
+			}
+			Points.Add(Fallback);
+		}
+
 		int32 EnemyCount = ReadIntOr(Spawner, { TEXT("EnemiesPerWave") }, 0);
 		if (EnemyCount <= 0)
 		{
@@ -1606,7 +1634,7 @@ namespace TDEnemyPathPrivate
 		return OutQueue.Num() > 0;
 	}
 
-	/** Elect primary spawner, then randomly split this wave across spawn points. */
+	/** Elect primary spawner; wave 1 uses only that route, later waves split randomly. */
 	static bool PrepareWaveSpawn(AActor* Spawner)
 	{
 		if (!IsValid(Spawner))
@@ -1643,6 +1671,42 @@ namespace TDEnemyPathPrivate
 		return true;
 	}
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDWaveOneUsesPrimarySpawnTest,
+	"TD.EnemyPath.WaveOneUsesPrimarySpawn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDWaveOneUsesPrimarySpawnTest::RunTest(const FString& Parameters)
+{
+	TArray<FTDWaveSpawnSlot> Points;
+	FTDWaveSpawnSlot PrimaryOver;
+	PrimaryOver.RouteId = 0;
+	PrimaryOver.bOverLane = true;
+	PrimaryOver.Location = FVector(10.f, 0.f, 0.f);
+	FTDWaveSpawnSlot OtherRoute;
+	OtherRoute.RouteId = 1;
+	OtherRoute.bOverLane = true;
+	OtherRoute.Location = FVector(500.f, 0.f, 0.f);
+	FTDWaveSpawnSlot PrimaryUnder;
+	PrimaryUnder.RouteId = 0;
+	PrimaryUnder.bOverLane = false;
+	PrimaryUnder.Location = FVector(10.f, 50.f, 0.f);
+	Points.Add(PrimaryOver);
+	Points.Add(OtherRoute);
+	Points.Add(PrimaryUnder);
+
+	TDEnemyPathPrivate::FilterSpawnPointsForWave(1, 0, Points);
+
+	TestEqual(TEXT("Wave 1 keeps both primary-route lanes"), Points.Num(), 2);
+	for (const FTDWaveSpawnSlot& Slot : Points)
+	{
+		TestEqual(TEXT("Wave 1 does not use a later route"), Slot.RouteId, 0);
+	}
+	return true;
+}
+#endif
 
 float UTDEnemyPathLibrary::DistanceToPolyline2D(FVector Location, const TArray<FVector>& Points)
 {

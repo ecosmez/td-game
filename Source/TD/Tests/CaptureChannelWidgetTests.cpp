@@ -37,9 +37,9 @@ bool FCaptureChannelWidgetClampsProgressAndAppliesFillColorTest::RunTest(const F
 	Widget->SetProgress(-0.2f);
 	TestEqual(TEXT("progress clamps to 0"), Bar->GetPercent(), 0.f);
 
-	const FLinearColor EnemyFill(0.95f, 0.18f, 0.16f, 1.f);
-	Widget->SetFillColor(EnemyFill);
-	TestEqual(TEXT("fill color is applied"), Bar->GetFillColorAndOpacity(), EnemyFill);
+	const FLinearColor ExpectedEnemyFill(0.95f, 0.18f, 0.16f, 1.f);
+	Widget->SetFillColor(ExpectedEnemyFill);
+	TestEqual(TEXT("fill color is applied"), Bar->GetFillColorAndOpacity(), ExpectedEnemyFill);
 
 	return true;
 }
