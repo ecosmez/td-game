@@ -19,6 +19,7 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+	virtual TSharedRef<SWidget> RebuildWidget() override;
 
 	UFUNCTION(BlueprintCallable, Category = "Capture")
 	void SetProgress(float In01);

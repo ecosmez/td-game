@@ -2,16 +2,22 @@
 
 #include "TDEnemyPathSubsystem.h"
 #include "TDPathWaypoint.h"
+#include "CaptureChannelWidget.h"
 
 #include "Algo/RandomShuffle.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/MeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/WidgetComponent.h"
+#include "Blueprint/UserWidget.h"
 #include "Engine/Engine.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -185,7 +191,9 @@ bool FTDEnemyHealthBarFillTest::RunTest(const FString& Parameters)
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(30.f, 30.f, Scale, Location);
 	TestEqual(TEXT("Full HP keeps the authored fill length"), Scale.X, 2.0);
 	TestEqual(TEXT("Full HP keeps the fill centered in the frame"), Location.X, 0.0);
-	TestEqual(TEXT("Fill stays left-anchored on Z"), Location.Z, 2.0);
+	TestTrue(TEXT("Fill is tall enough to read from the top-down camera"), Scale.Z >= 0.90);
+	TestTrue(TEXT("Fill is a camera-facing ribbon, not a white block"), Scale.Y <= 0.22);
+	TestEqual(TEXT("Fill stays lifted off the track to avoid z-fighting"), Location.Z, 3.0);
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(15.f, 30.f, Scale, Location);
 	TestEqual(TEXT("Half HP halves the fill length"), Scale.X, 1.0);
@@ -196,6 +204,56 @@ bool FTDEnemyHealthBarFillTest::RunTest(const FString& Parameters)
 
 	UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(10.f, 0.f, Scale, Location);
 	TestEqual(TEXT("Missing MaxHealth does not invert the bar"), Scale.X, 0.0);
+
+	FVector Track = FVector::ZeroVector;
+	UTDEnemyPathLibrary::ComputeEnemyHealthBarTrack(Track);
+	TestTrue(TEXT("Track is taller than the fill so the lost HP reads as a dark frame"),
+		Track.Z > 0.90 && Track.Y >= 0.16);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyHealthBarLagTest,
+	"TD.Enemy.HealthBarLagHoldsThenCatchesUp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyHealthBarLagTest::RunTest(const FString& Parameters)
+{
+	FTDEnemyHealthBarLagState State;
+
+	UTDEnemyPathLibrary::TickEnemyHealthBarLag(State, 1.f, 0.f);
+	TestEqual(TEXT("First sample snaps lag to full HP"), State.LagPercent, 1.0f);
+
+	UTDEnemyPathLibrary::TickEnemyHealthBarLag(State, 0.7f, 0.f);
+	TestEqual(TEXT("A hit leaves the lag chunk at the old HP"), State.LagPercent, 1.0f);
+	TestTrue(TEXT("A hit starts the hold so the chunk stays visible"), State.HoldRemaining > 0.3f);
+
+	UTDEnemyPathLibrary::TickEnemyHealthBarLag(State, 0.7f, 0.2f);
+	TestEqual(TEXT("Lag stays put during the hold"), State.LagPercent, 1.0f);
+
+	UTDEnemyPathLibrary::TickEnemyHealthBarLag(State, 0.7f, 2.f);
+	TestTrue(TEXT("After the hold, lag drains down to current HP"),
+		FMath::IsNearlyEqual(State.LagPercent, 0.7f, 0.01f));
+
+	UTDEnemyPathLibrary::TickEnemyHealthBarLag(State, 1.f, 0.f);
+	TestEqual(TEXT("Heals snap the lag back up"), State.LagPercent, 1.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyHealthBarUsesCaptureChannelWidgetTest,
+	"TD.Enemy.HealthBarUsesCaptureChannelWidget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyHealthBarUsesCaptureChannelWidgetTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("Enemy HP uses the capture channel widget"),
+		UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass(),
+		TSubclassOf<UUserWidget>(UCaptureChannelWidget::StaticClass()));
+
+	const FVector2D Size = UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize();
+	TestEqual(TEXT("Enemy HP matches the capture bar width"), Size.X, 220.0);
+	TestEqual(TEXT("Enemy HP matches the capture bar height"), Size.Y, 22.0);
 	return true;
 }
 #endif
@@ -219,6 +277,26 @@ namespace TDEnemyPathPrivate
 	constexpr float PathClearanceRadius = 36.f;
 	constexpr float DetourRadiusStep = 100.f;
 	constexpr float DetourRadiusMax = 1800.f;
+
+	constexpr float HealthBarWidgetWidth = 220.f;
+	constexpr float HealthBarWidgetHeight = 22.f;
+	constexpr float HealthBarWidgetLiftZ = 120.f;
+	constexpr float HealthBarFullLength = 2.f;
+	constexpr float HealthBarFillY = 0.12f;
+	constexpr float HealthBarFillZ = 0.95f;
+	constexpr float HealthBarFillLiftZ = 3.f;
+	constexpr float HealthBarLagLiftZ = 1.5f;
+	constexpr float HealthBarTrackLength = 2.16f;
+	constexpr float HealthBarTrackY = 0.18f;
+	constexpr float HealthBarTrackZ = 1.12f;
+	constexpr float HealthBarWorldScale = 1.25f;
+	constexpr float HealthBarLagHoldSeconds = 0.55f;
+	constexpr float HealthBarLagCatchupPerSecond = 1.6f;
+	static const FLinearColor HealthBarFillHealthy(0.12f, 0.95f, 0.22f, 1.f);
+	static const FLinearColor HealthBarFillHurt(1.f, 0.72f, 0.12f, 1.f);
+	static const FLinearColor HealthBarFillCritical(0.98f, 0.12f, 0.10f, 1.f);
+	static const FLinearColor HealthBarLagColor(1.f, 0.82f, 0.12f, 1.f);
+	static const FLinearColor HealthBarTrackColor(0.02f, 0.03f, 0.04f, 1.f);
 
 	static const FSoftClassPath TrashEnemyClass(TEXT("/Game/TD/BP_Enemy.BP_Enemy_C"));
 	static const FSoftClassPath RangedEnemyClass(TEXT("/Game/TD/BP_RangedEnemy.BP_RangedEnemy_C"));
@@ -540,6 +618,162 @@ namespace TDEnemyPathPrivate
 	{
 		const UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
 		return World ? World->GetSubsystem<UTDEnemyPathSubsystem>() : nullptr;
+	}
+
+	static UMaterialInterface* LoadHealthBarMaterial()
+	{
+		static TWeakObjectPtr<UMaterialInterface> Cached;
+		if (UMaterialInterface* Existing = Cached.Get())
+		{
+			return Existing;
+		}
+
+		const FString Path = TEXT("/Game/TD/Materials/M_HealthBarFill.M_HealthBarFill");
+		if (UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, *Path))
+		{
+			Cached = Mat;
+			return Mat;
+		}
+		return nullptr;
+	}
+
+	static FLinearColor EnemyHealthFillColor(float Percent)
+	{
+		if (Percent <= 0.25f)
+		{
+			return HealthBarFillCritical;
+		}
+		if (Percent <= 0.55f)
+		{
+			return HealthBarFillHurt;
+		}
+		return HealthBarFillHealthy;
+	}
+
+	static void TintHealthBarMesh(UMeshComponent* Mesh, const FLinearColor& Color, int32 SortPriority)
+	{
+		if (!Mesh)
+		{
+			return;
+		}
+
+		UMaterialInterface* Source = LoadHealthBarMaterial();
+		if (!Source)
+		{
+			return;
+		}
+
+		UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(0));
+		if (!MID || MID->Parent != Source)
+		{
+			MID = UMaterialInstanceDynamic::Create(Source, Mesh);
+			if (MID)
+			{
+				Mesh->SetMaterial(0, MID);
+			}
+		}
+		if (!MID)
+		{
+			return;
+		}
+
+		MID->SetVectorParameterValue(TEXT("Color"), Color);
+		MID->SetScalarParameterValue(TEXT("Opacity"), 1.f);
+		Mesh->SetCastShadow(false);
+		Mesh->SetReceivesDecals(false);
+		Mesh->SetTranslucentSortPriority(SortPriority);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	static UStaticMeshComponent* EnsureHealthBarLagMesh(
+		AActor* Enemy, USceneComponent* Fill, USceneComponent* BarRoot, UStaticMeshComponent* ExistingLag)
+	{
+		if (ExistingLag)
+		{
+			return ExistingLag;
+		}
+
+		UStaticMeshComponent* FillMesh = Cast<UStaticMeshComponent>(Fill);
+		if (!IsValid(Enemy) || !FillMesh || !FillMesh->GetStaticMesh())
+		{
+			return nullptr;
+		}
+
+		UStaticMeshComponent* Lag = NewObject<UStaticMeshComponent>(Enemy, TEXT("HealthBarLag"));
+		if (!Lag)
+		{
+			return nullptr;
+		}
+
+		Lag->SetMobility(EComponentMobility::Movable);
+		Lag->SetStaticMesh(FillMesh->GetStaticMesh());
+		if (UMaterialInterface* Mat = FillMesh->GetMaterial(0))
+		{
+			Lag->SetMaterial(0, Mat);
+		}
+		Lag->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Lag->SetCastShadow(false);
+		Lag->SetCanEverAffectNavigation(false);
+		Lag->SetGenerateOverlapEvents(false);
+
+		USceneComponent* AttachParent = BarRoot ? BarRoot : FillMesh->GetAttachParent();
+		if (AttachParent)
+		{
+			Lag->SetupAttachment(AttachParent);
+		}
+		else if (USceneComponent* Root = Enemy->GetRootComponent())
+		{
+			Lag->SetupAttachment(Root);
+		}
+
+		Lag->RegisterComponent();
+		Enemy->AddInstanceComponent(Lag);
+		return Lag;
+	}
+
+	static UWidgetComponent* EnsureHealthBarWidget(AActor* Enemy, UWidgetComponent* Existing)
+	{
+		if (Existing)
+		{
+			return Existing;
+		}
+		if (!IsValid(Enemy))
+		{
+			return nullptr;
+		}
+
+		UWidgetComponent* Comp = NewObject<UWidgetComponent>(Enemy, TEXT("HealthBarWidget"));
+		if (!Comp)
+		{
+			return nullptr;
+		}
+
+		Comp->SetMobility(EComponentMobility::Movable);
+		Comp->SetWidgetSpace(EWidgetSpace::Screen);
+		Comp->SetDrawAtDesiredSize(false);
+		Comp->SetDrawSize(UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize());
+		Comp->SetPivot(FVector2D(0.5f, 1.f));
+		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Comp->SetCastShadow(false);
+		Comp->SetCanEverAffectNavigation(false);
+		Comp->SetGenerateOverlapEvents(false);
+		Comp->SetWidgetClass(UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass());
+		if (USceneComponent* Root = Enemy->GetRootComponent())
+		{
+			Comp->SetupAttachment(Root);
+		}
+		Comp->RegisterComponent();
+		Enemy->AddInstanceComponent(Comp);
+
+		if (UWorld* World = Enemy->GetWorld())
+		{
+			if (UCaptureChannelWidget* Widget = CreateWidget<UCaptureChannelWidget>(
+				World, UCaptureChannelWidget::StaticClass()))
+			{
+				Comp->SetWidget(Widget);
+			}
+		}
+		return Comp;
 	}
 
 	static float ResolveGroundOffset(const AActor* Enemy)
@@ -2254,16 +2488,84 @@ bool UTDEnemyPathLibrary::IsAttackableEnemy(AActor* Actor)
 	return IsEnemyStillAlive(Actor);
 }
 
+TSubclassOf<UUserWidget> UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass()
+{
+	return UCaptureChannelWidget::StaticClass();
+}
+
+FVector2D UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize()
+{
+	using namespace TDEnemyPathPrivate;
+	return FVector2D(HealthBarWidgetWidth, HealthBarWidgetHeight);
+}
+
 void UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation)
 {
+	using namespace TDEnemyPathPrivate;
+
 	const float Percent = (MaxHealth > KINDA_SMALL_NUMBER)
 		? FMath::Clamp(CurrentHealth / MaxHealth, 0.f, 1.f)
 		: 0.f;
-	OutScale = FVector(2.f * Percent, 0.14f, 0.08f);
-	OutRelativeLocation = FVector(100.f * (Percent - 1.f), 0.f, 2.f);
+	OutScale = FVector(HealthBarFullLength * Percent, HealthBarFillY, HealthBarFillZ);
+	OutRelativeLocation = FVector(100.f * (Percent - 1.f), 0.f, HealthBarFillLiftZ);
 }
 
-void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy)
+void UTDEnemyPathLibrary::ComputeEnemyHealthBarTrack(FVector& OutScale)
+{
+	using namespace TDEnemyPathPrivate;
+	OutScale = FVector(HealthBarTrackLength, HealthBarTrackY, HealthBarTrackZ);
+}
+
+void UTDEnemyPathLibrary::TickEnemyHealthBarLag(FTDEnemyHealthBarLagState& State, float CurrentPercent, float DeltaTime)
+{
+	using namespace TDEnemyPathPrivate;
+
+	CurrentPercent = FMath::Clamp(CurrentPercent, 0.f, 1.f);
+	if (!State.bInitialized)
+	{
+		State.LagPercent = CurrentPercent;
+		State.PreviousPercent = CurrentPercent;
+		State.HoldRemaining = 0.f;
+		State.bInitialized = true;
+		return;
+	}
+
+	if (CurrentPercent > State.LagPercent + KINDA_SMALL_NUMBER)
+	{
+		State.LagPercent = CurrentPercent;
+		State.HoldRemaining = 0.f;
+	}
+	else if (CurrentPercent < State.PreviousPercent - KINDA_SMALL_NUMBER)
+	{
+		State.HoldRemaining = HealthBarLagHoldSeconds;
+	}
+
+	if (State.HoldRemaining > 0.f)
+	{
+		State.HoldRemaining -= DeltaTime;
+		if (State.HoldRemaining < 0.f)
+		{
+			const float CatchupTime = -State.HoldRemaining;
+			State.HoldRemaining = 0.f;
+			if (State.LagPercent > CurrentPercent)
+			{
+				State.LagPercent = FMath::Max(
+					CurrentPercent,
+					State.LagPercent - HealthBarLagCatchupPerSecond * CatchupTime);
+			}
+		}
+	}
+	else if (State.LagPercent > CurrentPercent)
+	{
+		State.LagPercent = FMath::Max(
+			CurrentPercent,
+			State.LagPercent - HealthBarLagCatchupPerSecond * DeltaTime);
+	}
+
+	State.PreviousPercent = CurrentPercent;
+}
+
+void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime)
 {
 	using namespace TDEnemyPathPrivate;
 
@@ -2291,12 +2593,19 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy)
 		}
 	}
 
-	FVector FillScale = FVector::ZeroVector;
-	FVector FillLocation = FVector::ZeroVector;
-	ComputeEnemyHealthBarFill(Current, Max, FillScale, FillLocation);
+	const float Percent = (Max > KINDA_SMALL_NUMBER)
+		? FMath::Clamp(Current / Max, 0.f, 1.f)
+		: 0.f;
 
-	USceneComponent* Fill = nullptr;
-	USceneComponent* BarRoot = nullptr;
+	FTDEnemyHealthBarLagState LocalLag;
+	FTDEnemyHealthBarLagState* LagState = &LocalLag;
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Enemy))
+	{
+		LagState = &Sys->FindOrAdd(Enemy).HealthBarLag;
+	}
+	TickEnemyHealthBarLag(*LagState, Percent, DeltaTime);
+
+	UWidgetComponent* HealthWidget = nullptr;
 	TArray<USceneComponent*> Comps;
 	Enemy->GetComponents<USceneComponent>(Comps);
 	for (USceneComponent* Comp : Comps)
@@ -2306,16 +2615,18 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy)
 			continue;
 		}
 		const FString Name = Comp->GetName();
-		if (Name.Contains(TEXT("HealthBarFill")))
+		if (UWidgetComponent* WidgetComp = Cast<UWidgetComponent>(Comp))
 		{
-			Fill = Comp;
-		}
-		else if (Name.Contains(TEXT("HealthBarRoot")))
-		{
-			BarRoot = Comp;
+			if (Name.Contains(TEXT("HealthBar")))
+			{
+				HealthWidget = WidgetComp;
+			}
+			continue;
 		}
 		if (Name.Contains(TEXT("HealthBar")))
 		{
+			Comp->SetVisibility(false, true);
+			Comp->SetHiddenInGame(true, true);
 			if (UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Comp))
 			{
 				Prim->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -2323,19 +2634,27 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy)
 		}
 	}
 
-	if (Fill)
+	HealthWidget = EnsureHealthBarWidget(Enemy, HealthWidget);
+	if (!HealthWidget)
 	{
-		Fill->SetRelativeScale3D(FillScale);
-		Fill->SetRelativeLocation(FillLocation);
+		return;
 	}
 
-	if (BarRoot)
+	float LiftZ = HealthBarWidgetLiftZ;
+	if (const UCapsuleComponent* Capsule = Enemy->FindComponentByClass<UCapsuleComponent>())
 	{
-		if (APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(Enemy, 0))
-		{
-			const FRotator CamRot = Cam->GetCameraRotation();
-			BarRoot->SetWorldRotation(FRotator(0.f, CamRot.Yaw + 90.f, 0.f));
-		}
+		LiftZ = Capsule->GetScaledCapsuleHalfHeight() + 40.f;
+	}
+	HealthWidget->SetRelativeLocation(FVector(0.f, 0.f, LiftZ));
+	HealthWidget->SetDrawSize(GetEnemyHealthBarWidgetDrawSize());
+	HealthWidget->SetVisibility(true);
+	HealthWidget->SetHiddenInGame(false);
+
+	if (UCaptureChannelWidget* Widget = Cast<UCaptureChannelWidget>(HealthWidget->GetWidget()))
+	{
+		Widget->SetProgress(Percent);
+		Widget->SetFillColor(EnemyHealthFillColor(Percent));
+		Widget->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 }
 

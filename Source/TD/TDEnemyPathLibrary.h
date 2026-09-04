@@ -5,6 +5,17 @@
 #include "Templates/SubclassOf.h"
 #include "TDEnemyPathLibrary.generated.h"
 
+class UUserWidget;
+
+/** World HP bar delayed-damage chunk (LoL-style lag). */
+struct FTDEnemyHealthBarLagState
+{
+	float LagPercent = 1.f;
+	float PreviousPercent = 1.f;
+	float HoldRemaining = 0.f;
+	bool bInitialized = false;
+};
+
 /**
  * Waypoint-only enemy lanes. Chooses Over/Under branches, then moves along a
  * Catmull-Rom curve through those points (smooth corners, no BP_EnemyPath).
@@ -121,11 +132,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void ApplyDamageToEnemy(AActor* Enemy, float Amount);
 
+	/** Same screen-space channel widget capture bases use. */
+	static TSubclassOf<UUserWidget> GetEnemyHealthBarWidgetClass();
+
+	/** Pixel size matching ACaptureBase::ChannelBar. */
+	static FVector2D GetEnemyHealthBarWidgetDrawSize();
+
 	/** Fill scale/location matching BP_Enemy.UpdateHealthBar (left-anchored cube). */
 	static void ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation);
 
-	/** Scale the enemy's HealthBarFill mesh from CurrentHealth / MaxHealth and face the camera. */
-	static void UpdateEnemyHealthBar(AActor* Enemy);
+	/** Dark track around the fill — slightly thicker so hits read against a frame. */
+	static void ComputeEnemyHealthBarTrack(FVector& OutScale);
+
+	/** Hold the lost chunk, then drain it toward current HP so damage is readable. */
+	static void TickEnemyHealthBarLag(FTDEnemyHealthBarLagState& State, float CurrentPercent, float DeltaTime);
+
+	/** Hide mesh HP cubes and drive a screen-space capture-style channel bar. */
+	static void UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime = 0.f);
 
 	/**
 	 * Freeze/unfreeze an enemy's waypoint-path movement (used while it's locked as the

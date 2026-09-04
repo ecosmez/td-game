@@ -4,6 +4,7 @@
     (Variables|Default|SetIsDragging false)
     (Variables|Default|SetTowerDragLive false)
     (Variables|Default|SetHasTowerSelected false)
+    (Variables|Default|SetWallRotationPending false)
     (CallFunction|DestroyGhostTower)
     (CallFunction|HideHexGrid)
     (if (Variables|Default|GetWavesStarted)

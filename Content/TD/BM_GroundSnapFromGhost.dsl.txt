@@ -1,0 +1,12 @@
+(fn GroundSnapFromGhost (Surface Ghost)
+  (bind as_tower (Utilities|Casting|CastToBP_Tower Ghost)
+    (:then
+      (bind (meshmin meshmax) (Components|StaticMesh|GetLocalBounds (Class|BPTower|GetTowerMesh as_tower)))
+      (return (Math|Vector|MakeVector (.x Surface) (.y Surface) (- (.z Surface) (.z meshmin)))))
+    (:CastFailed
+      (bind as_trap (Utilities|Casting|CastToBP_Trap_Base Ghost)
+        (:then
+          (bind (trapmin trapmax) (Components|StaticMesh|GetLocalBounds (Class|BPTrapBase|GetTrapMesh as_trap)))
+          (return (Math|Vector|MakeVector (.x Surface) (.y Surface) (- (.z Surface) (.z trapmin)))))
+        (:CastFailed
+          (return Surface))))))

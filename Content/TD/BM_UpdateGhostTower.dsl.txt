@@ -3,14 +3,17 @@
   (bind (hit didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
   (bind (bBlockingHit bInitialOverlap Time Distance Location ImpactPoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hit))
   (bind ghost (Variables|Default|GetGhostTower))
-  (bind cachedPad (Variables|Default|GetCachedHitPad))
+  (bind path (Variables|Store|GetSelectedTowerClassPath))
   (Utilities|IsValid pc
     (:"Is Valid"
-      (if (or (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C") (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"))
+      (if (or
+            (Utilities|String|EqualExactly(String) path "/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C")
+            (Utilities|String|EqualExactly(String) path "/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"))
         (if didhit
           (Utilities|IsValid ghost
             (:"Is Valid"
-              (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)
+              (bind traploc (CallFunction|GroundSnapFromGhost :Surface ImpactPoint :Ghost ghost))
+              (Transformation|SetActorLocation ghost traploc false true)
               (bind as_trap (Utilities|Casting|CastToBP_Trap_Base ghost))
               (bind trap_mesh (Class|BPTrapBase|GetTrapMesh as_trap))
               (if (<= (TD|EnemyPath|GetDistanceToNearestPath ImpactPoint) (Variables|Store|GetSelectedTowerRadius))
@@ -18,15 +21,44 @@
                 (else
                   (Rendering|Material|SetMaterial trap_mesh 0 "/Game/TD/Materials/MI_AbilityDenied.MI_AbilityDenied"))))))
         (else
-          (if didhit
-            (bind pad (Utilities|Casting|CastToBP_TowerPad HitActor)
-              (:then
-                (Class|BPTowerPad|SetHoverHighlight pad true)
-                (Variables|Default|SetCachedHitPad pad)
-                (bind padLoc (Transformation|GetActorLocation pad))
-                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x padLoc) (.y padLoc) (+ (.z padLoc) 120.0)) false true))
-              (:CastFailed
-                (CallFunction|ClearPadHover)
-                (Transformation|SetActorLocation ghost (Math|Vector|MakeVector (.x ImpactPoint) (.y ImpactPoint) (+ (.z ImpactPoint) 120.0)) false true)))
+          (if (Utilities|String|EqualExactly(String) path "/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C")
+            (if didhit
+              (Utilities|IsValid ghost
+                (:"Is Valid"
+                  (bind as_tower (Utilities|Casting|CastToBP_Tower ghost))
+                  (bind tower_mesh (Class|BPTower|GetTowerMesh as_tower))
+                  (bind (meshmin meshmax) (Components|StaticMesh|GetLocalBounds tower_mesh))
+                  (bind groundloc (CallFunction|GroundSnapFromGhost :Surface ImpactPoint :Ghost ghost))
+                  (if (Variables|Default|GetWallRotationPending)
+                    (bind locked (Variables|Default|GetWallLockedLocation))
+                    (Transformation|SetActorLocation ghost locked false true)
+                    (bind look (Math|Rotator|FindLookAtRotation locked ImpactPoint))
+                    (Transformation|SetActorRotation ghost (Math|Rotator|MakeRotator :Roll 0.0 :Pitch 0.0 :Yaw (.yaw look)) true)
+                    (Rendering|Material|SetMaterial tower_mesh 0 "/Game/TD/Materials/MI_AbilityGhost.MI_AbilityGhost")
+                    (bind fwd (Transformation|GetActorForwardVector ghost))
+                    (bind groundcenter (Math|Vector|MakeVector (.x locked) (.y locked) (+ (.z locked) (.z meshmin))))
+                    (bind arrowend (+ groundcenter (Math|Vector|MakeVector (* (.x fwd) 450.0) (* (.y fwd) 450.0) 0.0)))
+                    (bind gizmocolor (Utilities|Struct|MakeLinearColor :R 1.0 :G 0.85 :B 0.15 :A 1.0))
+                    (Rendering|Debug|DrawDebugArrow :LineStart groundcenter :LineEnd arrowend :ArrowSize 48.0 :LineColor gizmocolor :Duration 0.0 :Thickness 8.0)
+                    (Rendering|Debug|DrawDebugCircle :Center groundcenter :Radius 220.0 :NumSegments 32 :LineColor gizmocolor :Duration 0.0 :Thickness 5.0 :YAxis (Math|Vector|MakeVector 1.0 0.0 0.0) :ZAxis (Math|Vector|MakeVector 0.0 1.0 0.0) :bDrawAxis false)
+                    (else
+                      (Transformation|SetActorLocation ghost groundloc false true)
+                      (if (TD|Abilities|IsValidAbilityTerrainActor HitActor)
+                        (Rendering|Material|SetMaterial tower_mesh 0 "/Game/TD/Materials/MI_AbilityGhost.MI_AbilityGhost")
+                        (else
+                          (Rendering|Material|SetMaterial tower_mesh 0 "/Game/TD/Materials/MI_AbilityDenied.MI_AbilityDenied"))))))))
             (else
-              (CallFunction|ClearPadHover))))))))
+              (if didhit
+                (bind pad (Utilities|Casting|CastToBP_TowerPad HitActor)
+                  (:then
+                    (Class|BPTowerPad|SetHoverHighlight pad true)
+                    (Variables|Default|SetCachedHitPad pad)
+                    (bind padLoc (Transformation|GetActorLocation pad))
+                    (bind padghostloc (CallFunction|GroundSnapFromGhost :Surface padLoc :Ghost ghost))
+                    (Transformation|SetActorLocation ghost padghostloc false true))
+                  (:CastFailed
+                    (CallFunction|ClearPadHover)
+                    (bind followloc (CallFunction|GroundSnapFromGhost :Surface ImpactPoint :Ghost ghost))
+                    (Transformation|SetActorLocation ghost followloc false true)))
+                (else
+                  (CallFunction|ClearPadHover))))))))))

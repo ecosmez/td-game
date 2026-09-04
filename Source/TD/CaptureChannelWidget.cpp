@@ -4,7 +4,6 @@
 #include "Components/ProgressBar.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/Actor.h"
-#include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
 #include "Styling/SlateTypes.h"
 #include "UObject/UObjectIterator.h"
@@ -17,13 +16,10 @@ namespace CaptureChannelPrivate
 	FSlateBrush MakeSolid(const FLinearColor& Color)
 	{
 		FSlateBrush Brush;
-		if (const FSlateBrush* White = FCoreStyle::Get().GetBrush(TEXT("GenericWhiteBox")))
-		{
-			Brush = *White;
-		}
+		Brush.DrawAs = ESlateBrushDrawType::Box;
 		Brush.TintColor = FSlateColor(Color);
-		Brush.DrawAs = ESlateBrushDrawType::Image;
 		Brush.Margin = FMargin(0.f);
+		Brush.ImageSize = FVector2D(32.f, 32.f);
 		return Brush;
 	}
 }
@@ -44,6 +40,12 @@ namespace
 			OutValue = Prop->GetPropertyValue_InContainer(Actor);
 			return true;
 		}
+		// Blueprint floats are FDoubleProperty in UE5.
+		if (const FDoubleProperty* DProp = FindFProperty<FDoubleProperty>(Actor->GetClass(), Name))
+		{
+			OutValue = static_cast<float>(DProp->GetPropertyValue_InContainer(Actor));
+			return true;
+		}
 		return false;
 	}
 
@@ -58,8 +60,33 @@ namespace
 			OutValue = Prop->GetPropertyValue_InContainer(Actor);
 			return true;
 		}
+		if (const FByteProperty* ByteProp = FindFProperty<FByteProperty>(Actor->GetClass(), Name))
+		{
+			OutValue = ByteProp->GetPropertyValue_InContainer(Actor);
+			return true;
+		}
+		if (const FInt64Property* Int64Prop = FindFProperty<FInt64Property>(Actor->GetClass(), Name))
+		{
+			OutValue = static_cast<int32>(Int64Prop->GetPropertyValue_InContainer(Actor));
+			return true;
+		}
 		return false;
 	}
+
+	bool ReadBoolProp(const AActor* Actor, FName Name, bool& OutValue)
+	{
+		if (!Actor)
+		{
+			return false;
+		}
+		if (const FBoolProperty* Prop = FindFProperty<FBoolProperty>(Actor->GetClass(), Name))
+		{
+			OutValue = Prop->GetPropertyValue_InContainer(Actor);
+			return true;
+		}
+		return false;
+	}
+
 }
 
 UCaptureChannelWidget::UCaptureChannelWidget(const FObjectInitializer& ObjectInitializer)
@@ -79,6 +106,12 @@ void UCaptureChannelWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	EnsureBuilt();
+}
+
+TSharedRef<SWidget> UCaptureChannelWidget::RebuildWidget()
+{
+	EnsureBuilt();
+	return Super::RebuildWidget();
 }
 
 void UCaptureChannelWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -134,20 +167,35 @@ void UCaptureChannelWidget::SyncFromHostActor()
 	ReadIntProp(OwnerActor, FName(TEXT("OwnerState")), OwnerState);
 
 	const float Magnitude = FMath::Abs(ContestProgress);
-	const bool bShow = OwnerState == 0 && Magnitude > KINDA_SMALL_NUMBER;
-	SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	if (!bShow)
+	bool bChampionInRange = false;
+	bool bEnemyInRange = false;
+	if (!ReadBoolProp(OwnerActor, FName(TEXT("bChampionInRange")), bChampionInRange))
 	{
-		return;
+		ReadBoolProp(OwnerActor, FName(TEXT("ChampionInRange")), bChampionInRange);
 	}
-
+	if (!ReadBoolProp(OwnerActor, FName(TEXT("bEnemyInRange")), bEnemyInRange))
+	{
+		ReadBoolProp(OwnerActor, FName(TEXT("EnemyInRange")), bEnemyInRange);
+	}
+	const bool bShow = bChampionInRange || bEnemyInRange;
+	SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	SetProgress(Magnitude);
 	SetFillColor(ContestProgress >= 0.f ? PlayerFill : EnemyFill);
 }
 
 void UCaptureChannelWidget::EnsureBuilt()
 {
-	if (bBuilt || !WidgetTree)
+	if (bBuilt)
+	{
+		return;
+	}
+
+	if (!WidgetTree)
+	{
+		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"), RF_Transient);
+	}
+
+	if (!WidgetTree)
 	{
 		return;
 	}

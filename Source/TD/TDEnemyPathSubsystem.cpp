@@ -85,7 +85,7 @@ void UTDEnemyPathSubsystem::Tick(float DeltaTime)
 				|| Discovery->IsLocationVisible(Actor->GetActorLocation());
 			Actor->SetActorHiddenInGame(FTDFogVision::ShouldHideEnemy(bVisible));
 
-			UTDEnemyPathLibrary::UpdateEnemyHealthBar(Actor);
+			UTDEnemyPathLibrary::UpdateEnemyHealthBar(Actor, DeltaTime);
 			UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(Actor);
 		}
 	}

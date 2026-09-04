@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "TDEnemyPathLibrary.h"
 #include "TDEnemyPathSubsystem.generated.h"
 
 struct FTDEnemyPathState
@@ -25,6 +26,9 @@ struct FTDEnemyPathState
 	/** Stable place on the melee ring while this enemy is engaging the champion. */
 	TWeakObjectPtr<AActor> EngagementTarget;
 	int32 EngagementSlot = INDEX_NONE;
+
+	/** Delayed yellow chunk so incoming hits are visible on the world HP bar. */
+	FTDEnemyHealthBarLagState HealthBarLag;
 };
 
 /** One minion spawn assignment (route + lane + Index 0 location). */

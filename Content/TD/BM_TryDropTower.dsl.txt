@@ -14,10 +14,41 @@
               (if (<= pathdistance (Variables|Store|GetSelectedTowerRadius))
                 (if (>= (Variables|Resource|GetResource) (Variables|Store|GetSelectedTowerCost))
                   (CallFunction|TrySpendResource)
-                  (bind spawnlocation (Math|Vector|MakeVector (.x impactpoint) (.y impactpoint) (+ (.z impactpoint) 120.0)))
+                  (bind ghost (Variables|Default|GetGhostTower))
+                  (bind spawnlocation (CallFunction|GroundSnapFromGhost :Surface impactpoint :Ghost ghost))
                   (bind spawnedactor (CallFunction|SpawnandStartTower :self self :SpawnXF (Math|Transform|MakeTransform spawnlocation)))
                   (Utilities|IsValid spawnedactor
                     (:"Is Valid"
                       (CallFunction|FinishTowerPlacement))))))))
         (else
-          (CallFunction|ResolveCursorPad))))))
+          (if (Utilities|String|EqualExactly(String) (Variables|Store|GetSelectedTowerClassPath) "/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C")
+            (bind pc (Game|GetPlayerController 0))
+            (Utilities|IsValid pc
+              (:"Is Valid"
+                (bind (hitresult didhit) (Game|Player|GetHitResultUnderCursorByChannel pc "Visibility" true))
+                (if didhit
+                  (bind (blockinghit initialoverlap hittime hitdistance hitlocation impactpoint Normal ImpactNormal PhysMat HitActor) (Collision|BreakHitResult hitresult))
+                  (if (Variables|Default|GetWallRotationPending)
+                    (if (>= (Variables|Resource|GetResource) (Variables|Store|GetSelectedTowerCost))
+                      (CallFunction|TrySpendResource)
+                      (bind locked (Variables|Default|GetWallLockedLocation))
+                      (bind look (Math|Rotator|FindLookAtRotation locked impactpoint))
+                      (bind yawrot (Math|Rotator|MakeRotator :Roll 0.0 :Pitch 0.0 :Yaw (.yaw look)))
+                      (bind spawnedactor (CallFunction|SpawnandStartTower :self self :SpawnXF (Math|Transform|MakeTransform locked yawrot)))
+                      (Utilities|IsValid spawnedactor
+                        (:"Is Valid"
+                          (CallFunction|FinishTowerPlacement))))
+                    (else
+                      (if (TD|Abilities|IsValidAbilityTerrainActor HitActor)
+                        (if (>= (Variables|Resource|GetResource) (Variables|Store|GetSelectedTowerCost))
+                          (bind ghost (Variables|Default|GetGhostTower))
+                          (bind spawnlocation (CallFunction|GroundSnapFromGhost :Surface impactpoint :Ghost ghost))
+                          (Variables|Default|SetWallLockedLocation spawnlocation)
+                          (Variables|Default|SetWallRotationPending true)
+                          (Variables|Default|SetStatusLine "Wall position locked - rotate facing")
+                          (Variables|Default|SetHintLine "Yellow arrow is facing | LMB places | ESC / RMB cancels")
+                          (Utilities|IsValid ghost
+                            (:"Is Valid"
+                              (Transformation|SetActorLocation ghost spawnlocation false true))))))))))
+            (else
+              (CallFunction|ResolveCursorPad))))))))

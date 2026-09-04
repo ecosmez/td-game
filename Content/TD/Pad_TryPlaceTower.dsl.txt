@@ -1,12 +1,5 @@
 (fn TryPlaceTower ()
-  (bind _returnvalue (Transformation|GetActorLocation))
-  (bind _x (.x _returnvalue))
-  (bind _y (.y _returnvalue))
-  (bind _z (.z _returnvalue))
-  (bind _returnvalue_1 120.0)
-  (bind _returnvalue_2 (+ _z _returnvalue_1))
-  (bind _returnvalue_3 (Math|Vector|MakeVector _x _y _returnvalue_2))
-  (bind _returnvalue_4 (Math|Transform|MakeTransform _returnvalue_3))
+  (bind padloc (Transformation|GetActorLocation))
   (bind _placedtower (Variables|Default|GetPlacedTower))
   (bind _outactors (Actor|GetAllActorsOfClass "/Game/TD/BP_BuildManager.BP_BuildManager_C"))
   (if (not (Utilities|Array|IsEmpty _outactors))
@@ -15,9 +8,39 @@
       (if (Class|BPBuildManager|GetHasTowerSelected _asbp_build_manager)
         (if (>= (Class|BPBuildManager|GetResource _asbp_build_manager) (Class|BPBuildManager|GetSelectedTowerCost _asbp_build_manager))
           (Class|BPBuildManager|TrySpendResource _asbp_build_manager)
-          (Utilities|IsValid _placedtower
+          (bind ghost (Class|BPBuildManager|GetGhostTower _asbp_build_manager))
+          (Utilities|IsValid ghost
             (:"Is Valid"
-              (Actor|DestroyActor _placedtower)
-              (CallFunction|SpawnandStartTower _returnvalue_4))
+              (bind as_tower (Utilities|Casting|CastToBP_Tower ghost)
+                (:then
+                  (bind (meshmin meshmax) (Components|StaticMesh|GetLocalBounds (Class|BPTower|GetTowerMesh as_tower)))
+                  (bind spawnloc (Math|Vector|MakeVector (.x padloc) (.y padloc) (- (.z padloc) (.z meshmin))))
+                  (bind spawnxf (Math|Transform|MakeTransform spawnloc))
+                  (Utilities|IsValid _placedtower
+                    (:"Is Valid"
+                      (Actor|DestroyActor _placedtower)
+                      (bind spawned_a (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf))
+                      (Variables|Default|SetPlacedTower spawned_a))
+                    (:"Is Not Valid"
+                      (bind spawned_b (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf))
+                      (Variables|Default|SetPlacedTower spawned_b))))
+                (:CastFailed
+                  (bind spawnxf_ghost (Math|Transform|MakeTransform (Transformation|GetActorLocation ghost)))
+                  (Utilities|IsValid _placedtower
+                    (:"Is Valid"
+                      (Actor|DestroyActor _placedtower)
+                      (bind spawned_c (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf_ghost))
+                      (Variables|Default|SetPlacedTower spawned_c))
+                    (:"Is Not Valid"
+                      (bind spawned_d (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf_ghost))
+                      (Variables|Default|SetPlacedTower spawned_d))))))
             (:"Is Not Valid"
-              (CallFunction|SpawnandStartTower _returnvalue_4))))))))
+              (bind spawnxf_pad (Math|Transform|MakeTransform padloc))
+              (Utilities|IsValid _placedtower
+                (:"Is Valid"
+                  (Actor|DestroyActor _placedtower)
+                  (bind spawned_e (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf_pad))
+                  (Variables|Default|SetPlacedTower spawned_e))
+                (:"Is Not Valid"
+                  (bind spawned_f (Class|BPBuildManager|SpawnandStartTower _asbp_build_manager spawnxf_pad))
+                  (Variables|Default|SetPlacedTower spawned_f))))))))))
