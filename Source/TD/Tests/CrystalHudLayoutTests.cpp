@@ -14,8 +14,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FCrystalHudComparisonLayoutTest::RunTest(const FString& Parameters)
 {
-	UCrystalHealthBarWidget* Widget = NewObject<UCrystalHealthBarWidget>();
-	TestNotNull(TEXT("widget can be created"), Widget);
+	UClass* DesignerClass = UCrystalHealthBarWidget::ResolveWidgetClass();
+	TestNotNull(TEXT("crystal HUD loads WBP_CrystalHealthBar"), DesignerClass);
+	if (!DesignerClass)
+	{
+		return false;
+	}
+
+	UCrystalHealthBarWidget* Widget = NewObject<UCrystalHealthBarWidget>(GetTransientPackage(), DesignerClass);
+	TestNotNull(TEXT("widget can be created from the designer class"), Widget);
 	if (!Widget)
 	{
 		return false;

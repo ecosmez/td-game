@@ -39,7 +39,7 @@ public:
 	static bool ShouldBlockChampionClickToMove(const UObject* WorldContextObject, bool bCheckUI = true);
 
 	/**
-	 * Create the tower store HUD (WBP_TowerStore if available, else TowerStoreWidget C++).
+	 * Create the tower store HUD (WBP_TowerStore).
 	 * Avoids BP "Create Widget must have a class specified" compile failures.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))
@@ -56,7 +56,7 @@ public:
 		int32 ZOrder = 120);
 
 	/**
-	 * Create the ability HUD (WBP_AbilityBar if available, else AbilityBarWidget C++).
+	 * Create the ability HUD (WBP_AbilityBar).
 	 * Avoids BP "Create Widget must have a class specified" compile failures on ShowAbilityHUD.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|UI", meta = (WorldContext = "WorldContextObject"))

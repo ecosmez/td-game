@@ -91,11 +91,11 @@ ACaptureBase::ACaptureBase()
 	ChannelBar->SetupAttachment(SceneRoot);
 	ChannelBar->SetWidgetSpace(EWidgetSpace::Screen);
 	ChannelBar->SetDrawAtDesiredSize(false);
-	ChannelBar->SetDrawSize(FVector2D(220.f, 22.f));
+	ChannelBar->SetDrawSize(UCaptureChannelWidget::GetDefaultDesignedDrawSize());
 	ChannelBar->SetPivot(FVector2D(0.5f, 1.f));
 	ChannelBar->SetRelativeLocation(FVector(0.f, 0.f, 220.f));
 	ChannelBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ChannelBar->SetWidgetClass(UCaptureChannelWidget::StaticClass());
+	ChannelBar->SetWidgetClass(UCaptureChannelWidget::ResolveWidgetClass());
 	ChannelBar->SetVisibility(false);
 }
 
@@ -113,10 +113,12 @@ void ACaptureBase::BeginPlay()
 
 	if (ChannelBar)
 	{
-		if (UCaptureChannelWidget* Widget = CreateWidget<UCaptureChannelWidget>(
-			GetWorld(), UCaptureChannelWidget::StaticClass()))
+		TSubclassOf<UCaptureChannelWidget> WidgetClass = UCaptureChannelWidget::ResolveWidgetClass();
+		ChannelBar->SetWidgetClass(WidgetClass);
+		if (UCaptureChannelWidget* Widget = CreateWidget<UCaptureChannelWidget>(GetWorld(), WidgetClass))
 		{
 			ChannelBar->SetWidget(Widget);
+			UCaptureChannelWidget::ApplyDrawSizeToComponent(ChannelBar, Widget);
 		}
 	}
 

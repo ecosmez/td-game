@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "UObject/SoftObjectPath.h"
 #include "ChampionFrameWidget.generated.h"
 
@@ -18,7 +19,7 @@ class UTexture2D;
  * Polls the controlled champion's CurrentHealth / MaxHealth (and ChampionLevel)
  * each tick. Optional portrait texture, otherwise a monogram fallback.
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UChampionFrameWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -29,6 +30,10 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_ChampionFrame. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UChampionFrameWidget> ResolveWidgetClass();
 
 	/** Distance from the bottom-left corner. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame")
@@ -64,7 +69,7 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
+	void BindDesignerWidgets();
 	void ApplyHitTestPolicy();
 	void RefreshFromChampion();
 	void ApplyPortrait(UTexture2D* Texture);

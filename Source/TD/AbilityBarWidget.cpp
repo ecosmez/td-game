@@ -1,10 +1,11 @@
-#include "AbilityBarWidget.h"
+﻿#include "AbilityBarWidget.h"
 
 #include "ChampionFrameWidget.h"
 #include "CrystalHealthBarWidget.h"
 #include "MinimapWidget.h"
 #include "MobaPlayerController.h"
 #include "TowerStoreWidget.h"
+#include "TDHudWidgetLibrary.h"
 #include "TDUIInputLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
@@ -31,11 +32,6 @@
 
 namespace AbilityBarPrivate
 {
-	static constexpr int32 NumBarSlots = 5; // + Q W E R
-	static constexpr float ChromePadX = 6.f;
-	static constexpr float ChromePadY = 4.f;
-	static constexpr float SlotPadX = 3.f;
-
 	static FLinearColor SlotReadyBg(0.12f, 0.22f, 0.32f, 0.96f);
 	static FLinearColor SlotReadyFrame(0.45f, 0.85f, 0.95f, 1.f);
 	static FLinearColor SlotCdBg(0.06f, 0.08f, 0.12f, 0.96f);
@@ -51,18 +47,6 @@ namespace AbilityBarPrivate
 	static FLinearColor StorePlusBg(0.12f, 0.42f, 0.55f, 0.95f);
 	static FLinearColor StorePlusBgOpen(0.55f, 0.28f, 0.18f, 0.95f);
 	static FLinearColor StorePlusFrame(0.45f, 0.78f, 0.88f, 1.f);
-
-	static void SetBoldFont(UTextBlock* Text, float Size)
-	{
-		if (!Text)
-		{
-			return;
-		}
-		FSlateFontInfo Font = Text->GetFont();
-		Font.Size = Size;
-		Font.TypefaceFontName = TEXT("Bold");
-		Text->SetFont(Font);
-	}
 }
 
 UAbilityBarWidget::UAbilityBarWidget(const FObjectInitializer& ObjectInitializer)
@@ -85,7 +69,6 @@ void UAbilityBarWidget::NativeConstruct()
 	EnsureBuilt();
 	// Root ignores empty space; bar chrome + store plus + ability slots receive clicks.
 	ApplyHitTestPolicy();
-	ApplyDockLayout();
 	UE_LOG(LogTemp, Display, TEXT("AbilityBarWidget constructed. Built=%d Root=%s"),
 		bBuilt ? 1 : 0,
 		WidgetTree && WidgetTree->RootWidget ? *WidgetTree->RootWidget->GetName() : TEXT("None"));
@@ -104,7 +87,8 @@ void UAbilityBarWidget::NativeConstruct()
 		}
 		if (!bMinimapAlready)
 		{
-			if (UMinimapWidget* Mini = CreateWidget<UMinimapWidget>(PC, UMinimapWidget::StaticClass()))
+			if (UMinimapWidget* Mini = UTDHudWidgetLibrary::CreateTypedHudWidget<UMinimapWidget>(
+				PC, UMinimapWidget::GetWidgetBlueprintPath()))
 			{
 				Mini->AddToViewport(20);
 			}
@@ -121,8 +105,8 @@ void UAbilityBarWidget::NativeConstruct()
 		}
 		if (!bCrystalBarAlready)
 		{
-			if (UCrystalHealthBarWidget* CrystalBar =
-				CreateWidget<UCrystalHealthBarWidget>(PC, UCrystalHealthBarWidget::StaticClass()))
+			if (UCrystalHealthBarWidget* CrystalBar = UTDHudWidgetLibrary::CreateTypedHudWidget<UCrystalHealthBarWidget>(
+				PC, UCrystalHealthBarWidget::GetWidgetBlueprintPath()))
 			{
 				// Below ability bar Z=100; top-center so it does not overlap the bar.
 				CrystalBar->AddToViewport(90);
@@ -140,34 +124,41 @@ void UAbilityBarWidget::NativeConstruct()
 		}
 		if (!bChampionFrameAlready)
 		{
-			if (UChampionFrameWidget* Frame =
-				CreateWidget<UChampionFrameWidget>(PC, UChampionFrameWidget::StaticClass()))
+			if (UChampionFrameWidget* Frame = UTDHudWidgetLibrary::CreateTypedHudWidget<UChampionFrameWidget>(
+				PC, UChampionFrameWidget::GetWidgetBlueprintPath()))
 			{
 				// Below ability bar Z=100; bottom-left unit frame (abilities dock over it).
 				Frame->AddToViewport(92);
 			}
 		}
 	}
-
-	ApplyDockLayout();
 }
 
 void UAbilityBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	if (!bBuilt || !BarSizeBox || (SlotRow && SlotRow->GetChildrenCount() != AbilityBarPrivate::NumBarSlots))
+	if (!bBuilt)
 	{
 		EnsureBuilt();
 	}
 
-	ApplyDockLayout();
 	RefreshStorePlusVisual();
 
 	if (APawn* Pawn = ResolveChampionPawn())
 	{
 		RefreshFromPawn(Pawn);
 	}
+}
+
+const TCHAR* UAbilityBarWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_AbilityBar.WBP_AbilityBar_C");
+}
+
+TSubclassOf<UAbilityBarWidget> UAbilityBarWidget::ResolveWidgetClass()
+{
+	return LoadClass<UAbilityBarWidget>(nullptr, GetWidgetBlueprintPath());
 }
 
 bool UAbilityBarWidget::ShouldBlockWorldClickInput(const UObject* WorldContextObject)
@@ -177,8 +168,7 @@ bool UAbilityBarWidget::ShouldBlockWorldClickInput(const UObject* WorldContextOb
 
 void UAbilityBarWidget::EnsureBuilt()
 {
-	if (bBuilt && StorePlusButton && BarSizeBox && SlotQ.CooldownClip
-		&& (!SlotRow || SlotRow->GetChildrenCount() == AbilityBarPrivate::NumBarSlots))
+	if (bBuilt && StorePlusButton && SlotQ.Button && SlotR.Button && SlotQ.CooldownClip)
 	{
 		return;
 	}
@@ -188,28 +178,8 @@ void UAbilityBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !SlotRow || !BarSizeBox)
-	{
-		BuildDefaultUI();
-	}
-	else if (!StorePlusButton || !SlotQ.CooldownClip
-		|| (SlotRow && SlotRow->GetChildrenCount() != AbilityBarPrivate::NumBarSlots))
-	{
-		// Hot-reload / older runtime tree missing store opener, CD wipe, or leftover next-wave slot.
-		if (SlotRow)
-		{
-			SlotRow->ClearChildren();
-			BuildStorePlusSlot(SlotRow);
-			SlotQ = BuildSlot(SlotRow, TEXT('Q'), 1);
-			SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
-			SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
-			SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
-		}
-		else
-		{
-			BuildDefaultUI();
-		}
-	}
+	BindDesignerWidgets();
+	CacheSlotSizeFromDesigner();
 
 	bBuilt = SlotQ.Button != nullptr && SlotR.Button != nullptr
 		&& SlotQ.CooldownClip != nullptr
@@ -218,8 +188,172 @@ void UAbilityBarWidget::EnsureBuilt()
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
-		ApplyDockLayout();
 	}
+}
+
+void UAbilityBarWidget::BindDesignerWidgets()
+{
+	SlotRow = Cast<UHorizontalBox>(GetWidgetFromName(TEXT("AbilitySlotRow")));
+	BarChrome = Cast<UBorder>(GetWidgetFromName(TEXT("AbilityBarChrome")));
+	BarSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("AbilityBarSize")));
+	StorePlusSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("StorePlusSize")));
+	StorePlusFrame = Cast<UBorder>(GetWidgetFromName(TEXT("StorePlusFrame")));
+	if (!StorePlusFrame)
+	{
+		StorePlusFrame = Cast<UBorder>(GetWidgetFromName(TEXT("PlusFrame")));
+	}
+	StorePlusButton = Cast<UButton>(GetWidgetFromName(TEXT("StorePlusButton")));
+	if (!StorePlusButton)
+	{
+		StorePlusButton = Cast<UButton>(GetWidgetFromName(TEXT("PlusButton")));
+	}
+	StorePlusLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("StorePlusLabel")));
+	if (!StorePlusLabel)
+	{
+		StorePlusLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("PlusLabel")));
+	}
+
+	SlotQ = BindSlot(TEXT('Q'), 1);
+	SlotW = BindSlot(TEXT('W'), 2);
+	SlotE = BindSlot(TEXT('E'), 3);
+	SlotR = BindSlot(TEXT('R'), 4);
+
+	BindStorePlusClick();
+	BindSlotClicks(SlotQ);
+	BindSlotClicks(SlotW);
+	BindSlotClicks(SlotE);
+	BindSlotClicks(SlotR);
+}
+
+void UAbilityBarWidget::BindStorePlusClick()
+{
+	if (StorePlusButton && !StorePlusButton->OnClicked.IsBound())
+	{
+		StorePlusButton->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnStorePlusClicked);
+	}
+}
+
+void UAbilityBarWidget::OnStorePlusClicked()
+{
+	ToggleStore();
+}
+
+void UAbilityBarWidget::ToggleStore()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
+	{
+		UTowerStoreWidget* Store = *It;
+		if (!IsValid(Store) || Store->GetWorld() != World)
+		{
+			continue;
+		}
+		Store->ToggleStore();
+		RefreshStorePlusVisual();
+		return;
+	}
+
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (UUserWidget* Widget = UTDUIInputLibrary::CreateAndShowTowerStore(this, PC, 120))
+		{
+			if (UTowerStoreWidget* Store = Cast<UTowerStoreWidget>(Widget))
+			{
+				Store->SetStoreOpen(true);
+			}
+			RefreshStorePlusVisual();
+		}
+	}
+}
+
+void UAbilityBarWidget::RefreshStorePlusVisual()
+{
+	if (!StorePlusButton || !StorePlusLabel)
+	{
+		return;
+	}
+
+	bool bOpen = false;
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
+		{
+			UTowerStoreWidget* Store = *It;
+			if (IsValid(Store) && Store->GetWorld() == World && Store->IsInViewport())
+			{
+				bOpen = Store->IsStoreOpen();
+				break;
+			}
+		}
+	}
+
+	StorePlusButton->SetBackgroundColor(bOpen ? AbilityBarPrivate::StorePlusBgOpen : AbilityBarPrivate::StorePlusBg);
+	StorePlusLabel->SetText(FText::FromString(bOpen ? TEXT("-") : TEXT("+")));
+	if (StorePlusFrame)
+	{
+		StorePlusFrame->SetBrushColor(bOpen
+			? FLinearColor(0.9f, 0.55f, 0.35f, 1.f)
+			: AbilityBarPrivate::StorePlusFrame);
+	}
+}
+
+void UAbilityBarWidget::BindSlotClicks(FAbilityBarSlotWidgets& SlotUI)
+{
+	if (!SlotUI.Button || SlotUI.Button->OnClicked.IsBound())
+	{
+		return;
+	}
+	if (SlotUI.AbilityId == 1)
+	{
+		SlotUI.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotQClicked);
+	}
+	else if (SlotUI.AbilityId == 2)
+	{
+		SlotUI.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotWClicked);
+	}
+	else if (SlotUI.AbilityId == 3)
+	{
+		SlotUI.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotEClicked);
+	}
+	else if (SlotUI.AbilityId == 4)
+	{
+		SlotUI.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotRClicked);
+	}
+}
+
+void UAbilityBarWidget::CacheSlotSizeFromDesigner()
+{
+	if (SlotQ.SizeBox && SlotQ.SizeBox->IsWidthOverride())
+	{
+		EffectiveSlotSize = SlotQ.SizeBox->GetWidthOverride();
+	}
+	else
+	{
+		EffectiveSlotSize = SlotSize;
+	}
+}
+
+FAbilityBarSlotWidgets UAbilityBarWidget::BindSlot(TCHAR KeyChar, int32 AbilityId)
+{
+	FAbilityBarSlotWidgets Out;
+	Out.KeyChar = KeyChar;
+	Out.AbilityId = AbilityId;
+	const FString KeyStr = FString(1, &KeyChar);
+	Out.SizeBox = Cast<USizeBox>(GetWidgetFromName(*FString::Printf(TEXT("Size_%s"), *KeyStr)));
+	Out.Frame = Cast<UBorder>(GetWidgetFromName(*FString::Printf(TEXT("Frame_%s"), *KeyStr)));
+	Out.Button = Cast<UButton>(GetWidgetFromName(*FString::Printf(TEXT("Btn_%s"), *KeyStr)));
+	Out.CooldownClip = Cast<USizeBox>(GetWidgetFromName(*FString::Printf(TEXT("CDClip_%s"), *KeyStr)));
+	Out.CooldownFill = Cast<UBorder>(GetWidgetFromName(*FString::Printf(TEXT("CDFill_%s"), *KeyStr)));
+	Out.KeyLabel = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("Key_%s"), *KeyStr)));
+	Out.CooldownText = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("CDText_%s"), *KeyStr)));
+	Out.LockText = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("Lock_%s"), *KeyStr)));
+	return Out;
 }
 
 void UAbilityBarWidget::ApplyHitTestPolicy()
@@ -254,308 +388,6 @@ void UAbilityBarWidget::ApplyHitTestPolicy()
 	ShowSlot(SlotW);
 	ShowSlot(SlotE);
 	ShowSlot(SlotR);
-}
-
-void UAbilityBarWidget::BuildDefaultUI()
-{
-	if (!WidgetTree)
-	{
-		return;
-	}
-
-	UCanvasPanel* Root = Cast<UCanvasPanel>(WidgetTree->RootWidget);
-	if (!Root)
-	{
-		Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AbilityBarRoot"));
-		WidgetTree->RootWidget = Root;
-	}
-
-	if (!BarChrome)
-	{
-		BarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("AbilityBarChrome"));
-		BarChrome->SetPadding(FMargin(AbilityBarPrivate::ChromePadX, AbilityBarPrivate::ChromePadY));
-		BarChrome->SetBrushColor(FLinearColor(0.05f, 0.08f, 0.12f, 0.72f));
-		if (UCanvasPanelSlot* ChromeSlot = Root->AddChildToCanvas(BarChrome))
-		{
-			ChromeSlot->SetZOrder(10);
-		}
-	}
-	else
-	{
-		BarChrome->SetPadding(FMargin(AbilityBarPrivate::ChromePadX, AbilityBarPrivate::ChromePadY));
-	}
-
-	if (!BarSizeBox)
-	{
-		BarSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AbilityBarSize"));
-		BarChrome->SetContent(BarSizeBox);
-	}
-
-	if (!SlotRow)
-	{
-		SlotRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("AbilitySlotRow"));
-	}
-	else
-	{
-		SlotRow->ClearChildren();
-	}
-	BarSizeBox->SetContent(SlotRow);
-
-	// Tower store opener is the first button, left of Q.
-	BuildStorePlusSlot(SlotRow);
-
-	SlotQ = BuildSlot(SlotRow, TEXT('Q'), 1);
-	SlotW = BuildSlot(SlotRow, TEXT('W'), 2);
-	SlotE = BuildSlot(SlotRow, TEXT('E'), 3);
-	SlotR = BuildSlot(SlotRow, TEXT('R'), 4);
-
-	ApplyHitTestPolicy();
-	ApplyDockLayout();
-}
-
-void UAbilityBarWidget::BuildStorePlusSlot(UHorizontalBox* Parent)
-{
-	if (!Parent || !WidgetTree)
-	{
-		return;
-	}
-
-	StorePlusSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StorePlusSize"));
-	StorePlusSizeBox->SetWidthOverride(EffectiveSlotSize);
-	StorePlusSizeBox->SetHeightOverride(EffectiveSlotSize);
-
-	StorePlusFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StorePlusFrame"));
-	StorePlusFrame->SetPadding(FMargin(2.f));
-	StorePlusFrame->SetBrushColor(AbilityBarPrivate::StorePlusFrame);
-	StorePlusSizeBox->SetContent(StorePlusFrame);
-
-	StorePlusButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("StorePlusButton"));
-	StorePlusButton->SetBackgroundColor(AbilityBarPrivate::StorePlusBg);
-	StorePlusButton->SetIsEnabled(true);
-	StorePlusButton->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnStorePlusClicked);
-	StorePlusFrame->SetContent(StorePlusButton);
-
-	StorePlusLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StorePlusLabel"));
-	StorePlusLabel->SetText(FText::FromString(TEXT("+")));
-	StorePlusLabel->SetJustification(ETextJustify::Center);
-	StorePlusLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
-	StorePlusLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	StorePlusLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	AbilityBarPrivate::SetBoldFont(StorePlusLabel, 22.f);
-	StorePlusButton->SetContent(StorePlusLabel);
-
-	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(StorePlusSizeBox))
-	{
-		RowSlot->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
-		RowSlot->SetVerticalAlignment(VAlign_Center);
-	}
-}
-
-void UAbilityBarWidget::OnStorePlusClicked()
-{
-	ToggleStore();
-}
-
-void UAbilityBarWidget::ToggleStore()
-{
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	// Prefer the store widget already shown by BuildManager.
-	for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
-	{
-		UTowerStoreWidget* Store = *It;
-		if (!IsValid(Store) || Store->GetWorld() != World)
-		{
-			continue;
-		}
-		Store->ToggleStore();
-		RefreshStorePlusVisual();
-		return;
-	}
-
-	// Fallback: spawn store if BuildManager has not created one yet.
-	if (APlayerController* PC = GetOwningPlayer())
-	{
-		if (UTowerStoreWidget* Store = CreateWidget<UTowerStoreWidget>(PC, UTowerStoreWidget::StaticClass()))
-		{
-			// Above ability bar (Z=100 in ShowAbilityHUD) so the bottom-center strip draws on top.
-			Store->AddToViewport(120);
-			Store->SetStoreOpen(true);
-			RefreshStorePlusVisual();
-		}
-	}
-}
-
-void UAbilityBarWidget::RefreshStorePlusVisual()
-{
-	if (!StorePlusButton || !StorePlusLabel)
-	{
-		return;
-	}
-
-	bool bOpen = false;
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		for (TObjectIterator<UTowerStoreWidget> It; It; ++It)
-		{
-			UTowerStoreWidget* Store = *It;
-			if (IsValid(Store) && Store->GetWorld() == World && Store->IsInViewport())
-			{
-				bOpen = Store->IsStoreOpen();
-				break;
-			}
-		}
-	}
-
-	StorePlusButton->SetBackgroundColor(bOpen ? AbilityBarPrivate::StorePlusBgOpen : AbilityBarPrivate::StorePlusBg);
-	StorePlusLabel->SetText(FText::FromString(bOpen ? TEXT("−") : TEXT("+")));
-	if (StorePlusFrame)
-	{
-		StorePlusFrame->SetBrushColor(bOpen
-			? FLinearColor(0.9f, 0.55f, 0.35f, 1.f)
-			: AbilityBarPrivate::StorePlusFrame);
-	}
-}
-
-FAbilityBarSlotWidgets UAbilityBarWidget::BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId)
-{
-	FAbilityBarSlotWidgets Out;
-	if (!Parent || !WidgetTree)
-	{
-		return Out;
-	}
-
-	Out.KeyChar = KeyChar;
-	Out.AbilityId = AbilityId;
-	const FString KeyStr = FString(1, &KeyChar);
-
-	Out.SizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("Size_%s"), *KeyStr));
-	Out.SizeBox->SetWidthOverride(EffectiveSlotSize);
-	Out.SizeBox->SetHeightOverride(EffectiveSlotSize);
-
-	Out.Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("Frame_%s"), *KeyStr));
-	Out.Frame->SetPadding(FMargin(3.f));
-	Out.Frame->SetBrushColor(AbilityBarPrivate::SlotReadyFrame);
-	Out.SizeBox->SetContent(Out.Frame);
-
-	UOverlay* Overlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), *FString::Printf(TEXT("Slot_%s"), *KeyStr));
-	Out.Frame->SetContent(Overlay);
-
-	Out.Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), *FString::Printf(TEXT("Btn_%s"), *KeyStr));
-	Out.Button->SetBackgroundColor(AbilityBarPrivate::SlotReadyBg);
-	Out.Button->SetIsEnabled(true);
-	if (AbilityId == 1)
-	{
-		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotQClicked);
-	}
-	else if (AbilityId == 2)
-	{
-		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotWClicked);
-	}
-	else if (AbilityId == 3)
-	{
-		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotEClicked);
-	}
-	else if (AbilityId == 4)
-	{
-		Out.Button->OnClicked.AddDynamic(this, &UAbilityBarWidget::OnSlotRClicked);
-	}
-	if (UOverlaySlot* BtnSlot = Overlay->AddChildToOverlay(Out.Button))
-	{
-		BtnSlot->SetHorizontalAlignment(HAlign_Fill);
-		BtnSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	// LoL-style remaining-CD wipe: SizeBox height shrinks as cooldown ticks down.
-	Out.CooldownClip = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *FString::Printf(TEXT("CDClip_%s"), *KeyStr));
-	Out.CooldownClip->SetWidthOverride(EffectiveSlotSize);
-	Out.CooldownClip->SetHeightOverride(0.f);
-	Out.CooldownClip->SetVisibility(ESlateVisibility::Collapsed);
-
-	Out.CooldownFill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("CDFill_%s"), *KeyStr));
-	{
-		// Explicit solid brush — BorderColor alone can be invisible without a drawable brush.
-		FSlateBrush FillBrush;
-		FillBrush.DrawAs = ESlateBrushDrawType::Image;
-		if (const FSlateBrush* White = FCoreStyle::Get().GetBrush("GenericWhiteBox"))
-		{
-			FillBrush = *White;
-		}
-		FillBrush.TintColor = FSlateColor(AbilityBarPrivate::CdOverlay);
-		Out.CooldownFill->SetBrush(FillBrush);
-	}
-	Out.CooldownFill->SetBrushColor(AbilityBarPrivate::CdOverlay);
-	Out.CooldownFill->SetPadding(FMargin(0.f));
-	Out.CooldownClip->SetContent(Out.CooldownFill);
-
-	if (UOverlaySlot* CdSlot = Overlay->AddChildToOverlay(Out.CooldownClip))
-	{
-		CdSlot->SetHorizontalAlignment(HAlign_Fill);
-		CdSlot->SetVerticalAlignment(VAlign_Top);
-	}
-
-	UVerticalBox* Labels = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), *FString::Printf(TEXT("Labels_%s"), *KeyStr));
-	Labels->SetVisibility(ESlateVisibility::HitTestInvisible);
-
-	Out.KeyLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("Key_%s"), *KeyStr));
-	Out.KeyLabel->SetText(FText::FromString(KeyStr));
-	Out.KeyLabel->SetJustification(ETextJustify::Center);
-	Out.KeyLabel->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::KeyColor));
-	Out.KeyLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	Out.KeyLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	AbilityBarPrivate::SetBoldFont(Out.KeyLabel, 18.f);
-	if (UVerticalBoxSlot* KeySlot = Labels->AddChildToVerticalBox(Out.KeyLabel))
-	{
-		KeySlot->SetHorizontalAlignment(HAlign_Center);
-		KeySlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		KeySlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	Out.CooldownText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("CDText_%s"), *KeyStr));
-	Out.CooldownText->SetText(FText::GetEmpty());
-	Out.CooldownText->SetJustification(ETextJustify::Center);
-	Out.CooldownText->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::CdTextColor));
-	Out.CooldownText->SetShadowOffset(FVector2D(2.f, 2.f));
-	Out.CooldownText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.95f));
-	Out.CooldownText->SetVisibility(ESlateVisibility::Collapsed);
-	AbilityBarPrivate::SetBoldFont(Out.CooldownText, 16.f);
-	if (UVerticalBoxSlot* CdTextSlot = Labels->AddChildToVerticalBox(Out.CooldownText))
-	{
-		CdTextSlot->SetHorizontalAlignment(HAlign_Center);
-		CdTextSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		CdTextSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	Out.LockText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("Lock_%s"), *KeyStr));
-	Out.LockText->SetText(FText::FromString(TEXT("LOCKED")));
-	Out.LockText->SetJustification(ETextJustify::Center);
-	Out.LockText->SetColorAndOpacity(FSlateColor(AbilityBarPrivate::LockTextColor));
-	Out.LockText->SetVisibility(ESlateVisibility::Collapsed);
-	AbilityBarPrivate::SetBoldFont(Out.LockText, 10.f);
-	if (UVerticalBoxSlot* LockSlot = Labels->AddChildToVerticalBox(Out.LockText))
-	{
-		LockSlot->SetHorizontalAlignment(HAlign_Center);
-		LockSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
-	}
-
-	if (UOverlaySlot* LabelSlot = Overlay->AddChildToOverlay(Labels))
-	{
-		LabelSlot->SetHorizontalAlignment(HAlign_Fill);
-		LabelSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	if (UHorizontalBoxSlot* RowSlot = Parent->AddChildToHorizontalBox(Out.SizeBox))
-	{
-		RowSlot->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
-		RowSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	return Out;
 }
 
 void UAbilityBarWidget::OnAbilitySlotClicked(int32 AbilityId)
@@ -653,119 +485,6 @@ UChampionFrameWidget* UAbilityBarWidget::ResolveChampionFrame() const
 		return Frame;
 	}
 	return nullptr;
-}
-
-void UAbilityBarWidget::ApplyDockLayout()
-{
-	if (!BarChrome)
-	{
-		return;
-	}
-
-	FVector2D Margin(24.f, 24.f);
-	FVector2D FrameSize(324.f, 108.f);
-	if (UChampionFrameWidget* Frame = ResolveChampionFrame())
-	{
-		Margin = Frame->GetChromeScreenMargin();
-		FrameSize = Frame->GetChromeScreenSize();
-	}
-
-	const float TargetWidth = FMath::Max(FrameSize.X, 160.f);
-	const float Inner = FMath::Max(TargetWidth - AbilityBarPrivate::ChromePadX * 2.f, 80.f);
-	const float TotalPad = AbilityBarPrivate::SlotPadX * 2.f * static_cast<float>(AbilityBarPrivate::NumBarSlots);
-	const float Fitted = (Inner - TotalPad) / static_cast<float>(AbilityBarPrivate::NumBarSlots);
-	EffectiveSlotSize = FMath::Clamp(Fitted, 32.f, SlotSize);
-	const float Lift = Margin.Y + FrameSize.Y + AbilityOverFrameGap;
-
-	const bool bLayoutDirty =
-		!FMath::IsNearlyEqual(EffectiveSlotSize, LastAppliedSlotSize, 0.25f)
-		|| !FMath::IsNearlyEqual(TargetWidth, LastAppliedWidth, 0.25f)
-		|| !FMath::IsNearlyEqual(Lift, LastAppliedLift, 0.25f)
-		|| !FMath::IsNearlyEqual(Margin.X, LastAppliedLeft, 0.25f);
-	if (!bLayoutDirty)
-	{
-		return;
-	}
-
-	LastAppliedSlotSize = EffectiveSlotSize;
-	LastAppliedWidth = TargetWidth;
-	LastAppliedLift = Lift;
-	LastAppliedLeft = Margin.X;
-
-	if (BarSizeBox)
-	{
-		BarSizeBox->SetWidthOverride(TargetWidth - AbilityBarPrivate::ChromePadX * 2.f);
-		BarSizeBox->SetHeightOverride(EffectiveSlotSize);
-	}
-
-	if (UCanvasPanelSlot* ChromeSlot = Cast<UCanvasPanelSlot>(BarChrome->Slot))
-	{
-		ChromeSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
-		ChromeSlot->SetAlignment(FVector2D(0.f, 1.f));
-		ChromeSlot->SetAutoSize(true);
-		ChromeSlot->SetOffsets(FMargin(Margin.X, -Lift, 0.f, 0.f));
-		ChromeSlot->SetZOrder(10);
-	}
-
-	ApplySlotMetrics();
-}
-
-void UAbilityBarWidget::ApplySlotMetrics()
-{
-	auto ApplyBox = [this](USizeBox* Box)
-	{
-		if (Box)
-		{
-			Box->SetWidthOverride(EffectiveSlotSize);
-			Box->SetHeightOverride(EffectiveSlotSize);
-		}
-	};
-	ApplyBox(StorePlusSizeBox);
-	ApplyBox(SlotQ.SizeBox);
-	ApplyBox(SlotW.SizeBox);
-	ApplyBox(SlotE.SizeBox);
-	ApplyBox(SlotR.SizeBox);
-
-	auto ApplyClipWidth = [this](USizeBox* Clip)
-	{
-		if (Clip)
-		{
-			Clip->SetWidthOverride(EffectiveSlotSize);
-		}
-	};
-	ApplyClipWidth(SlotQ.CooldownClip);
-	ApplyClipWidth(SlotW.CooldownClip);
-	ApplyClipWidth(SlotE.CooldownClip);
-	ApplyClipWidth(SlotR.CooldownClip);
-
-	auto ApplyPad = [](UWidget* W)
-	{
-		if (W)
-		{
-			if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(W->Slot))
-			{
-				HS->SetPadding(FMargin(AbilityBarPrivate::SlotPadX, 0.f));
-			}
-		}
-	};
-	ApplyPad(StorePlusSizeBox);
-	ApplyPad(SlotQ.SizeBox);
-	ApplyPad(SlotW.SizeBox);
-	ApplyPad(SlotE.SizeBox);
-	ApplyPad(SlotR.SizeBox);
-
-	const float FontScale = FMath::Clamp(EffectiveSlotSize / 56.f, 0.65f, 1.15f);
-	AbilityBarPrivate::SetBoldFont(StorePlusLabel, 22.f * FontScale);
-	auto ApplySlotFonts = [FontScale](FAbilityBarSlotWidgets& SlotUI)
-	{
-		AbilityBarPrivate::SetBoldFont(SlotUI.KeyLabel, 18.f * FontScale);
-		AbilityBarPrivate::SetBoldFont(SlotUI.CooldownText, 16.f * FontScale);
-		AbilityBarPrivate::SetBoldFont(SlotUI.LockText, 10.f * FontScale);
-	};
-	ApplySlotFonts(SlotQ);
-	ApplySlotFonts(SlotW);
-	ApplySlotFonts(SlotE);
-	ApplySlotFonts(SlotR);
 }
 
 APawn* UAbilityBarWidget::ResolveChampionPawn() const
@@ -875,7 +594,7 @@ void UAbilityBarWidget::ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 Abi
 	const float SafeMax = FMath::Max(MaxCD, 0.01f);
 	const float CdPercent = bOnCooldown ? FMath::Clamp(RemainingCD / SafeMax, 0.f, 1.f) : 0.f;
 
-	// Dark wipe covers remaining CD (shrinks top→bottom as it cools, LoL-style).
+		// Dark wipe covers remaining CD (shrinks top to bottom as it cools, LoL-style).
 	if (SlotUI.CooldownClip && SlotUI.CooldownFill)
 	{
 		if (bOnCooldown && !bUltLocked)
@@ -928,7 +647,7 @@ void UAbilityBarWidget::ApplySlotState(FAbilityBarSlotWidgets& SlotUI, int32 Abi
 		}
 		else if (bDropping)
 		{
-			SlotUI.LockText->SetText(FText::FromString(TEXT("—")));
+			SlotUI.LockText->SetText(FText::FromString(TEXT("--")));
 			SlotUI.LockText->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 		else

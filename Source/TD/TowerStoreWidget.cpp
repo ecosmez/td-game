@@ -1,4 +1,4 @@
-#include "TowerStoreWidget.h"
+﻿#include "TowerStoreWidget.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -42,7 +42,7 @@ namespace TowerStorePrivate
 	static const FLinearColor TextMain(0.92f, 0.95f, 1.f, 1.f);
 	static const FLinearColor TextDim(0.78f, 0.86f, 0.92f, 1.f);
 	static const FLinearColor TextCost(1.f, 0.86f, 0.35f, 1.f);
-	// Bare mesh image — no border/frame. Transparent clear RT so only the hologram shows.
+	// Bare mesh image â€” no border/frame. Transparent clear RT so only the hologram shows.
 	// Alpha on clear color is 0 so no solid background plate.
 	static const FLinearColor PreviewClear(0.f, 0.f, 0.f, 0.f);
 
@@ -208,7 +208,7 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 	Add(TEXT("Mine"), TEXT("Mine"), ETowerStoreCategory::Attack, TEXT("SelectMineTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Mine.BP_Tower_Mine_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Trap.MI_Tower_Trap"),
-		40, 1.5f, 0.f, 45.f, 200.f, TEXT("Path • AoE, one-shot or pulse"));
+		40, 1.5f, 0.f, 45.f, 200.f, TEXT("Path â€¢ AoE, one-shot or pulse"));
 
 	Add(TEXT("Wall"), TEXT("Wall"), ETowerStoreCategory::Defense, TEXT("SelectWallTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Wall.BP_Tower_Wall_C"),
@@ -223,7 +223,7 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 	Add(TEXT("Economy"), TEXT("Economy"), ETowerStoreCategory::Support, TEXT("SelectEconomyTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Economy.BP_Tower_Economy_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Economy.MI_Tower_Economy"),
-		90, 3.5f, 0.f, 0.f, 0.f, TEXT("Crystal • +gold over time"));
+		90, 3.5f, 0.f, 0.f, 0.f, TEXT("Crystal â€¢ +gold over time"));
 
 	Add(TEXT("Buff"), TEXT("Support"), ETowerStoreCategory::Support, TEXT("SelectBuffTower"),
 		TEXT("/Game/TD/Towers/BP_Tower_Buff.BP_Tower_Buff_C"),
@@ -248,310 +248,149 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 	Add(TEXT("Slow Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
-		50, 2.0f, 0.f, 0.f, 350.f, TEXT("Pulses slow • permanent"));
+		50, 2.0f, 0.f, 0.f, 350.f, TEXT("Pulses slow â€¢ permanent"));
 
 	Add(TEXT("Slow Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
-		30, 1.5f, 0.f, 0.f, 250.f, TEXT("One-shot slow • consumed"));
+		30, 1.5f, 0.f, 0.f, 250.f, TEXT("One-shot slow â€¢ consumed"));
 
 	Add(TEXT("Root Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
-		70, 2.5f, 0.f, 0.f, 300.f, TEXT("Pulses root • permanent"));
+		70, 2.5f, 0.f, 0.f, 300.f, TEXT("Pulses root â€¢ permanent"));
 
 	Add(TEXT("Root Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
-		45, 1.5f, 0.f, 0.f, 220.f, TEXT("One-shot root • consumed"));
+		45, 1.5f, 0.f, 0.f, 220.f, TEXT("One-shot root â€¢ consumed"));
 
 	Add(TEXT("Freeze Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeFieldTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
-		90, 3.0f, 0.f, 0.f, 280.f, TEXT("Pulses freeze • permanent"));
+		90, 3.0f, 0.f, 0.f, 280.f, TEXT("Pulses freeze â€¢ permanent"));
 
 	Add(TEXT("Freeze Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeSnareTrap"),
 		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
-		55, 1.5f, 0.f, 0.f, 200.f, TEXT("One-shot freeze • consumed"));
+		55, 1.5f, 0.f, 0.f, 200.f, TEXT("One-shot freeze â€¢ consumed"));
 }
 
 void UTowerStoreWidget::EnsureBuilt()
 {
+	if (bBuilt && StorePanel && CardRow)
+	{
+		return;
+	}
+	if (!WidgetTree)
+	{
+		return;
+	}
+
+	BindDesignerWidgets();
+	BindCategoryTabs();
+	if (Catalog.Num() == 0)
+	{
+		BuildDefaultCatalog();
+	}
+	BuildCards();
+	bBuilt = StorePanel != nullptr && CardRow != nullptr;
 	if (bBuilt)
 	{
-		return;
+		ApplyHitTestPolicy();
 	}
-	if (!WidgetTree)
-	{
-		return;
-	}
-	if (!WidgetTree->RootWidget || !StorePanel)
-	{
-		BuildDefaultUI();
-	}
-	bBuilt = StorePanel != nullptr;
 }
 
-void UTowerStoreWidget::BuildDefaultUI()
+const TCHAR* UTowerStoreWidget::GetWidgetBlueprintPath()
 {
-	if (!WidgetTree)
-	{
-		return;
-	}
+	return TEXT("/Game/TD/UI/WBP_TowerStore.WBP_TowerStore_C");
+}
 
-	RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+TSubclassOf<UTowerStoreWidget> UTowerStoreWidget::ResolveWidgetClass()
+{
+	return LoadClass<UTowerStoreWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
+void UTowerStoreWidget::BindDesignerWidgets()
+{
+	RootCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("TowerStoreRoot")));
 	if (!RootCanvas)
 	{
-		RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TowerStoreRoot"));
-		WidgetTree->RootWidget = RootCanvas;
+		RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
 	}
-	else
+	StorePanel = Cast<UBorder>(GetWidgetFromName(TEXT("StorePanel")));
+	if (!StorePanel)
 	{
-		RootCanvas->ClearChildren();
+		StorePanel = Cast<UBorder>(GetWidgetFromName(TEXT("StoreChrome")));
 	}
-
-	// -------------------------------------------------------------------------
-	// 1) Horizontal store strip — solid chrome, bottom-center.
-	// -------------------------------------------------------------------------
-	StorePanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StorePanel"));
-	StorePanel->SetPadding(FMargin(12.f, 8.f));
-	StorePanel->SetBrushColor(TowerStorePrivate::PanelBg);
-	if (UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(StorePanel))
+	StorePanelSlot = StorePanel ? Cast<UCanvasPanelSlot>(StorePanel->Slot) : nullptr;
+	HoverPanel = Cast<USizeBox>(GetWidgetFromName(TEXT("HoverFloat")));
+	HoverPanelSlot = HoverPanel ? Cast<UCanvasPanelSlot>(HoverPanel->Slot) : nullptr;
+	HoverMeshImage = Cast<UImage>(GetWidgetFromName(TEXT("HoverMeshImage")));
+	if (!HoverMeshImage)
 	{
-		// Layout applied in ApplyDockLayout (Offset.Top negative = lift from bottom).
-		StorePanelSlot = PanelSlot;
+		HoverMeshImage = Cast<UImage>(GetWidgetFromName(TEXT("HoverMesh")));
 	}
-
-	UVerticalBox* PanelV = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelVBox"));
-	StorePanel->SetContent(PanelV);
-
-	// Header (resource / title / close)
-	UHorizontalBox* Header = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("StoreHeader"));
-	if (UVerticalBoxSlot* HeaderSlot = PanelV->AddChildToVerticalBox(Header))
+	HoverNameText = Cast<UTextBlock>(GetWidgetFromName(TEXT("HoverName")));
+	HoverCostText = Cast<UTextBlock>(GetWidgetFromName(TEXT("HoverCost")));
+	HoverStatsText = Cast<UTextBlock>(GetWidgetFromName(TEXT("HoverStats")));
+	TitleText = Cast<UTextBlock>(GetWidgetFromName(TEXT("StoreTitle")));
+	ResourceText = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResourceText")));
+	if (!ResourceText)
 	{
-		HeaderSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
+		ResourceText = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResourceLabel")));
 	}
-
-	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StoreTitle"));
-	TitleText->SetText(FText::FromString(TEXT("TOWER STORE")));
-	TowerStorePrivate::SetTextStyle(TitleText, TowerStorePrivate::TextMain, 13.f, true);
-	if (UHorizontalBoxSlot* TitleSlot = Header->AddChildToHorizontalBox(TitleText))
+	CardScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("CardScroll")));
+	if (!CardScroll)
 	{
-		TitleSlot->SetVerticalAlignment(VAlign_Center);
-		TitleSlot->SetPadding(FMargin(0.f, 0.f, 12.f, 0.f));
+		CardScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("CardStrip")));
 	}
-
-	ResourceText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ResourceText"));
-	ResourceText->SetText(FText::FromString(TEXT("Resource: —")));
-	TowerStorePrivate::SetTextStyle(ResourceText, TowerStorePrivate::TextCost, 12.f, false);
-	if (UHorizontalBoxSlot* ResSlot = Header->AddChildToHorizontalBox(ResourceText))
+	CardRow = Cast<UHorizontalBox>(GetWidgetFromName(TEXT("CardRow")));
+	if (!CardRow)
 	{
-		ResSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		ResSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	BuildCategoryTabs(PanelV);
-
-	// Horizontal tower strip only — no hover inside this chrome.
-	USizeBox* StripSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StripSize"));
-	StripSize->SetHeightOverride(StoreStripHeight);
-	StripSize->SetWidthOverride(StoreMaxWidth);
-	if (UVerticalBoxSlot* StripSlot = PanelV->AddChildToVerticalBox(StripSize))
-	{
-		StripSlot->SetHorizontalAlignment(HAlign_Fill);
-	}
-
-	CardScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("CardScroll"));
-	CardScroll->SetOrientation(Orient_Horizontal);
-	CardScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	StripSize->SetContent(CardScroll);
-
-	CardRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CardRow"));
-	CardScroll->AddChild(CardRow);
-
-	// -------------------------------------------------------------------------
-	// 2) Floating hover projection — OUTSIDE store chrome. Transparent, draws
-	//    over the world / other UI (mesh + stats "floating").
-	// -------------------------------------------------------------------------
-	HoverPanel = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("HoverFloat"));
-	HoverPanel->SetHeightOverride(HoverPanelHeight);
-	HoverPanel->SetWidthOverride(StoreMaxWidth);
-	HoverPanel->SetVisibility(ESlateVisibility::Collapsed);
-	if (UCanvasPanelSlot* HoverSlot = RootCanvas->AddChildToCanvas(HoverPanel))
-	{
-		// Layout applied in ApplyDockLayout — floats above strip, no store chrome.
-		HoverPanelSlot = HoverSlot;
-	}
-
-	// Transparent horizontal float: [ mesh ]  name / cost / stats  — no panel / no chrome.
-	UHorizontalBox* HoverRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HoverRow"));
-	HoverRow->SetVisibility(ESlateVisibility::HitTestInvisible);
-	HoverPanel->SetContent(HoverRow);
-
-	USizeBox* MeshBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("HoverMeshBox"));
-	MeshBox->SetWidthOverride(170.f);
-	MeshBox->SetHeightOverride(170.f);
-	MeshBox->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UHorizontalBoxSlot* MeshSlot = HoverRow->AddChildToHorizontalBox(MeshBox))
-	{
-		MeshSlot->SetPadding(FMargin(0.f, 0.f, 16.f, 0.f));
-		MeshSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	// Bare mesh image — no border, no frame, transparent RT background bleeds through.
-	HoverMeshImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("HoverMeshImage"));
-	{
-		FSlateBrush Brush;
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-		Brush.TintColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 1.f));
-		Brush.ImageSize = FVector2D(170.f, 170.f);
-		// Leave brush color fully white; opacity is only the hologram itself.
-		HoverMeshImage->SetBrush(Brush);
-		HoverMeshImage->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, HoverProjectionOpacity));
-		HoverMeshImage->SetVisibility(ESlateVisibility::HitTestInvisible);
-	}
-	MeshBox->SetContent(HoverMeshImage);
-
-	UVerticalBox* HoverInfo = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("HoverInfo"));
-	HoverInfo->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UHorizontalBoxSlot* InfoSlot = HoverRow->AddChildToHorizontalBox(HoverInfo))
-	{
-		InfoSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		InfoSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	UHorizontalBox* HoverTitleRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HoverTitleRow"));
-	if (UVerticalBoxSlot* HTSlot = HoverInfo->AddChildToVerticalBox(HoverTitleRow))
-	{
-		HTSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
-	}
-
-	HoverNameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HoverName"));
-	HoverNameText->SetText(FText::FromString(TEXT("—")));
-	TowerStorePrivate::SetTextStyle(HoverNameText, TowerStorePrivate::TextMain, 20.f, true);
-	HoverNameText->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UHorizontalBoxSlot* HNSlot = HoverTitleRow->AddChildToHorizontalBox(HoverNameText))
-	{
-		HNSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
-
-	HoverCostText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HoverCost"));
-	HoverCostText->SetText(FText::GetEmpty());
-	TowerStorePrivate::SetTextStyle(HoverCostText, TowerStorePrivate::TextCost, 18.f, true);
-	HoverCostText->SetVisibility(ESlateVisibility::HitTestInvisible);
-	HoverTitleRow->AddChildToHorizontalBox(HoverCostText);
-
-	HoverStatsText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HoverStats"));
-	HoverStatsText->SetText(FText::GetEmpty());
-	TowerStorePrivate::SetTextStyle(HoverStatsText, TowerStorePrivate::TextDim, 13.f, false);
-	HoverStatsText->SetAutoWrapText(true);
-	HoverStatsText->SetVisibility(ESlateVisibility::HitTestInvisible);
-	HoverInfo->AddChildToVerticalBox(HoverStatsText);
-
-	BuildCards();
-	ApplyDockLayout();
-	ApplyHitTestPolicy();
-}
-
-float UTowerStoreWidget::GetStoreStripBottomPad() const
-{
-	// Distance from screen bottom to the *bottom edge* of the store strip.
-	// Ability bar now sits over the champion frame (bottom-left); store is bottom-center.
-	return StoreScreenBottomPad;
-}
-
-float UTowerStoreWidget::GetHoverFloatBottomPad() const
-{
-	// Floating hover sits above the full store body + float gap.
-	const float StoreBody = StoreHeaderHeight + StoreTabsHeight + StoreStripHeight + 24.f;
-	return GetStoreStripBottomPad() + StoreBody + HoverFloatGap;
-}
-
-void UTowerStoreWidget::ApplyDockLayout()
-{
-	// SConstraintCanvas (non-stretch anchors): LocalY = AnchorY + Offset.Top - AlignY*Size
-	// With bottom anchor + AlignY=1, Offset.Top is how far UP from the bottom edge.
-	// Offset.Bottom is NOT used for positioning when AutoSize is true — only Offset.Top.
-	if (StorePanelSlot)
-	{
-		StorePanelSlot->SetAutoSize(true);
-		StorePanelSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
-		StorePanelSlot->SetAlignment(FVector2D(0.5f, 1.f));
-		StorePanelSlot->SetOffsets(FMargin(0.f, -GetStoreStripBottomPad(), 0.f, 0.f));
-		StorePanelSlot->SetZOrder(55);
-	}
-	if (HoverPanelSlot)
-	{
-		HoverPanelSlot->SetAutoSize(true);
-		HoverPanelSlot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
-		HoverPanelSlot->SetAlignment(FVector2D(0.5f, 1.f));
-		HoverPanelSlot->SetOffsets(FMargin(0.f, -GetHoverFloatBottomPad(), 0.f, 0.f));
-		HoverPanelSlot->SetZOrder(80);
+		CardRow = Cast<UHorizontalBox>(GetWidgetFromName(TEXT("CardHost")));
 	}
 }
 
-void UTowerStoreWidget::BuildCategoryTabs(UVerticalBox* Parent)
+void UTowerStoreWidget::BindCategoryTabs()
 {
 	CategoryTabs.Reset();
 	CategoryClickBinders.Reset();
-	if (!Parent || !WidgetTree)
+
+	struct FTabDef
 	{
-		return;
-	}
-
-	USizeBox* TabsSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CategoryTabsSize"));
-	TabsSize->SetHeightOverride(StoreTabsHeight);
-	if (UVerticalBoxSlot* TabsSlot = Parent->AddChildToVerticalBox(TabsSize))
-	{
-		TabsSlot->SetHorizontalAlignment(HAlign_Left);
-		TabsSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
-	}
-
-	UHorizontalBox* TabsRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CategoryTabsRow"));
-	TabsSize->SetContent(TabsRow);
-
-	auto AddTab = [this, TabsRow](const TCHAR* Name, bool bShowAll, ETowerStoreCategory Category)
-	{
-		FTowerStoreCategoryTabUI Tab;
-		Tab.bShowAll = bShowAll;
-		Tab.Category = Category;
-
-		USizeBox* TabSize = WidgetTree->ConstructWidget<USizeBox>(
-			USizeBox::StaticClass(), *FString::Printf(TEXT("CategoryTabSize_%s"), Name));
-		TabSize->SetWidthOverride(88.f);
-		TabSize->SetHeightOverride(StoreTabsHeight - 6.f);
-		if (UHorizontalBoxSlot* TabSlot = TabsRow->AddChildToHorizontalBox(TabSize))
-		{
-			TabSlot->SetPadding(FMargin(0.f, 0.f, 6.f, 0.f));
-		}
-
-		Tab.Button = WidgetTree->ConstructWidget<UButton>(
-			UButton::StaticClass(), *FString::Printf(TEXT("CategoryTab_%s"), Name));
-		TabSize->SetContent(Tab.Button);
-
-		UTowerStoreCategoryClickBinder* Binder = NewObject<UTowerStoreCategoryClickBinder>(this);
-		Binder->Store = this;
-		Binder->bShowAll = bShowAll;
-		Binder->Category = Category;
-		Tab.Button->OnClicked.AddDynamic(Binder, &UTowerStoreCategoryClickBinder::HandleClicked);
-		CategoryClickBinders.Add(Binder);
-
-		Tab.Label = WidgetTree->ConstructWidget<UTextBlock>(
-			UTextBlock::StaticClass(), *FString::Printf(TEXT("CategoryTabLabel_%s"), Name));
-		Tab.Label->SetText(FText::FromString(Name));
-		Tab.Label->SetJustification(ETextJustify::Center);
-		Tab.Label->SetVisibility(ESlateVisibility::HitTestInvisible);
-		TowerStorePrivate::SetTextStyle(Tab.Label, TowerStorePrivate::TextMain, 11.f, true);
-		Tab.Button->SetContent(Tab.Label);
-
-		CategoryTabs.Add(Tab);
+		const TCHAR* Name;
+		bool bShowAll;
+		ETowerStoreCategory Category;
+	};
+	const FTabDef Defs[] = {
+		{ TEXT("All"), true, ETowerStoreCategory::Attack },
+		{ TEXT("Attack"), false, ETowerStoreCategory::Attack },
+		{ TEXT("Defense"), false, ETowerStoreCategory::Defense },
+		{ TEXT("Support"), false, ETowerStoreCategory::Support },
 	};
 
-	AddTab(TEXT("All"), true, ETowerStoreCategory::Attack);
-	AddTab(TEXT("Attack"), false, ETowerStoreCategory::Attack);
-	AddTab(TEXT("Defense"), false, ETowerStoreCategory::Defense);
-	AddTab(TEXT("Support"), false, ETowerStoreCategory::Support);
+	for (const FTabDef& Def : Defs)
+	{
+		FTowerStoreCategoryTabUI Tab;
+		Tab.bShowAll = Def.bShowAll;
+		Tab.Category = Def.Category;
+		Tab.Button = Cast<UButton>(GetWidgetFromName(*FString::Printf(TEXT("CategoryTab_%s"), Def.Name)));
+		Tab.Label = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("CategoryTabLabel_%s"), Def.Name)));
+		if (Tab.Button)
+		{
+			UTowerStoreCategoryClickBinder* Binder = NewObject<UTowerStoreCategoryClickBinder>(this);
+			Binder->Store = this;
+			Binder->bShowAll = Def.bShowAll;
+			Binder->Category = Def.Category;
+			if (!Tab.Button->OnClicked.IsBound())
+			{
+				Tab.Button->OnClicked.AddDynamic(Binder, &UTowerStoreCategoryClickBinder::HandleClicked);
+			}
+			CategoryClickBinders.Add(Binder);
+		}
+		CategoryTabs.Add(Tab);
+	}
 	RefreshCategoryTabVisuals();
 }
 
@@ -709,7 +548,7 @@ FString UTowerStoreWidget::FormatStats(const FTowerStoreEntryDef& Def) const
 	{
 		Parts.Add(FString::Printf(TEXT("Range %.0f"), Def.Range));
 	}
-	return FString::Join(Parts, TEXT("  •  "));
+	return FString::Join(Parts, TEXT("  â€¢  "));
 }
 
 FString UTowerStoreWidget::FormatDetailedStats(const FTowerStoreEntryDef& Def) const
@@ -748,7 +587,7 @@ void UTowerStoreWidget::ApplyHitTestPolicy()
 	{
 		StorePanel->SetVisibility(bStoreOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
-	// Hover never captures clicks — mesh/stats float over world + UI.
+	// Hover never captures clicks â€” mesh/stats float over world + UI.
 	if (HoverPanel && HoveredCardIndex == INDEX_NONE)
 	{
 		HoverPanel->SetVisibility(ESlateVisibility::Collapsed);
@@ -758,7 +597,6 @@ void UTowerStoreWidget::ApplyHitTestPolicy()
 void UTowerStoreWidget::SetStoreOpen(bool bOpen)
 {
 	bStoreOpen = bOpen;
-	ApplyDockLayout();
 	if (StorePanel)
 	{
 		StorePanel->SetVisibility(bStoreOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
@@ -899,10 +737,6 @@ void UTowerStoreWidget::ShowHoverPanel(bool bShow)
 	}
 	// HitTestInvisible: floats over game/UI without blocking clicks.
 	HoverPanel->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	if (bShow)
-	{
-		ApplyDockLayout();
-	}
 }
 
 AActor* UTowerStoreWidget::FindBuildManager() const

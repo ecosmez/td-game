@@ -41,9 +41,25 @@ public:
 		FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float AcceptanceRadius);
 	static bool IsRouteReturningToCorridor2D(
 		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius);
+	/** Pure-pursuit sample along a Nav route; empty/invalid route returns Location. */
+	static FVector SampleNavigationRouteLookAhead(
+		FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float LookAheadDistance);
+	/** Drop Recast stair-steps: colinear cull + corridor-aware string-pull. */
+	static TArray<FVector> SimplifyNavigationRoute2D(
+		const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius,
+		float ColinearTolerance = 8.f);
 	static FVector ResolveNavigationSteeringTarget(
-		FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex);
+		FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex,
+		float LookAheadDistance = 0.f);
 	static bool DoesNavigationGoalAdvance(FVector From, FVector Goal, float MinDistance);
+	/** True when wall contact leaves no lateral skirt — attack/break instead of pathing. */
+	static bool ShouldAttackBlockingWall(bool bWallContact, bool bCanSkirt);
+	/** Grow/decay lateral bypass while a physical blocker sits on the straight-line guide. */
+	static float ResolveBlockBypassOffset(
+		bool bPathBlocked, float CurrentOffset, float DeltaSeconds, float GrowPerSecond, float DecayPerSecond,
+		float MaxOffset);
+	/** Keep a locked bypass side; otherwise take PreferredSide (must be +/-1). */
+	static int32 ResolveTerrainSteerSide(int32 LockedSide, int32 PreferredSide);
 	static FVector ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous);
 	static bool IsGroundTraceIgnoredClassName(const FString& ClassName);
 	static bool IsWithinObjectiveReach2D(
@@ -138,6 +154,9 @@ public:
 	/** Pixel size matching ACaptureBase::ChannelBar. */
 	static FVector2D GetEnemyHealthBarWidgetDrawSize();
 
+	/** Ghost placement previews skip the world HP bar; live enemies and towers do not. */
+	static bool ShouldShowWorldHealthBar(bool bIsGhost);
+
 	/** Fill scale/location matching BP_Enemy.UpdateHealthBar (left-anchored cube). */
 	static void ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation);
 
@@ -147,7 +166,7 @@ public:
 	/** Hold the lost chunk, then drain it toward current HP so damage is readable. */
 	static void TickEnemyHealthBarLag(FTDEnemyHealthBarLagState& State, float CurrentPercent, float DeltaTime);
 
-	/** Hide mesh HP cubes and drive a screen-space capture-style channel bar. */
+	/** Hide mesh HP cubes and drive a screen-space capture-style channel bar on enemies and towers. */
 	static void UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime = 0.f);
 
 	/**

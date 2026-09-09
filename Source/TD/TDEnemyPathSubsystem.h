@@ -17,6 +17,10 @@ struct FTDEnemyPathState
 	int32 NavigationRouteIndex = 0;
 	float RepathRemaining = 0.f;
 	FVector NavigationGoal = FVector::ZeroVector;
+	/** Locked lateral sign (+1/-1) while skirting physical blockers NavMesh no longer carves. */
+	int32 TerrainSteerSide = 0;
+	/** Extra cm of lateral guide offset while a physical blocker sits on the lane. */
+	float BlockBypassOffset = 0.f;
 	bool bValid = false;
 	bool bReachedNotified = false;
 

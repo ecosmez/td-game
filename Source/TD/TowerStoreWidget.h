@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "TowerStoreWidget.generated.h"
 
 class UCanvasPanel;
@@ -159,7 +160,7 @@ struct FTowerStoreCategoryTabUI
  * - Horizontal tower strip
  * - Hover projects a translucent tower mesh + stats above the strip
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UTowerStoreWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -171,6 +172,10 @@ public:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_TowerStore. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UTowerStoreWidget> ResolveWidgetClass();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
 	bool bStartOpen = false;
@@ -264,13 +269,10 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
+	void BindDesignerWidgets();
+	void BindCategoryTabs();
 	void ApplyHitTestPolicy();
-	void ApplyDockLayout();
-	float GetStoreStripBottomPad() const;
-	float GetHoverFloatBottomPad() const;
 	void BuildDefaultCatalog();
-	void BuildCategoryTabs(UVerticalBox* Parent);
 	void RefreshCategoryTabVisuals();
 	void BuildCards();
 	FTowerStoreCardUI BuildCard(const FTowerStoreEntryDef& Def, int32 Index);

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "AbilityBarWidget.generated.h"
 
 class UHorizontalBox;
@@ -61,7 +62,7 @@ struct FAbilityBarSlotWidgets
  * - Unavailable (dropping / locked ult): dimmed + Lv# / —
  * - Aiming: gold frame when PendingAbility matches the slot
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UAbilityBarWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -72,6 +73,10 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_AbilityBar. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UAbilityBarWidget> ResolveWidgetClass();
 
 	/**
 	 * True when world click-to-move / destination pathing should ignore the cursor
@@ -100,11 +105,11 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
-	void BuildStorePlusSlot(UHorizontalBox* Parent);
+	void BindDesignerWidgets();
+	void BindStorePlusClick();
+	void BindSlotClicks(FAbilityBarSlotWidgets& SlotUI);
 	void ApplyHitTestPolicy();
-	void ApplyDockLayout();
-	void ApplySlotMetrics();
+	void CacheSlotSizeFromDesigner();
 	void RefreshStorePlusVisual();
 	class UChampionFrameWidget* ResolveChampionFrame() const;
 	void TryBeginAbilityAim(int32 AbilityId);
@@ -124,7 +129,7 @@ protected:
 	UFUNCTION()
 	void OnSlotRClicked();
 
-	FAbilityBarSlotWidgets BuildSlot(UHorizontalBox* Parent, TCHAR KeyChar, int32 AbilityId);
+	FAbilityBarSlotWidgets BindSlot(TCHAR KeyChar, int32 AbilityId);
 
 	APawn* ResolveChampionPawn() const;
 	void RefreshFromPawn(APawn* Pawn);

@@ -47,6 +47,18 @@ else:
         unreal.log_warning("init_unreal setup_crystal_health_bar_ui failed: {}".format(exc))
 
     try:
+        import setup_hud_designer_ui
+        setup_hud_designer_ui.setup(force=False)
+    except Exception as exc:
+        unreal.log_warning("init_unreal setup_hud_designer_ui failed: {}".format(exc))
+
+    try:
+        import setup_capture_channel_ui
+        setup_capture_channel_ui.setup(force=False)
+    except Exception as exc:
+        unreal.log_warning("init_unreal setup_capture_channel_ui failed: {}".format(exc))
+
+    try:
         import setup_ability_preview_materials
         setup_ability_preview_materials.setup()
     except Exception as exc:

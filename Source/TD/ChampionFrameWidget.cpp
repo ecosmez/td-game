@@ -1,4 +1,4 @@
-#include "ChampionFrameWidget.h"
+﻿#include "ChampionFrameWidget.h"
 
 #include "MobaPlayerController.h"
 #include "Blueprint/WidgetTree.h"
@@ -72,6 +72,16 @@ void UChampionFrameWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	RefreshFromChampion();
 }
 
+const TCHAR* UChampionFrameWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_ChampionFrame.WBP_ChampionFrame_C");
+}
+
+TSubclassOf<UChampionFrameWidget> UChampionFrameWidget::ResolveWidgetClass()
+{
+	return LoadClass<UChampionFrameWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
 void UChampionFrameWidget::EnsureBuilt()
 {
 	if (bBuilt && FrameChrome && HealthBar && AvatarFrame)
@@ -84,16 +94,33 @@ void UChampionFrameWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !FrameChrome || !HealthBar)
-	{
-		BuildDefaultUI();
-	}
+	BindDesignerWidgets();
 
 	bBuilt = FrameChrome != nullptr && HealthBar != nullptr && AvatarFrame != nullptr && HealthValue != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
 	}
+}
+
+void UChampionFrameWidget::BindDesignerWidgets()
+{
+	RootCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ChampionFrameRoot")));
+	if (!RootCanvas)
+	{
+		RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
+	}
+	FrameChrome = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionFrameChrome")));
+	AvatarSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("ChampionAvatarSize")));
+	AvatarFrame = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionAvatarFrame")));
+	AvatarImage = Cast<UImage>(GetWidgetFromName(TEXT("ChampionAvatarImage")));
+	AvatarLetter = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChampionAvatarLetter")));
+	LevelFrame = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionLevelFrame")));
+	LevelLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChampionLevelLabel")));
+	NameLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChampionName")));
+	BarSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("ChampionHpSize")));
+	HealthBar = Cast<UProgressBar>(GetWidgetFromName(TEXT("ChampionHpBar")));
+	HealthValue = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChampionHpValue")));
 }
 
 void UChampionFrameWidget::ApplyHitTestPolicy()
@@ -133,205 +160,6 @@ void UChampionFrameWidget::ApplyRoundedBrush(UBorder* Border, const FLinearColor
 		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
 	}
 	Border->SetBrush(Brush);
-}
-
-void UChampionFrameWidget::BuildDefaultUI()
-{
-	if (!WidgetTree)
-	{
-		return;
-	}
-
-	RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
-	if (!RootCanvas)
-	{
-		RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ChampionFrameRoot"));
-		WidgetTree->RootWidget = RootCanvas;
-	}
-	else
-	{
-		RootCanvas->ClearChildren();
-	}
-
-	FrameChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionFrameChrome"));
-	FrameChrome->SetPadding(FMargin(10.f, 8.f, 14.f, 8.f));
-	ApplyRoundedBrush(FrameChrome, ChampionFramePrivate::ChromeBg, ChampionFramePrivate::ChromeOutline, 1.8f, false);
-	if (UCanvasPanelSlot* ChromeSlot = RootCanvas->AddChildToCanvas(FrameChrome))
-	{
-		ChromeSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
-		ChromeSlot->SetAlignment(FVector2D(0.f, 1.f));
-		ChromeSlot->SetAutoSize(true);
-		ChromeSlot->SetOffsets(FMargin(ScreenMargin.X, 0.f, 0.f, ScreenMargin.Y));
-		ChromeSlot->SetZOrder(10);
-	}
-
-	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ChampionFrameRow"));
-	FrameChrome->SetContent(Row);
-
-	AvatarSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("ChampionAvatarSize"));
-	AvatarSizeBox->SetWidthOverride(AvatarSize);
-	AvatarSizeBox->SetHeightOverride(AvatarSize);
-	if (UHorizontalBoxSlot* AvatarSlot = Row->AddChildToHorizontalBox(AvatarSizeBox))
-	{
-		AvatarSlot->SetVerticalAlignment(VAlign_Center);
-		AvatarSlot->SetPadding(FMargin(0.f, 0.f, 12.f, 0.f));
-	}
-
-	UOverlay* AvatarOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("ChampionAvatarOverlay"));
-	AvatarSizeBox->SetContent(AvatarOverlay);
-
-	AvatarFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionAvatarFrame"));
-	AvatarFrame->SetPadding(FMargin(4.f));
-	ApplyRoundedBrush(AvatarFrame, ChampionFramePrivate::AvatarFill, ChampionFramePrivate::ChromeOutline, 2.4f, true);
-	if (UOverlaySlot* FrameSlot = AvatarOverlay->AddChildToOverlay(AvatarFrame))
-	{
-		FrameSlot->SetHorizontalAlignment(HAlign_Fill);
-		FrameSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	UOverlay* PortraitOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("ChampionPortraitOverlay"));
-	AvatarFrame->SetContent(PortraitOverlay);
-
-	AvatarImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("ChampionAvatarImage"));
-	AvatarImage->SetVisibility(ESlateVisibility::Collapsed);
-	if (UOverlaySlot* ImageSlot = PortraitOverlay->AddChildToOverlay(AvatarImage))
-	{
-		ImageSlot->SetHorizontalAlignment(HAlign_Fill);
-		ImageSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	AvatarLetter = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ChampionAvatarLetter"));
-	AvatarLetter->SetText(FText::FromString(TEXT("C")));
-	AvatarLetter->SetJustification(ETextJustify::Center);
-	AvatarLetter->SetColorAndOpacity(FSlateColor(ChampionFramePrivate::LetterColor));
-	AvatarLetter->SetShadowOffset(FVector2D(1.f, 1.f));
-	AvatarLetter->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = AvatarLetter->GetFont();
-		Font.Size = 36.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		AvatarLetter->SetFont(Font);
-	}
-	if (UOverlaySlot* LetterSlot = PortraitOverlay->AddChildToOverlay(AvatarLetter))
-	{
-		LetterSlot->SetHorizontalAlignment(HAlign_Center);
-		LetterSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	const float LevelSize = 26.f;
-	USizeBox* LevelSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("ChampionLevelSize"));
-	LevelSizeBox->SetWidthOverride(LevelSize);
-	LevelSizeBox->SetHeightOverride(LevelSize);
-	if (UOverlaySlot* LevelOuterSlot = AvatarOverlay->AddChildToOverlay(LevelSizeBox))
-	{
-		LevelOuterSlot->SetHorizontalAlignment(HAlign_Right);
-		LevelOuterSlot->SetVerticalAlignment(VAlign_Bottom);
-		LevelOuterSlot->SetPadding(FMargin(0.f, 0.f, -2.f, -2.f));
-	}
-
-	LevelFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionLevelFrame"));
-	LevelFrame->SetPadding(FMargin(0.f));
-	ApplyRoundedBrush(LevelFrame, ChampionFramePrivate::LevelFill, ChampionFramePrivate::LevelOutline, 1.6f, true);
-	LevelSizeBox->SetContent(LevelFrame);
-
-	UOverlay* LevelOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("ChampionLevelOverlay"));
-	LevelFrame->SetContent(LevelOverlay);
-
-	LevelLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ChampionLevelLabel"));
-	LevelLabel->SetText(FText::FromString(TEXT("1")));
-	LevelLabel->SetJustification(ETextJustify::Center);
-	LevelLabel->SetColorAndOpacity(FSlateColor(ChampionFramePrivate::LevelText));
-	{
-		FSlateFontInfo Font = LevelLabel->GetFont();
-		Font.Size = 12.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		LevelLabel->SetFont(Font);
-	}
-	if (UOverlaySlot* LevelTextSlot = LevelOverlay->AddChildToOverlay(LevelLabel))
-	{
-		LevelTextSlot->SetHorizontalAlignment(HAlign_Center);
-		LevelTextSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	UVerticalBox* Stats = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ChampionStats"));
-	if (UHorizontalBoxSlot* StatsSlot = Row->AddChildToHorizontalBox(Stats))
-	{
-		StatsSlot->SetVerticalAlignment(VAlign_Center);
-		StatsSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
-
-	NameLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ChampionName"));
-	NameLabel->SetText(FText::FromString(TEXT("CHAMPION")));
-	NameLabel->SetColorAndOpacity(FSlateColor(ChampionFramePrivate::NameColor));
-	NameLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	NameLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = NameLabel->GetFont();
-		Font.Size = 14.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		NameLabel->SetFont(Font);
-	}
-	if (UVerticalBoxSlot* NameSlot = Stats->AddChildToVerticalBox(NameLabel))
-	{
-		NameSlot->SetHorizontalAlignment(HAlign_Left);
-		NameSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
-	}
-
-	UBorder* HpFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionHpFrame"));
-	HpFrame->SetPadding(FMargin(2.f));
-	ApplyRoundedBrush(HpFrame, ChampionFramePrivate::TrackBg, ChampionFramePrivate::ChromeOutline, 1.2f, false);
-	if (UVerticalBoxSlot* HpSlot = Stats->AddChildToVerticalBox(HpFrame))
-	{
-		HpSlot->SetHorizontalAlignment(HAlign_Left);
-	}
-
-	BarSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("ChampionHpSize"));
-	BarSizeBox->SetWidthOverride(BarWidth);
-	BarSizeBox->SetHeightOverride(BarHeight);
-	HpFrame->SetContent(BarSizeBox);
-
-	UOverlay* TrackOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("ChampionHpOverlay"));
-	BarSizeBox->SetContent(TrackOverlay);
-
-	UBorder* Track = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionHpTrack"));
-	Track->SetPadding(FMargin(0.f));
-	ApplyRoundedBrush(Track, ChampionFramePrivate::TrackBg, FLinearColor(0.f, 0.f, 0.f, 0.f), 0.f, false);
-	if (UOverlaySlot* TrackSlot = TrackOverlay->AddChildToOverlay(Track))
-	{
-		TrackSlot->SetHorizontalAlignment(HAlign_Fill);
-		TrackSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	HealthBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("ChampionHpBar"));
-	HealthBar->SetPercent(1.f);
-	HealthBar->SetFillColorAndOpacity(ChampionFramePrivate::FillHealthy);
-	HealthBar->SetBarFillType(EProgressBarFillType::LeftToRight);
-	HealthBar->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UOverlaySlot* BarSlot = TrackOverlay->AddChildToOverlay(HealthBar))
-	{
-		BarSlot->SetHorizontalAlignment(HAlign_Fill);
-		BarSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	HealthValue = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ChampionHpValue"));
-	HealthValue->SetText(FText::FromString(TEXT("— / —")));
-	HealthValue->SetJustification(ETextJustify::Center);
-	HealthValue->SetColorAndOpacity(FSlateColor(ChampionFramePrivate::ValueColor));
-	HealthValue->SetShadowOffset(FVector2D(1.f, 1.f));
-	HealthValue->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.80f));
-	{
-		FSlateFontInfo Font = HealthValue->GetFont();
-		Font.Size = 12.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		HealthValue->SetFont(Font);
-	}
-	if (UOverlaySlot* ValueSlot = TrackOverlay->AddChildToOverlay(HealthValue))
-	{
-		ValueSlot->SetHorizontalAlignment(HAlign_Center);
-		ValueSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	ApplyHitTestPolicy();
 }
 
 void UChampionFrameWidget::ApplyPortrait(UTexture2D* Texture)
@@ -385,7 +213,7 @@ void UChampionFrameWidget::RefreshFromChampion()
 	{
 		HealthBar->SetPercent(0.f);
 		HealthBar->SetFillColorAndOpacity(ChampionFramePrivate::FillCritical);
-		HealthValue->SetText(FText::FromString(TEXT("— / —")));
+		HealthValue->SetText(FText::FromString(TEXT("â€” / â€”")));
 		return;
 	}
 
@@ -429,7 +257,7 @@ void UChampionFrameWidget::RefreshFromChampion()
 	{
 		HealthBar->SetPercent(0.f);
 		HealthBar->SetFillColorAndOpacity(ChampionFramePrivate::FillCritical);
-		HealthValue->SetText(FText::FromString(TEXT("— / —")));
+		HealthValue->SetText(FText::FromString(TEXT("â€” / â€”")));
 		return;
 	}
 

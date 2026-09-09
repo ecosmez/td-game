@@ -1,4 +1,4 @@
-#include "CrystalHealthBarWidget.h"
+﻿#include "CrystalHealthBarWidget.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -102,6 +102,16 @@ void UCrystalHealthBarWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 	RefreshWaveHud();
 }
 
+const TCHAR* UCrystalHealthBarWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_CrystalHealthBar.WBP_CrystalHealthBar_C");
+}
+
+TSubclassOf<UCrystalHealthBarWidget> UCrystalHealthBarWidget::ResolveWidgetClass()
+{
+	return LoadClass<UCrystalHealthBarWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
 void UCrystalHealthBarWidget::EnsureBuilt()
 {
 	if (bBuilt && HealthBar && NextWaveButton && EnemiesCountLabel && ThreatImpactLabel && ThreatSourceLabel)
@@ -114,17 +124,62 @@ void UCrystalHealthBarWidget::EnsureBuilt()
 		return;
 	}
 
-	if (!WidgetTree->RootWidget || !HealthBar || !NextWaveButton || !EnemiesCountLabel || !ThreatImpactLabel || !ThreatSourceLabel)
-	{
-		BuildDefaultUI();
-	}
+	BindDesignerWidgets();
+	BindNextWaveClick();
 
 	bBuilt = HealthBar != nullptr && ValueLabel != nullptr && NextWaveButton != nullptr
 		&& WaveChrome != nullptr && EnemiesCountLabel != nullptr
-		&& ThreatImpactLabel != nullptr && ThreatSourceLabel != nullptr;
+		&& ThreatImpactLabel != nullptr && ThreatSourceLabel != nullptr
+		&& WaveDotsBox != nullptr;
 	if (bBuilt)
 	{
 		ApplyHitTestPolicy();
+	}
+}
+
+void UCrystalHealthBarWidget::BindDesignerWidgets()
+{
+	BarChrome = Cast<UBorder>(GetWidgetFromName(TEXT("BaseHealthChrome")));
+	WaveChrome = Cast<UBorder>(GetWidgetFromName(TEXT("WaveStripChrome")));
+	EnemiesChrome = Cast<UBorder>(GetWidgetFromName(TEXT("EnemiesCountChrome")));
+	ThreatChrome = Cast<UBorder>(GetWidgetFromName(TEXT("CrystalThreatChrome")));
+	BarSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("BaseHealthSize")));
+	HealthBar = Cast<UProgressBar>(GetWidgetFromName(TEXT("BaseHealthBar")));
+	TitleLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("BaseHealthTitle")));
+	ValueLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("BaseHealthValue")));
+	WaveLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("WaveLabel")));
+	if (!WaveLabel)
+	{
+		WaveLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("WaveTitle")));
+	}
+	WaveDotsBox = Cast<UHorizontalBox>(GetWidgetFromName(TEXT("WaveDotsBox")));
+	if (!WaveDotsBox)
+	{
+		WaveDotsBox = Cast<UHorizontalBox>(GetWidgetFromName(TEXT("WaveDotsHost")));
+	}
+	NextWaveSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("NextWaveSize")));
+	NextWaveFrame = Cast<UBorder>(GetWidgetFromName(TEXT("NextWaveFrame")));
+	if (!NextWaveFrame)
+	{
+		NextWaveFrame = Cast<UBorder>(GetWidgetFromName(TEXT("PlayNextWaveFrame")));
+	}
+	NextWaveButton = Cast<UButton>(GetWidgetFromName(TEXT("NextWaveButton")));
+	if (!NextWaveButton)
+	{
+		NextWaveButton = Cast<UButton>(GetWidgetFromName(TEXT("PlayNextWave")));
+	}
+	NextWaveLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("NextWavePlayIcon")));
+	EnemiesCountLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("WaveEnemiesCount")));
+	ThreatImpactLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("NextWaveCrystalImpact")));
+	ThreatSourceLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("EnemyCrystalAccumulation")));
+	TimerLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("WaveTimer")));
+}
+
+void UCrystalHealthBarWidget::BindNextWaveClick()
+{
+	if (NextWaveButton && !NextWaveButton->OnClicked.IsBound())
+	{
+		NextWaveButton->OnClicked.AddDynamic(this, &UCrystalHealthBarWidget::OnNextWaveClicked);
 	}
 }
 
@@ -187,312 +242,6 @@ void UCrystalHealthBarWidget::ApplyRoundedBrush(UBorder* Border, const FLinearCo
 	Border->SetBrush(Brush);
 }
 
-void UCrystalHealthBarWidget::BuildDefaultUI()
-{
-	if (!WidgetTree)
-	{
-		return;
-	}
-
-	UCanvasPanel* Root = Cast<UCanvasPanel>(WidgetTree->RootWidget);
-	if (!Root)
-	{
-		Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CrystalHealthRoot"));
-		WidgetTree->RootWidget = Root;
-	}
-	else
-	{
-		Root->ClearChildren();
-	}
-
-	BarChrome = nullptr;
-	WaveChrome = nullptr;
-	EnemiesChrome = nullptr;
-	ThreatChrome = nullptr;
-	BarSizeBox = nullptr;
-	HealthBar = nullptr;
-	TitleLabel = nullptr;
-	ValueLabel = nullptr;
-	WaveLabel = nullptr;
-	WaveDotsBox = nullptr;
-	WaveDots.Reset();
-	WaveDotIcons.Reset();
-	NextWaveSizeBox = nullptr;
-	NextWaveFrame = nullptr;
-	NextWaveButton = nullptr;
-	NextWaveLabel = nullptr;
-	EnemiesCountLabel = nullptr;
-	ThreatImpactLabel = nullptr;
-	ThreatSourceLabel = nullptr;
-	TimerLabel = nullptr;
-	BuiltDotCount = 0;
-
-	UVerticalBox* TopHudStack = WidgetTree->ConstructWidget<UVerticalBox>(
-		UVerticalBox::StaticClass(), TEXT("TopHudStack"));
-	TopHudStack->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	if (UCanvasPanelSlot* StackSlot = Root->AddChildToCanvas(TopHudStack))
-	{
-		StackSlot->SetAnchors(FAnchors(0.5f, 0.f, 0.5f, 0.f));
-		StackSlot->SetAlignment(FVector2D(0.5f, 0.f));
-		StackSlot->SetAutoSize(true);
-		StackSlot->SetOffsets(FMargin(0.f, TopPad, 0.f, 0.f));
-		StackSlot->SetZOrder(10);
-	}
-
-	UBorder* TopBarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("TopBarChrome"));
-	TopBarChrome->SetPadding(FMargin(14.f, 10.f));
-	ApplyRoundedBrush(TopBarChrome, CrystalHealthBarPrivate::ChromeBg,
-		CrystalHealthBarPrivate::ChromeOutline, 1.6f, false);
-	if (UVerticalBoxSlot* TopBarSlot = TopHudStack->AddChildToVerticalBox(TopBarChrome))
-	{
-		TopBarSlot->SetHorizontalAlignment(HAlign_Center);
-	}
-
-	UHorizontalBox* TopBarRow = WidgetTree->ConstructWidget<UHorizontalBox>(
-		UHorizontalBox::StaticClass(), TEXT("TopBarRow"));
-	TopBarRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	TopBarChrome->SetContent(TopBarRow);
-
-	BarChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BaseHealthChrome"));
-	BarChrome->SetPadding(FMargin(14.f, 0.f, 18.f, 0.f));
-	ApplyRoundedBrush(BarChrome, FLinearColor::Transparent, FLinearColor::Transparent, 0.f, false);
-	if (UHorizontalBoxSlot* HealthSlot = TopBarRow->AddChildToHorizontalBox(BarChrome))
-	{
-		HealthSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	UVerticalBox* HealthColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BaseHealthColumn"));
-	BarChrome->SetContent(HealthColumn);
-	UHorizontalBox* HealthHeader = WidgetTree->ConstructWidget<UHorizontalBox>(
-		UHorizontalBox::StaticClass(), TEXT("BaseHealthHeader"));
-	HealthColumn->AddChildToVerticalBox(HealthHeader);
-
-	TitleLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BaseHealthTitle"));
-	TitleLabel->SetText(FText::FromString(TEXT("♥  BASE HEALTH")));
-	TitleLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::FillHealthy));
-	TitleLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	TitleLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	{
-		FSlateFontInfo Font = TitleLabel->GetFont();
-		Font.Size = 13.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		TitleLabel->SetFont(Font);
-	}
-	if (UHorizontalBoxSlot* TitleSlot = HealthHeader->AddChildToHorizontalBox(TitleLabel))
-	{
-		TitleSlot->SetVerticalAlignment(VAlign_Center);
-		TitleSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
-
-	ValueLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BaseHealthValue"));
-	ValueLabel->SetText(FText::FromString(TEXT("100 / 100")));
-	ValueLabel->SetJustification(ETextJustify::Right);
-	ValueLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::ValueColor));
-	ValueLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	ValueLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
-	ValueLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
-	{
-		FSlateFontInfo Font = ValueLabel->GetFont();
-		Font.Size = 13.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		ValueLabel->SetFont(Font);
-	}
-	if (UHorizontalBoxSlot* ValueHeaderSlot = HealthHeader->AddChildToHorizontalBox(ValueLabel))
-	{
-		ValueHeaderSlot->SetVerticalAlignment(VAlign_Center);
-		ValueHeaderSlot->SetPadding(FMargin(12.f, 0.f, 0.f, 0.f));
-	}
-
-	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BaseHealthFrame"));
-	Frame->SetPadding(FMargin(1.f));
-	ApplyRoundedBrush(Frame, CrystalHealthBarPrivate::TrackBg, CrystalHealthBarPrivate::ChromeOutline, 1.2f, false);
-
-	BarSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("BaseHealthSize"));
-	BarSizeBox->SetWidthOverride(BarWidth);
-	BarSizeBox->SetHeightOverride(BarHeight);
-	Frame->SetContent(BarSizeBox);
-
-	UOverlay* TrackOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("BaseHealthOverlay"));
-	BarSizeBox->SetContent(TrackOverlay);
-
-	UBorder* Track = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BaseHealthTrack"));
-	ApplyRoundedBrush(Track, CrystalHealthBarPrivate::TrackBg, FLinearColor(0.f, 0.f, 0.f, 0.f), 0.f, false);
-	if (UOverlaySlot* TrackSlot = TrackOverlay->AddChildToOverlay(Track))
-	{
-		TrackSlot->SetHorizontalAlignment(HAlign_Fill);
-		TrackSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	HealthBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("BaseHealthBar"));
-	HealthBar->SetPercent(1.f);
-	HealthBar->SetFillColorAndOpacity(CrystalHealthBarPrivate::FillHealthy);
-	HealthBar->SetBarFillType(EProgressBarFillType::LeftToRight);
-	HealthBar->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UOverlaySlot* BarSlot = TrackOverlay->AddChildToOverlay(HealthBar))
-	{
-		BarSlot->SetHorizontalAlignment(HAlign_Fill);
-		BarSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	if (UVerticalBoxSlot* FrameSlot = HealthColumn->AddChildToVerticalBox(Frame))
-	{
-		FrameSlot->SetHorizontalAlignment(HAlign_Center);
-		FrameSlot->SetPadding(FMargin(0.f, 5.f, 0.f, 0.f));
-	}
-
-	WaveChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("WaveStripChrome"));
-	WaveChrome->SetPadding(FMargin(18.f, 0.f));
-	ApplyRoundedBrush(WaveChrome, FLinearColor::Transparent, CrystalHealthBarPrivate::DotEmptyOutline, 1.f, false);
-	if (UHorizontalBoxSlot* WaveSlot = TopBarRow->AddChildToHorizontalBox(WaveChrome))
-	{
-		WaveSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	UVerticalBox* WaveColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("WaveColumn"));
-	WaveChrome->SetContent(WaveColumn);
-	WaveLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WaveLabel"));
-	WaveLabel->SetText(FText::FromString(TEXT("WAVE  0 / 7")));
-	WaveLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::FillHealthy));
-	{
-		FSlateFontInfo Font = WaveLabel->GetFont();
-		Font.Size = 13.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		WaveLabel->SetFont(Font);
-	}
-	WaveColumn->AddChildToVerticalBox(WaveLabel);
-	UHorizontalBox* WaveRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("WaveStripRow"));
-	if (UVerticalBoxSlot* DotsRowSlot = WaveColumn->AddChildToVerticalBox(WaveRow))
-	{
-		DotsRowSlot->SetPadding(FMargin(0.f, 5.f, 0.f, 0.f));
-	}
-	BuildWaveRow(WaveRow);
-
-	EnemiesChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("EnemiesCountChrome"));
-	EnemiesChrome->SetPadding(FMargin(22.f, 0.f));
-	ApplyRoundedBrush(EnemiesChrome, FLinearColor::Transparent, CrystalHealthBarPrivate::DotEmptyOutline, 1.f, false);
-	if (UHorizontalBoxSlot* EnemiesSlot = TopBarRow->AddChildToHorizontalBox(EnemiesChrome))
-	{
-		EnemiesSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	EnemiesCountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WaveEnemiesCount"));
-	EnemiesCountLabel->SetText(FText::FromString(TEXT("ENEMIES\n0")));
-	EnemiesCountLabel->SetJustification(ETextJustify::Center);
-	EnemiesCountLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::EnemyCountIdle));
-	EnemiesCountLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	EnemiesCountLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
-	EnemiesCountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
-	{
-		FSlateFontInfo Font = EnemiesCountLabel->GetFont();
-		Font.Size = 16.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		EnemiesCountLabel->SetFont(Font);
-	}
-	EnemiesChrome->SetContent(EnemiesCountLabel);
-
-	TimerLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WaveTimer"));
-	TimerLabel->SetText(FText::FromString(TEXT("◷  0:00")));
-	TimerLabel->SetJustification(ETextJustify::Center);
-	TimerLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::TitleColor));
-	TimerLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	TimerLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
-	TimerLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
-	{
-		FSlateFontInfo Font = TimerLabel->GetFont();
-		Font.Size = 20.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		TimerLabel->SetFont(Font);
-	}
-	if (UHorizontalBoxSlot* TimerSlot = TopBarRow->AddChildToHorizontalBox(TimerLabel))
-	{
-		TimerSlot->SetVerticalAlignment(VAlign_Center);
-		TimerSlot->SetPadding(FMargin(22.f, 0.f));
-	}
-
-	NextWaveSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("NextWaveSize"));
-	NextWaveSizeBox->SetWidthOverride(PlayButtonSize);
-	NextWaveSizeBox->SetHeightOverride(PlayButtonSize);
-	if (UHorizontalBoxSlot* PlaySlot = TopBarRow->AddChildToHorizontalBox(NextWaveSizeBox))
-	{
-		PlaySlot->SetVerticalAlignment(VAlign_Center);
-		PlaySlot->SetPadding(FMargin(10.f, 0.f, 0.f, 0.f));
-	}
-	NextWaveFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("NextWaveFrame"));
-	ApplyRoundedBrush(NextWaveFrame, CrystalHealthBarPrivate::PlayFill,
-		CrystalHealthBarPrivate::ChromeOutline, 1.5f, false);
-	NextWaveSizeBox->SetContent(NextWaveFrame);
-	NextWaveButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("NextWaveButton"));
-	NextWaveButton->SetBackgroundColor(FLinearColor(0.04f, 0.08f, 0.12f, 0.2f));
-	NextWaveButton->SetIsEnabled(true);
-	NextWaveButton->OnClicked.AddDynamic(this, &UCrystalHealthBarWidget::OnNextWaveClicked);
-	NextWaveFrame->SetContent(NextWaveButton);
-	NextWaveLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWavePlayIcon"));
-	NextWaveLabel->SetText(FText::FromString(TEXT("▶")));
-	NextWaveLabel->SetJustification(ETextJustify::Center);
-	NextWaveLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::PlayIcon));
-	{
-		FSlateFontInfo Font = NextWaveLabel->GetFont();
-		Font.Size = 16.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		NextWaveLabel->SetFont(Font);
-	}
-	NextWaveButton->SetContent(NextWaveLabel);
-
-	ThreatChrome = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CrystalThreatChrome"));
-	ThreatChrome->SetPadding(FMargin(14.f, 7.f));
-	ApplyRoundedBrush(ThreatChrome, CrystalHealthBarPrivate::ChromeBg, CrystalHealthBarPrivate::ThreatLow, 1.6f, false);
-	if (UVerticalBoxSlot* ThreatSlot = TopHudStack->AddChildToVerticalBox(ThreatChrome))
-	{
-		ThreatSlot->SetHorizontalAlignment(HAlign_Center);
-		ThreatSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f));
-	}
-
-	UVerticalBox* ThreatColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("CrystalThreatColumn"));
-	ThreatChrome->SetContent(ThreatColumn);
-
-	ThreatImpactLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextWaveCrystalImpact"));
-	ThreatImpactLabel->SetJustification(ETextJustify::Center);
-	ThreatImpactLabel->SetShadowOffset(FVector2D(1.f, 1.f));
-	ThreatImpactLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
-	{
-		FSlateFontInfo Font = ThreatImpactLabel->GetFont();
-		Font.Size = 15.f;
-		Font.TypefaceFontName = TEXT("Bold");
-		ThreatImpactLabel->SetFont(Font);
-	}
-	ThreatColumn->AddChildToVerticalBox(ThreatImpactLabel);
-
-	ThreatSourceLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EnemyCrystalAccumulation"));
-	ThreatSourceLabel->SetJustification(ETextJustify::Center);
-	{
-		FSlateFontInfo Font = ThreatSourceLabel->GetFont();
-		Font.Size = 11.f;
-		ThreatSourceLabel->SetFont(Font);
-	}
-	if (UVerticalBoxSlot* SourceSlot = ThreatColumn->AddChildToVerticalBox(ThreatSourceLabel))
-	{
-		SourceSlot->SetPadding(FMargin(0.f, 3.f, 0.f, 0.f));
-	}
-
-	ApplyHitTestPolicy();
-}
-
-void UCrystalHealthBarWidget::BuildWaveRow(UHorizontalBox* Parent)
-{
-	if (!Parent || !WidgetTree)
-	{
-		return;
-	}
-
-	WaveDotsBox = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("WaveDotsBox"));
-	if (UHorizontalBoxSlot* DotsSlot = Parent->AddChildToHorizontalBox(WaveDotsBox))
-	{
-		DotsSlot->SetVerticalAlignment(VAlign_Center);
-		DotsSlot->SetPadding(FMargin(0.f));
-	}
-	RebuildWaveDots();
-}
-
 void UCrystalHealthBarWidget::RebuildWaveDots()
 {
 	if (!WaveDotsBox || !WidgetTree)
@@ -524,7 +273,7 @@ void UCrystalHealthBarWidget::RebuildWaveDots()
 		// Skull glyph shown on top of this dot only when it is the upcoming boss wave.
 		UTextBlock* Icon = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 			*FString::Printf(TEXT("WaveDotBossIcon_%d"), Index));
-		Icon->SetText(FText::FromString(TEXT("☠")));
+		Icon->SetText(FText::FromString(TEXT("â˜ ")));
 		Icon->SetJustification(ETextJustify::Center);
 		Icon->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::BossIcon));
 		Icon->SetShadowOffset(FVector2D(1.f, 1.f));
@@ -794,8 +543,8 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		ThreatImpactLabel->SetColorAndOpacity(FSlateColor(ThreatColor));
 		ThreatSourceLabel->SetText(FText::FromString(
 			EnemyBonusPerSecond > KINDA_SMALL_NUMBER
-				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  •  THREAT %s"), EnemyBonusPerSecond, ThreatName)
-				: FString::Printf(TEXT("ACCUMULATION STOPPED  •  THREAT %s"), ThreatName)));
+				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  â€¢  THREAT %s"), EnemyBonusPerSecond, ThreatName)
+				: FString::Printf(TEXT("ACCUMULATION STOPPED  â€¢  THREAT %s"), ThreatName)));
 		ThreatSourceLabel->SetColorAndOpacity(FSlateColor(ThreatColor.CopyWithNewOpacity(0.82f)));
 		ApplyRoundedBrush(ThreatChrome, CrystalHealthBarPrivate::ChromeBg, ThreatColor, 1.6f, false);
 	}
@@ -860,7 +609,7 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	}
 	if (NextWaveLabel)
 	{
-		NextWaveLabel->SetText(FText::FromString(bBusy ? TEXT("❚❚") : TEXT("▶")));
+		NextWaveLabel->SetText(FText::FromString(bBusy ? TEXT("âšâš") : TEXT("â–¶")));
 		NextWaveLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::PlayIcon));
 	}
 
@@ -877,7 +626,7 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		const int32 TotalSeconds = FMath::Max(0, FMath::CeilToInt(Countdown));
 		const int32 Minutes = TotalSeconds / 60;
 		const int32 Seconds = TotalSeconds % 60;
-		TimerLabel->SetText(FText::FromString(FString::Printf(TEXT("◷  %d:%02d"), Minutes, Seconds)));
+		TimerLabel->SetText(FText::FromString(FString::Printf(TEXT("â—·  %d:%02d"), Minutes, Seconds)));
 		TimerLabel->SetColorAndOpacity(FSlateColor(
 			TotalSeconds > 0 ? CrystalHealthBarPrivate::EnemySideOutline : CrystalHealthBarPrivate::TimerDim));
 	}

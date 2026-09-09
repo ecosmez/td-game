@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "CameraOrbitGizmoWidget.generated.h"
 
 class UCanvasPanel;
@@ -17,7 +18,7 @@ class UMinimapWidget;
  * pivot without changing pitch or height. Docked to the minimap's top-left
  * corner by default so it sits in the same HUD cluster.
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UCameraOrbitGizmoWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -31,6 +32,10 @@ public:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_CameraOrbitGizmo. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UCameraOrbitGizmoWidget> ResolveWidgetClass();
 
 	/** Outer gizmo diameter (slate units). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Orbit Gizmo", meta = (ClampMin = "48.0"))
@@ -65,9 +70,8 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
+	void BindDesignerWidgets();
 	void ApplyHitTestPolicy();
-	void ApplyDockLayout();
 	void BindPointerEvents();
 	void UpdateHandleFromYaw(float YawDegrees);
 	bool TryPointerAngle(const FPointerEvent& MouseEvent, float& OutScreenAngleDegrees) const;

@@ -19,6 +19,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FTDEnemyPathAvoidanceTest::RunTest(const FString& Parameters)
 {
+	TestEqual(TEXT("Small occupancy noise does not reverse an even enemy's avoidance side"),
+		UTDEnemyPathSubsystem::ChooseAvoidanceSide(2, 0.99f, 1.f), 1);
 	TestEqual(TEXT("Chooses left when left is clearer"),
 		UTDEnemyPathSubsystem::ChooseAvoidanceSide(2, 0.f, 2.f), -1);
 	TestEqual(TEXT("Chooses right when right is clearer"),
@@ -87,6 +89,18 @@ void UTDEnemyPathSubsystem::Tick(float DeltaTime)
 
 			UTDEnemyPathLibrary::UpdateEnemyHealthBar(Actor, DeltaTime);
 			UTDEnemyPathLibrary::ApplyChampionEngagementSeparation(Actor);
+		}
+	}
+
+	static const FSoftClassPath TowerClassPath(TEXT("/Game/TD/BP_Tower.BP_Tower_C"));
+	if (World)
+	{
+		if (UClass* TowerClass = TowerClassPath.TryLoadClass<AActor>())
+		{
+			for (TActorIterator<AActor> It(World, TowerClass); It; ++It)
+			{
+				UTDEnemyPathLibrary::UpdateEnemyHealthBar(*It, DeltaTime);
+			}
 		}
 	}
 }

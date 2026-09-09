@@ -63,13 +63,7 @@ def setup(force=False):
 
     if not needs_recreate:
         bp = unreal.EditorAssetLibrary.load_asset(DST)
-        try:
-            current_parent = bp.parent_class
-        except Exception:
-            current_parent = None
-        # Old text-button store fights the C++ runtime UI — recreate when parent mismatches.
-        if current_parent != parent_cls:
-            needs_recreate = True
+        unreal.log("WBP_TowerStore already exists — leave in place (no recreate)")
 
     if needs_recreate:
         bp = _create_fresh(parent_cls)
@@ -91,4 +85,4 @@ def setup(force=False):
 
 
 if __name__ == "__main__":
-    setup(force=True)
+    setup(force=False)

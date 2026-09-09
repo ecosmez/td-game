@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "UObject/SoftObjectPath.h"
 #include "MinimapWidget.generated.h"
 
@@ -22,7 +23,7 @@ class UMapDiscoveryComponent;
  * Top-down orthographic SceneCapture of the playable level (landscape base color),
  * champion / camera markers, LMB camera pan, and optional discovery fog.
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UMinimapWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -38,6 +39,10 @@ public:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_Minimap. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UMinimapWidget> ResolveWidgetClass();
 
 	/** Outer map frame size (slate units). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap", meta = (ClampMin = "80.0"))
@@ -279,7 +284,7 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
+	void BindDesignerWidgets();
 	void EnsureCapture();
 	void DestroyCapture();
 	void SyncBoundsFromCamera();

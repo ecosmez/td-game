@@ -1,4 +1,4 @@
-#include "CameraOrbitGizmoWidget.h"
+﻿#include "CameraOrbitGizmoWidget.h"
 
 #include "MinimapWidget.h"
 #include "MobaCameraPawn.h"
@@ -40,120 +40,52 @@ void UCameraOrbitGizmoWidget::NativeConstruct()
 	Super::NativeConstruct();
 	EnsureBuilt();
 	ApplyHitTestPolicy();
-	ApplyDockLayout();
 }
 
 void UCameraOrbitGizmoWidget::EnsureBuilt()
 {
-	if (bBuilt)
+	if (bBuilt && RingBorder && HandleBorder)
 	{
 		return;
 	}
-	BuildDefaultUI();
-	bBuilt = true;
-}
-
-void UCameraOrbitGizmoWidget::BuildDefaultUI()
-{
 	if (!WidgetTree)
 	{
 		return;
 	}
 
-	RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("OrbitGizmoRoot"));
-	WidgetTree->RootWidget = RootCanvas;
-
-	FrameSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("OrbitGizmoSizeBox"));
-	FrameSizeBox->SetWidthOverride(GizmoSize);
-	FrameSizeBox->SetHeightOverride(GizmoSize);
-
-	FrameSlot = RootCanvas->AddChildToCanvas(FrameSizeBox);
-	if (FrameSlot)
-	{
-		FrameSlot->SetAutoSize(true);
-		FrameSlot->SetZOrder(60);
-		ApplyDockLayout();
-	}
-
-	UOverlay* Overlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("OrbitGizmoOverlay"));
-	FrameSizeBox->SetContent(Overlay);
-
-	RingBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("OrbitRing"));
-	RingBorder->SetPadding(FMargin(0.f));
-	{
-		FSlateBrush Brush;
-		Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
-		Brush.OutlineSettings.CornerRadii = FVector4(1.f, 1.f, 1.f, 1.f);
-		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius;
-		Brush.OutlineSettings.Color = CameraOrbitGizmoPrivate::RingFrame;
-		Brush.OutlineSettings.Width = 2.5f;
-		Brush.TintColor = FSlateColor(CameraOrbitGizmoPrivate::RingBg);
-		RingBorder->SetBrush(Brush);
-	}
-	if (UOverlaySlot* RingSlot = Overlay->AddChildToOverlay(RingBorder))
-	{
-		RingSlot->SetHorizontalAlignment(HAlign_Fill);
-		RingSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	const float HubSize = GizmoSize * 0.28f;
-	USizeBox* HubSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("OrbitHubSize"));
-	HubSizeBox->SetWidthOverride(HubSize);
-	HubSizeBox->SetHeightOverride(HubSize);
-	HubSizeBox->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UOverlaySlot* HubOuterSlot = Overlay->AddChildToOverlay(HubSizeBox))
-	{
-		HubOuterSlot->SetHorizontalAlignment(HAlign_Center);
-		HubOuterSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	HubBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("OrbitHub"));
-	HubBorder->SetPadding(FMargin(0.f));
-	{
-		FSlateBrush Brush;
-		Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
-		Brush.OutlineSettings.CornerRadii = FVector4(1.f, 1.f, 1.f, 1.f);
-		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius;
-		Brush.OutlineSettings.Color = CameraOrbitGizmoPrivate::RingFrame;
-		Brush.OutlineSettings.Width = 1.5f;
-		Brush.TintColor = FSlateColor(CameraOrbitGizmoPrivate::HubBg);
-		HubBorder->SetBrush(Brush);
-	}
-	HubSizeBox->SetContent(HubBorder);
-
-	// Absolute canvas for the polar handle.
-	HandleCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("OrbitHandleCanvas"));
-	if (UOverlaySlot* HandleCanvasSlot = Overlay->AddChildToOverlay(HandleCanvas))
-	{
-		HandleCanvasSlot->SetHorizontalAlignment(HAlign_Fill);
-		HandleCanvasSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-
-	HandleBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("OrbitHandle"));
-	HandleBorder->SetPadding(FMargin(0.f));
-	{
-		FSlateBrush Brush;
-		Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
-		Brush.OutlineSettings.CornerRadii = FVector4(1.f, 1.f, 1.f, 1.f);
-		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius;
-		Brush.OutlineSettings.Color = CameraOrbitGizmoPrivate::HandleFrame;
-		Brush.OutlineSettings.Width = 1.5f;
-		Brush.TintColor = FSlateColor(CameraOrbitGizmoPrivate::HandleBg);
-		HandleBorder->SetBrush(Brush);
-	}
-
-	HandleSlot = HandleCanvas->AddChildToCanvas(HandleBorder);
-	if (HandleSlot)
-	{
-		HandleSlot->SetAnchors(FAnchors(0.f, 0.f));
-		HandleSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		HandleSlot->SetSize(FVector2D(HandleSize, HandleSize));
-		HandleSlot->SetAutoSize(false);
-	}
-
-	UpdateHandleFromYaw(45.0f);
-	ApplyHitTestPolicy();
+	BindDesignerWidgets();
 	BindPointerEvents();
+	bBuilt = RingBorder != nullptr && HandleBorder != nullptr && FrameSizeBox != nullptr;
+	if (bBuilt)
+	{
+		ApplyHitTestPolicy();
+	}
+}
+
+const TCHAR* UCameraOrbitGizmoWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_CameraOrbitGizmo.WBP_CameraOrbitGizmo_C");
+}
+
+TSubclassOf<UCameraOrbitGizmoWidget> UCameraOrbitGizmoWidget::ResolveWidgetClass()
+{
+	return LoadClass<UCameraOrbitGizmoWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
+void UCameraOrbitGizmoWidget::BindDesignerWidgets()
+{
+	RootCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("OrbitGizmoRoot")));
+	if (!RootCanvas)
+	{
+		RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
+	}
+	FrameSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("OrbitGizmoSizeBox")));
+	RingBorder = Cast<UBorder>(GetWidgetFromName(TEXT("OrbitRing")));
+	HubBorder = Cast<UBorder>(GetWidgetFromName(TEXT("OrbitHub")));
+	HandleBorder = Cast<UBorder>(GetWidgetFromName(TEXT("OrbitHandle")));
+	HandleCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("OrbitHandleCanvas")));
+	FrameSlot = FrameSizeBox ? Cast<UCanvasPanelSlot>(FrameSizeBox->Slot) : nullptr;
+	HandleSlot = HandleBorder ? Cast<UCanvasPanelSlot>(HandleBorder->Slot) : nullptr;
 }
 
 void UCameraOrbitGizmoWidget::BindPointerEvents()
@@ -167,39 +99,6 @@ void UCameraOrbitGizmoWidget::BindPointerEvents()
 	if (HandleBorder)
 	{
 		HandleBorder->OnMouseButtonDownEvent.BindDynamic(this, &UCameraOrbitGizmoWidget::OnGizmoMouseButtonDown);
-	}
-}
-
-void UCameraOrbitGizmoWidget::ApplyDockLayout()
-{
-	if (!FrameSlot)
-	{
-		return;
-	}
-
-	if (bDockToMinimap)
-	{
-		float MiniSize = 220.0f;
-		FVector2D MiniMargin(24.0f, 24.0f);
-		if (const UMinimapWidget* Mini = ResolveMinimap())
-		{
-			MiniSize = Mini->MinimapSize;
-			MiniMargin = Mini->ScreenMargin;
-		}
-
-		const float Overlap = GizmoSize * FMath::Clamp(MinimapCornerInset, 0.0f, 0.75f);
-		const float Right = MiniMargin.X + MiniSize - Overlap;
-		const float Bottom = MiniMargin.Y + MiniSize - Overlap;
-
-		FrameSlot->SetAnchors(FAnchors(1.f, 1.f, 1.f, 1.f));
-		FrameSlot->SetAlignment(FVector2D(1.f, 1.f));
-		FrameSlot->SetOffsets(FMargin(0.f, 0.f, Right, Bottom));
-	}
-	else
-	{
-		FrameSlot->SetAnchors(FAnchors(0.f, 1.f, 0.f, 1.f));
-		FrameSlot->SetAlignment(FVector2D(0.f, 1.f));
-		FrameSlot->SetOffsets(FMargin(ScreenMargin.X, 0.f, 0.f, ScreenMargin.Y));
 	}
 }
 
@@ -420,14 +319,6 @@ void UCameraOrbitGizmoWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 	{
 		EnsureBuilt();
 	}
-
-	if (FrameSizeBox)
-	{
-		FrameSizeBox->SetWidthOverride(GizmoSize);
-		FrameSizeBox->SetHeightOverride(GizmoSize);
-	}
-
-	ApplyDockLayout();
 
 	if (!bDragging)
 	{

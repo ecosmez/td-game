@@ -208,12 +208,13 @@ UUserWidget* UTDUIInputLibrary::CreateTowerStoreWidget(UObject* WorldContextObje
 		return nullptr;
 	}
 
-	// Prefer designed WBP when cooked/loaded; fall back to C++ store implementation.
+	// Designer WBP is required; never fall back to the native C++ class.
 	static const FSoftClassPath WbpPath(TEXT("/Game/TD/UI/WBP_TowerStore.WBP_TowerStore_C"));
 	UClass* WidgetClass = WbpPath.TryLoadClass<UUserWidget>();
 	if (!WidgetClass)
 	{
-		WidgetClass = UTowerStoreWidget::StaticClass();
+		UE_LOG(LogTemp, Error, TEXT("CreateTowerStoreWidget: missing WBP_TowerStore"));
+		return nullptr;
 	}
 
 	return CreateWidget<UUserWidget>(PC, WidgetClass);
@@ -280,12 +281,12 @@ UUserWidget* UTDUIInputLibrary::CreateAbilityBarWidget(UObject* WorldContextObje
 		return nullptr;
 	}
 
-	// Prefer designed WBP when cooked/loaded; fall back to C++ ability bar implementation.
 	static const FSoftClassPath WbpPath(TEXT("/Game/TD/UI/WBP_AbilityBar.WBP_AbilityBar_C"));
 	UClass* WidgetClass = WbpPath.TryLoadClass<UUserWidget>();
 	if (!WidgetClass)
 	{
-		WidgetClass = UAbilityBarWidget::StaticClass();
+		UE_LOG(LogTemp, Error, TEXT("CreateAbilityBarWidget: missing WBP_AbilityBar"));
+		return nullptr;
 	}
 
 	return CreateWidget<UUserWidget>(PC, WidgetClass);

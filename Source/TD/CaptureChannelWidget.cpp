@@ -2,6 +2,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/ProgressBar.h"
+#include "Components/SizeBox.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/Actor.h"
 #include "Styling/SlateBrush.h"
@@ -28,6 +29,45 @@ namespace
 {
 	const FLinearColor PlayerFill(0.22f, 0.78f, 0.95f, 1.f);
 	const FLinearColor EnemyFill(0.95f, 0.18f, 0.16f, 1.f);
+	constexpr float DefaultBarWidth = 80.f;
+	constexpr float DefaultBarHeight = 10.f;
+
+	FVector2D SizeFromBox(const USizeBox* Box)
+	{
+		if (!Box)
+		{
+			return FVector2D::ZeroVector;
+		}
+		const float W = Box->IsWidthOverride() ? Box->GetWidthOverride() : 0.f;
+		const float H = Box->IsHeightOverride() ? Box->GetHeightOverride() : 0.f;
+		if (W > 1.f && H > 1.f)
+		{
+			return FVector2D(W, H);
+		}
+		return FVector2D::ZeroVector;
+	}
+
+	USizeBox* FindBarSizeBox(UWidgetTree* Tree)
+	{
+		if (!Tree)
+		{
+			return nullptr;
+		}
+		USizeBox* Named = Cast<USizeBox>(Tree->FindWidget(FName(TEXT("BarSize"))));
+		if (Named)
+		{
+			return Named;
+		}
+		USizeBox* First = nullptr;
+		Tree->ForEachWidget([&First](UWidget* Widget)
+		{
+			if (!First)
+			{
+				First = Cast<USizeBox>(Widget);
+			}
+		});
+		return First;
+	}
 
 	bool ReadFloatProp(const AActor* Actor, FName Name, float& OutValue)
 	{
@@ -110,8 +150,9 @@ void UCaptureChannelWidget::NativeConstruct()
 
 TSharedRef<SWidget> UCaptureChannelWidget::RebuildWidget()
 {
+	TSharedRef<SWidget> Result = Super::RebuildWidget();
 	EnsureBuilt();
-	return Super::RebuildWidget();
+	return Result;
 }
 
 void UCaptureChannelWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -185,14 +226,9 @@ void UCaptureChannelWidget::SyncFromHostActor()
 
 void UCaptureChannelWidget::EnsureBuilt()
 {
-	if (bBuilt)
+	if (bBuilt && Bar)
 	{
 		return;
-	}
-
-	if (!WidgetTree)
-	{
-		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"), RF_Transient);
 	}
 
 	if (!WidgetTree)
@@ -200,11 +236,19 @@ void UCaptureChannelWidget::EnsureBuilt()
 		return;
 	}
 
-	Bar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("ChannelBar"));
-	Bar->SetPercent(0.f);
-	Bar->SetBarFillType(EProgressBarFillType::LeftToRight);
+	Bar = Cast<UProgressBar>(GetWidgetFromName(TEXT("ChannelBar")));
+	if (!Bar)
+	{
+		Bar = Cast<UProgressBar>(WidgetTree->RootWidget);
+	}
+	if (!Bar)
+	{
+		bBuilt = false;
+		return;
+	}
+
+	bDesignerBar = true;
 	ApplyFillStyle();
-	WidgetTree->RootWidget = Bar;
 	bBuilt = true;
 }
 
@@ -215,11 +259,16 @@ void UCaptureChannelWidget::ApplyFillStyle()
 		return;
 	}
 
+	Bar->SetFillColorAndOpacity(FillColor);
+	if (bDesignerBar)
+	{
+		return;
+	}
+
 	FProgressBarStyle Style = Bar->GetWidgetStyle();
 	Style.BackgroundImage = CaptureChannelPrivate::MakeSolid(CaptureChannelPrivate::Track);
 	Style.FillImage = CaptureChannelPrivate::MakeSolid(FillColor);
 	Bar->SetWidgetStyle(Style);
-	Bar->SetFillColorAndOpacity(FillColor);
 }
 
 void UCaptureChannelWidget::SetProgress(float In01)
@@ -236,4 +285,72 @@ void UCaptureChannelWidget::SetFillColor(FLinearColor Color)
 	EnsureBuilt();
 	FillColor = Color;
 	ApplyFillStyle();
+}
+
+const TCHAR* UCaptureChannelWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_CaptureChannel.WBP_CaptureChannel_C");
+}
+
+TSubclassOf<UCaptureChannelWidget> UCaptureChannelWidget::ResolveWidgetClass()
+{
+	if (UClass* Loaded = LoadClass<UCaptureChannelWidget>(nullptr, GetWidgetBlueprintPath()))
+	{
+		return Loaded;
+	}
+	return nullptr;
+}
+
+FVector2D UCaptureChannelWidget::GetDesignedDrawSize() const
+{
+	USizeBox* Box = Cast<USizeBox>(GetWidgetFromName(TEXT("BarSize")));
+	if (!Box)
+	{
+		Box = FindBarSizeBox(WidgetTree);
+	}
+	const FVector2D FromBox = SizeFromBox(Box);
+	if (FromBox.X > 1.f && FromBox.Y > 1.f)
+	{
+		return FromBox;
+	}
+	return FVector2D(DefaultBarWidth, DefaultBarHeight);
+}
+
+FVector2D UCaptureChannelWidget::GetDefaultDesignedDrawSize()
+{
+	if (UClass* Class = ResolveWidgetClass())
+	{
+		if (const UCaptureChannelWidget* CDO = Cast<UCaptureChannelWidget>(Class->GetDefaultObject()))
+		{
+			const FVector2D FromCDO = CDO->GetDesignedDrawSize();
+			if (FromCDO.X > 1.f && FromCDO.Y > 1.f)
+			{
+				return FromCDO;
+			}
+		}
+	}
+	return FVector2D(DefaultBarWidth, DefaultBarHeight);
+}
+
+void UCaptureChannelWidget::ApplyDrawSizeToComponent(UWidgetComponent* Comp, UCaptureChannelWidget* Widget)
+{
+	if (!Comp)
+	{
+		return;
+	}
+
+	// Screen + explicit SizeBox pixels. DrawAtDesiredSize uses the 1280x720
+	// designer canvas and turns enemy HP into huge green slabs.
+	Comp->SetWidgetSpace(EWidgetSpace::Screen);
+	Comp->SetDrawAtDesiredSize(false);
+	Comp->SetPivot(FVector2D(0.5f, 1.f));
+
+	FVector2D Size = Widget ? Widget->GetDesignedDrawSize() : GetDefaultDesignedDrawSize();
+	if (Size.X >= 640.f || Size.Y >= 180.f)
+	{
+		Size = FVector2D(DefaultBarWidth, DefaultBarHeight);
+	}
+	Size.X = FMath::Clamp(Size.X, 8.f, 400.f);
+	Size.Y = FMath::Clamp(Size.Y, 4.f, 48.f);
+	Comp->SetDrawSize(Size);
 }

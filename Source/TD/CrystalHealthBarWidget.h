@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Templates/SubclassOf.h"
 #include "UObject/SoftObjectPath.h"
 #include "CrystalHealthBarWidget.generated.h"
 
@@ -32,7 +33,7 @@ struct FCrystalWaveThreat
  * Polls BP_Crystal CurrentHealth / MaxHealth, BP_EnemySpawner wave state, and
  * remaining enemies (alive + still queued to spawn) each tick.
  */
-UCLASS()
+UCLASS(Blueprintable)
 class TD_API UCrystalHealthBarWidget : public UUserWidget
 {
 	GENERATED_BODY()
@@ -43,6 +44,10 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Designer widget at /Game/TD/UI/WBP_CrystalHealthBar. */
+	static const TCHAR* GetWidgetBlueprintPath();
+	static TSubclassOf<UCrystalHealthBarWidget> ResolveWidgetClass();
 
 	/** Mirrors BP_EnemySpawner's next-wave conversion for player-facing UI. */
 	static FCrystalWaveThreat CalculateCrystalWaveThreat(float EnemyResourcePool);
@@ -83,8 +88,8 @@ public:
 
 protected:
 	void EnsureBuilt();
-	void BuildDefaultUI();
-	void BuildWaveRow(UHorizontalBox* Parent);
+	void BindDesignerWidgets();
+	void BindNextWaveClick();
 	void RebuildWaveDots();
 	void ApplyHitTestPolicy();
 	void RefreshFromCrystal();

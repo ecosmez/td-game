@@ -81,150 +81,64 @@ void UMinimapWidget::EnsureBuilt()
 	{
 		return;
 	}
-	if (!WidgetTree->RootWidget || !FrameBorder)
-	{
-		BuildDefaultUI();
-	}
-	bBuilt = FrameBorder != nullptr && MapImage != nullptr;
+
+	BindDesignerWidgets();
+	bBuilt = FrameBorder != nullptr && MapImage != nullptr && MapCanvas != nullptr;
 }
 
-void UMinimapWidget::BuildDefaultUI()
+const TCHAR* UMinimapWidget::GetWidgetBlueprintPath()
 {
-	if (!WidgetTree)
-	{
-		return;
-	}
+	return TEXT("/Game/TD/UI/WBP_Minimap.WBP_Minimap_C");
+}
 
-	RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+TSubclassOf<UMinimapWidget> UMinimapWidget::ResolveWidgetClass()
+{
+	return LoadClass<UMinimapWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
+void UMinimapWidget::BindDesignerWidgets()
+{
+	RootCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("MinimapRoot")));
 	if (!RootCanvas)
 	{
-		RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MinimapRoot"));
-		WidgetTree->RootWidget = RootCanvas;
+		RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
 	}
-
-	FrameSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("MinimapSizeBox"));
-	FrameSizeBox->SetWidthOverride(MinimapSize);
-	FrameSizeBox->SetHeightOverride(MinimapSize);
-
-	if (UCanvasPanelSlot* RootSlot = RootCanvas->AddChildToCanvas(FrameSizeBox))
+	FrameSizeBox = Cast<USizeBox>(GetWidgetFromName(TEXT("MinimapSizeBox")));
+	FrameBorder = Cast<UBorder>(GetWidgetFromName(TEXT("MinimapFrame")));
+	MapCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("MinimapCanvas")));
+	MapImage = Cast<UImage>(GetWidgetFromName(TEXT("MinimapImage")));
+	FogImage = Cast<UImage>(GetWidgetFromName(TEXT("MinimapFog")));
+	ChampionMarkerFrame = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionMarkerFrame")));
+	if (!ChampionMarkerFrame)
 	{
-		RootSlot->SetAnchors(FAnchors(1.f, 1.f, 1.f, 1.f));
-		RootSlot->SetAlignment(FVector2D(1.f, 1.f));
-		RootSlot->SetAutoSize(true);
-		RootSlot->SetOffsets(FMargin(0.f, 0.f, ScreenMargin.X, ScreenMargin.Y));
-		RootSlot->SetZOrder(50);
+		ChampionMarkerFrame = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionBlipFrame")));
 	}
-
-	FrameBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MinimapFrame"));
-	FrameBorder->SetPadding(FMargin(3.f));
-	FrameBorder->SetBrushColor(BorderColor);
-	// Tighter zoom can push markers/frustum past the fit bounds; clip so they don't spill past the frame.
-	FrameBorder->SetClipping(EWidgetClipping::ClipToBounds);
-	FrameSizeBox->SetContent(FrameBorder);
-
-	UBorder* InnerBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MinimapInner"));
-	InnerBg->SetPadding(FMargin(0.f));
-	InnerBg->SetBrushColor(FrameColor);
-	FrameBorder->SetContent(InnerBg);
-
-	MapCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
-	InnerBg->SetContent(MapCanvas);
-
-	MapImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapImage"));
+	ChampionMarker = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionMarker")));
+	if (!ChampionMarker)
 	{
-		FSlateBrush Brush;
-		Brush.DrawAs = ESlateBrushDrawType::Box;
-		Brush.TintColor = FSlateColor(FLinearColor(0.12f, 0.18f, 0.14f, 1.f));
-		MapImage->SetBrush(Brush);
+		ChampionMarker = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionBlip")));
 	}
-	if (UCanvasPanelSlot* ImageSlot = MapCanvas->AddChildToCanvas(MapImage))
+	CameraMarker = Cast<UBorder>(GetWidgetFromName(TEXT("CameraMarker")));
+	if (!CameraMarker)
 	{
-		ImageSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-		ImageSlot->SetOffsets(FMargin(0.f));
-		ImageSlot->SetZOrder(0);
+		CameraMarker = Cast<UBorder>(GetWidgetFromName(TEXT("CameraBlip")));
+	}
+	CrystalMarker = Cast<UBorder>(GetWidgetFromName(TEXT("CrystalMarker")));
+	if (!CrystalMarker)
+	{
+		CrystalMarker = Cast<UBorder>(GetWidgetFromName(TEXT("CrystalBlip")));
+	}
+	EnemySpawnMarker = Cast<UBorder>(GetWidgetFromName(TEXT("EnemySpawnMarker")));
+	if (!EnemySpawnMarker)
+	{
+		EnemySpawnMarker = Cast<UBorder>(GetWidgetFromName(TEXT("EnemySpawnBlip")));
 	}
 
-	// Live vision fog: dim overlay with holes around champion + crystal vision.
-	FogImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapFog"));
-	FogImage->SetVisibility(ESlateVisibility::Collapsed);
-	FogImage->SetColorAndOpacity(FLinearColor::White);
-	if (UCanvasPanelSlot* FogSlot = MapCanvas->AddChildToCanvas(FogImage))
-	{
-		FogSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-		FogSlot->SetOffsets(FMargin(0.f));
-		FogSlot->SetZOrder(1);
-	}
-
-	// White ring behind the champion square so it reads as a distinct "avatar" icon.
-	ChampionMarkerFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionMarkerFrame"));
-	ChampionMarkerFrame->SetBrushColor(ChampionAvatarFrameColor);
-	ChampionMarkerFrame->SetPadding(FMargin(0.f));
-	ChampionMarkerFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UCanvasPanelSlot* FrameSlot = MapCanvas->AddChildToCanvas(ChampionMarkerFrame))
-	{
-		FrameSlot->SetAnchors(FAnchors(0.f, 0.f));
-		FrameSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		FrameSlot->SetSize(FVector2D(16.f, 16.f));
-		FrameSlot->SetZOrder(2);
-		ChampionFrameSlot = FrameSlot;
-	}
-
-	ChampionMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChampionMarker"));
-	ChampionMarker->SetBrushColor(ChampionMarkerColor);
-	ChampionMarker->SetPadding(FMargin(0.f));
-	ChampionMarker->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UCanvasPanelSlot* ChampSlot = MapCanvas->AddChildToCanvas(ChampionMarker))
-	{
-		ChampSlot->SetAnchors(FAnchors(0.f, 0.f));
-		ChampSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		ChampSlot->SetSize(FVector2D(12.f, 12.f));
-		ChampSlot->SetZOrder(3);
-		ChampionSlot = ChampSlot;
-	}
-
-	CameraMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CameraMarker"));
-	CameraMarker->SetBrushColor(CameraMarkerColor);
-	CameraMarker->SetPadding(FMargin(0.f));
-	CameraMarker->SetVisibility(ESlateVisibility::HitTestInvisible);
-	if (UCanvasPanelSlot* CamSlot = MapCanvas->AddChildToCanvas(CameraMarker))
-	{
-		CamSlot->SetAnchors(FAnchors(0.f, 0.f));
-		CamSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		CamSlot->SetSize(FVector2D(10.f, 10.f));
-		CamSlot->SetZOrder(2);
-		CameraSlot = CamSlot;
-	}
-
-	// Crystal — green, above fog, below champion.
-	CrystalMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CrystalMarker"));
-	CrystalMarker->SetBrushColor(CrystalMarkerColor);
-	CrystalMarker->SetPadding(FMargin(0.f));
-	CrystalMarker->SetVisibility(ESlateVisibility::Collapsed);
-	if (UCanvasPanelSlot* CrystalPanelSlot = MapCanvas->AddChildToCanvas(CrystalMarker))
-	{
-		CrystalPanelSlot->SetAnchors(FAnchors(0.f, 0.f));
-		CrystalPanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		CrystalPanelSlot->SetSize(FVector2D(14.f, 14.f));
-		CrystalPanelSlot->SetZOrder(4);
-		CrystalSlot = CrystalPanelSlot;
-	}
-
-	// First enemy spawn — red.
-	EnemySpawnMarker = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("EnemySpawnMarker"));
-	EnemySpawnMarker->SetBrushColor(EnemySpawnMarkerColor);
-	EnemySpawnMarker->SetPadding(FMargin(0.f));
-	EnemySpawnMarker->SetVisibility(ESlateVisibility::Collapsed);
-	if (UCanvasPanelSlot* SpawnPanelSlot = MapCanvas->AddChildToCanvas(EnemySpawnMarker))
-	{
-		SpawnPanelSlot->SetAnchors(FAnchors(0.f, 0.f));
-		SpawnPanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-		SpawnPanelSlot->SetSize(FVector2D(14.f, 14.f));
-		SpawnPanelSlot->SetZOrder(4);
-		EnemySpawnSlot = SpawnPanelSlot;
-	}
-
-	ApplyHitTestPolicy();
-	BindMapPointerEvents();
+	ChampionFrameSlot = ChampionMarkerFrame ? Cast<UCanvasPanelSlot>(ChampionMarkerFrame->Slot) : nullptr;
+	ChampionSlot = ChampionMarker ? Cast<UCanvasPanelSlot>(ChampionMarker->Slot) : nullptr;
+	CameraSlot = CameraMarker ? Cast<UCanvasPanelSlot>(CameraMarker->Slot) : nullptr;
+	CrystalSlot = CrystalMarker ? Cast<UCanvasPanelSlot>(CrystalMarker->Slot) : nullptr;
+	EnemySpawnSlot = EnemySpawnMarker ? Cast<UCanvasPanelSlot>(EnemySpawnMarker->Slot) : nullptr;
 }
 
 void UMinimapWidget::ApplyHitTestPolicy()

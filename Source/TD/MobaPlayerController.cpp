@@ -230,9 +230,16 @@ UMinimapWidget* AMobaPlayerController::ShowMinimap()
 		return MinimapWidget;
 	}
 
-	UClass* WidgetClass = MinimapWidgetClass
-		? MinimapWidgetClass.Get()
-		: UMinimapWidget::StaticClass();
+	UClass* WidgetClass = MinimapWidgetClass ? MinimapWidgetClass.Get() : nullptr;
+	if (!WidgetClass)
+	{
+		WidgetClass = UMinimapWidget::ResolveWidgetClass();
+	}
+	if (!WidgetClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ShowMinimap: missing %s"), UMinimapWidget::GetWidgetBlueprintPath());
+		return nullptr;
+	}
 
 	MinimapWidget = CreateWidget<UMinimapWidget>(this, WidgetClass);
 	if (MinimapWidget)
@@ -279,9 +286,17 @@ UCameraOrbitGizmoWidget* AMobaPlayerController::ShowCameraOrbitGizmo()
 		return CameraOrbitGizmoWidget;
 	}
 
-	UClass* WidgetClass = CameraOrbitGizmoWidgetClass
-		? CameraOrbitGizmoWidgetClass.Get()
-		: UCameraOrbitGizmoWidget::StaticClass();
+	UClass* WidgetClass = CameraOrbitGizmoWidgetClass ? CameraOrbitGizmoWidgetClass.Get() : nullptr;
+	if (!WidgetClass)
+	{
+		WidgetClass = UCameraOrbitGizmoWidget::ResolveWidgetClass();
+	}
+	if (!WidgetClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ShowCameraOrbitGizmo: missing %s"),
+			UCameraOrbitGizmoWidget::GetWidgetBlueprintPath());
+		return nullptr;
+	}
 
 	CameraOrbitGizmoWidget = CreateWidget<UCameraOrbitGizmoWidget>(this, WidgetClass);
 	if (CameraOrbitGizmoWidget)
@@ -973,7 +988,14 @@ void AMobaPlayerController::UpdateChampionDamageTaken()
 
 void AMobaPlayerController::SpawnFloatingDamageText(const FVector& WorldLocation, float Amount, const FLinearColor& Color)
 {
-	UFloatingDamageTextWidget* DamageWidget = CreateWidget<UFloatingDamageTextWidget>(this, UFloatingDamageTextWidget::StaticClass());
+	UClass* DamageClass = UFloatingDamageTextWidget::ResolveWidgetClass();
+	if (!DamageClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SpawnFloatingDamageText: missing %s"),
+			UFloatingDamageTextWidget::GetWidgetBlueprintPath());
+		return;
+	}
+	UFloatingDamageTextWidget* DamageWidget = CreateWidget<UFloatingDamageTextWidget>(this, DamageClass);
 	if (!DamageWidget)
 	{
 		return;

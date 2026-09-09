@@ -84,7 +84,7 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::AdvanceNavigationRouteIndex(
 			FVector(200.f, 0.f, 0.f),
 			{ FVector(0.f, 0.f, 0.f), FVector(100.f, 0.f, 0.f), FVector(200.f, 0.f, 0.f) },
-			2, 55.f), 3);
+			2, 130.f), 3);
 	TestTrue(TEXT("A route may return monotonically from outside the guide corridor"),
 		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
 			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 150.f, 0.f), FVector(100.f, 80.f, 0.f) },
@@ -93,21 +93,68 @@ bool FTDNearestPathDistanceTest::RunTest(const FString& Parameters)
 		UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
 			{ FVector(0.f, 200.f, 0.f), FVector(50.f, 250.f, 0.f), FVector(100.f, 80.f, 0.f) },
 			Guide, 100.f));
-	TestEqual(TEXT("Without a NavMesh route the enemy keeps steering along the lane"),
+	TestEqual(TEXT("Without a NavMesh route the enemy keeps steering along the lane guide"),
 		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
-			FVector(10.f, 20.f, 30.f), FVector(200.f, 0.f, 0.f), {}, 0),
-		FVector(200.f, 0.f, 0.f));
-	TestEqual(TEXT("A verified NavMesh route supplies the steering target"),
+			FVector(10.f, 20.f, 30.f), FVector(200.f, 40.f, 0.f), {}, 0, 220.f),
+		FVector(200.f, 40.f, 0.f));
+	TestEqual(TEXT("Zero look-ahead steers at the next NavMesh vertex"),
 		UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
 			FVector::ZeroVector, FVector(200.f, 0.f, 0.f),
-			{ FVector::ZeroVector, FVector(80.f, 40.f, 0.f) }, 1),
+			{ FVector::ZeroVector, FVector(80.f, 40.f, 0.f) }, 1, 0.f),
 		FVector(80.f, 40.f, 0.f));
+	{
+		const TArray<FVector> StairRoute = {
+			FVector(0.f, 0.f, 0.f),
+			FVector(100.f, 40.f, 0.f),
+			FVector(200.f, 0.f, 0.f),
+			FVector(300.f, 0.f, 0.f)
+		};
+		const FVector LookAheadTarget = UTDEnemyPathLibrary::SampleNavigationRouteLookAhead(
+			FVector::ZeroVector, StairRoute, 1, 220.f);
+		TestTrue(TEXT("Nav look-ahead samples past the next Recast corner"),
+			LookAheadTarget.X > 100.f);
+		TestEqual(TEXT("Pure-pursuit steering uses the look-ahead sample on the Nav route"),
+			UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+				FVector::ZeroVector, FVector(300.f, 0.f, 0.f), StairRoute, 1, 220.f),
+			LookAheadTarget);
+		const TArray<FVector> Simplified = UTDEnemyPathLibrary::SimplifyNavigationRoute2D(
+			{
+				FVector(0.f, 0.f, 0.f),
+				FVector(50.f, 5.f, 0.f),
+				FVector(100.f, 0.f, 0.f),
+				FVector(150.f, 40.f, 0.f),
+				FVector(200.f, 0.f, 0.f)
+			},
+			Guide, 100.f, 8.f);
+		TestTrue(TEXT("Route simplification removes near-colinear Recast stair steps"),
+			Simplified.Num() < 5);
+		TestEqual(TEXT("Simplified routes keep the start point"), Simplified[0], FVector(0.f, 0.f, 0.f));
+		TestEqual(TEXT("Simplified routes keep the end point"), Simplified.Last(), FVector(200.f, 0.f, 0.f));
+	}
 	TestFalse(TEXT("A goal snapped back onto the current poly does not count as progress"),
 		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
-			FVector(0.f, 0.f, 0.f), FVector(40.f, 0.f, 0.f), 55.f));
+			FVector(0.f, 0.f, 0.f), FVector(40.f, 0.f, 0.f), 130.f));
 	TestTrue(TEXT("A goal farther than the acceptance radius counts as progress"),
 		UTDEnemyPathLibrary::DoesNavigationGoalAdvance(
-			FVector(0.f, 0.f, 0.f), FVector(80.f, 0.f, 0.f), 55.f));
+			FVector(0.f, 0.f, 0.f), FVector(150.f, 0.f, 0.f), 130.f));
+	TestTrue(TEXT("Blocked guides grow their lateral bypass offset"),
+		FMath::IsNearlyEqual(
+			UTDEnemyPathLibrary::ResolveBlockBypassOffset(true, 100.f, 0.5f, 480.f, 320.f, 700.f),
+			340.f, 0.01f));
+	TestTrue(TEXT("Clear guides decay their lateral bypass offset"),
+		FMath::IsNearlyEqual(
+			UTDEnemyPathLibrary::ResolveBlockBypassOffset(false, 200.f, 0.5f, 480.f, 320.f, 700.f),
+			40.f, 0.01f));
+	TestEqual(TEXT("A locked bypass side stays locked"),
+		UTDEnemyPathLibrary::ResolveTerrainSteerSide(-1, 1), -1);
+	TestEqual(TEXT("An unlocked bypass side uses the preferred sign"),
+		UTDEnemyPathLibrary::ResolveTerrainSteerSide(0, 1), 1);
+	TestFalse(TEXT("A skirtable shield wall is not attacked"),
+		UTDEnemyPathLibrary::ShouldAttackBlockingWall(true, true));
+	TestTrue(TEXT("A fully blocking shield wall is attacked"),
+		UTDEnemyPathLibrary::ShouldAttackBlockingWall(true, false));
+	TestFalse(TEXT("No wall contact means no wall attack"),
+		UTDEnemyPathLibrary::ShouldAttackBlockingWall(false, false));
 	TestEqual(TEXT("An unwalkable step stays put instead of entering terrain"),
 		UTDEnemyPathLibrary::ResolveUnwalkableStep(
 			false, FVector(100.f, 0.f, 0.f), FVector(10.f, 20.f, 30.f)),
@@ -247,13 +294,21 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FTDEnemyHealthBarUsesCaptureChannelWidgetTest::RunTest(const FString& Parameters)
 {
-	TestEqual(TEXT("Enemy HP uses the capture channel widget"),
-		UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass(),
-		TSubclassOf<UUserWidget>(UCaptureChannelWidget::StaticClass()));
+	TestTrue(TEXT("Enemy HP uses a CaptureChannelWidget subclass"),
+		UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass()
+			&& UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass()->IsChildOf(
+				UCaptureChannelWidget::StaticClass()));
+	TestEqual(TEXT("Enemy HP loads the designer widget blueprint"),
+		FString(UCaptureChannelWidget::GetWidgetBlueprintPath()),
+		FString(TEXT("/Game/TD/UI/WBP_CaptureChannel.WBP_CaptureChannel_C")));
 
 	const FVector2D Size = UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize();
-	TestEqual(TEXT("Enemy HP matches the capture bar width"), Size.X, 220.0);
-	TestEqual(TEXT("Enemy HP matches the capture bar height"), Size.Y, 22.0);
+	TestTrue(TEXT("Enemy HP bar width comes from BarSize"), Size.X >= 8.0 && Size.X <= 400.0);
+	TestTrue(TEXT("Enemy HP bar height comes from BarSize"), Size.Y >= 4.0 && Size.Y <= 48.0);
+	TestFalse(TEXT("Ghost towers do not show a world HP bar"),
+		UTDEnemyPathLibrary::ShouldShowWorldHealthBar(true));
+	TestTrue(TEXT("Placed towers and enemies show the same world HP bar"),
+		UTDEnemyPathLibrary::ShouldShowWorldHealthBar(false));
 	return true;
 }
 #endif
@@ -267,8 +322,13 @@ namespace TDEnemyPathPrivate
 		TEXT("Maximum 2D distance a champion-engaged enemy may leave its own path before returning."));
 	constexpr float DefaultLookAhead = 220.f;
 	constexpr float DefaultPathCorridorRadius = 650.f;
-	constexpr float DefaultPathRepathInterval = 0.35f;
-	constexpr float NavigationPointAcceptanceRadius = 55.f;
+	constexpr float DefaultPathRepathInterval = 0.85f;
+	constexpr float NavigationPointAcceptanceRadius = 130.f;
+	constexpr float DefaultGoalMoveThreshold = 275.f;
+	constexpr float RouteColinearTolerance = 8.f;
+	constexpr float MaxBlockBypassOffset = 700.f;
+	constexpr float BlockBypassGrowPerSecond = 480.f;
+	constexpr float BlockBypassDecayPerSecond = 320.f;
 	constexpr int32 DefaultSamplesPerSegment = 12;
 	constexpr float WalkableFloorZ = 0.7f;
 	constexpr float DefaultCapsuleHalfHeight = 90.f;
@@ -278,8 +338,6 @@ namespace TDEnemyPathPrivate
 	constexpr float DetourRadiusStep = 100.f;
 	constexpr float DetourRadiusMax = 1800.f;
 
-	constexpr float HealthBarWidgetWidth = 220.f;
-	constexpr float HealthBarWidgetHeight = 22.f;
 	constexpr float HealthBarWidgetLiftZ = 120.f;
 	constexpr float HealthBarFullLength = 2.f;
 	constexpr float HealthBarFillY = 0.12f;
@@ -751,13 +809,13 @@ namespace TDEnemyPathPrivate
 		Comp->SetMobility(EComponentMobility::Movable);
 		Comp->SetWidgetSpace(EWidgetSpace::Screen);
 		Comp->SetDrawAtDesiredSize(false);
-		Comp->SetDrawSize(UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize());
 		Comp->SetPivot(FVector2D(0.5f, 1.f));
 		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Comp->SetCastShadow(false);
 		Comp->SetCanEverAffectNavigation(false);
 		Comp->SetGenerateOverlapEvents(false);
 		Comp->SetWidgetClass(UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass());
+		UCaptureChannelWidget::ApplyDrawSizeToComponent(Comp, nullptr);
 		if (USceneComponent* Root = Enemy->GetRootComponent())
 		{
 			Comp->SetupAttachment(Root);
@@ -767,13 +825,54 @@ namespace TDEnemyPathPrivate
 
 		if (UWorld* World = Enemy->GetWorld())
 		{
-			if (UCaptureChannelWidget* Widget = CreateWidget<UCaptureChannelWidget>(
-				World, UCaptureChannelWidget::StaticClass()))
+			if (UClass* WidgetClass = UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass())
 			{
-				Comp->SetWidget(Widget);
+				if (UCaptureChannelWidget* Widget = CreateWidget<UCaptureChannelWidget>(World, WidgetClass))
+				{
+					Comp->SetWidget(Widget);
+					UCaptureChannelWidget::ApplyDrawSizeToComponent(Comp, Widget);
+				}
 			}
 		}
 		return Comp;
+	}
+
+	static float ResolveHealthBarLiftZ(const AActor* Actor)
+	{
+		if (!Actor)
+		{
+			return HealthBarWidgetLiftZ;
+		}
+
+		if (const UCapsuleComponent* Capsule = Actor->FindComponentByClass<UCapsuleComponent>())
+		{
+			return Capsule->GetScaledCapsuleHalfHeight() + 40.f;
+		}
+
+		const FVector ActorLoc = Actor->GetActorLocation();
+		float MaxTop = ActorLoc.Z;
+		bool bFound = false;
+		TArray<UPrimitiveComponent*> Prims;
+		Actor->GetComponents<UPrimitiveComponent>(Prims);
+		for (const UPrimitiveComponent* Prim : Prims)
+		{
+			if (!Prim || Cast<UWidgetComponent>(Prim))
+			{
+				continue;
+			}
+			const FString Name = Prim->GetName();
+			if (Name.Contains(TEXT("HealthBar")) || Name.Contains(TEXT("Holo")))
+			{
+				continue;
+			}
+			MaxTop = FMath::Max(MaxTop, Prim->Bounds.GetBox().Max.Z);
+			bFound = true;
+		}
+		if (bFound)
+		{
+			return (MaxTop - ActorLoc.Z) + 40.f;
+		}
+		return HealthBarWidgetLiftZ;
 	}
 
 	static float ResolveGroundOffset(const AActor* Enemy)
@@ -838,7 +937,8 @@ namespace TDEnemyPathPrivate
 		return Actor && UTDEnemyPathLibrary::IsGroundTraceIgnoredClassName(Actor->GetClass()->GetName());
 	}
 
-	/** Player walls stay on the lane so minions can attack them instead of pathing around. */
+	/** Player walls / shield walls: still ignored for ground snaps (don't stand on top),
+	 * but they DO block lane clearance so minions can skirt or break them. */
 	static bool IsPlayerDefenseActor(const AActor* Actor)
 	{
 		if (!Actor)
@@ -861,8 +961,9 @@ namespace TDEnemyPathPrivate
 		{
 			return true;
 		}
-		if (IsPlayerDefenseActor(HitActor) || IsLaneDecorationActor(HitActor)
-			|| IsGroundTraceIgnoredActor(HitActor))
+		// Do NOT ignore player defenses here: Shield Wall / tower walls must
+		// register as blockers so bypass + break-wall logic can run.
+		if (IsLaneDecorationActor(HitActor) || IsGroundTraceIgnoredActor(HitActor))
 		{
 			return true;
 		}
@@ -1203,6 +1304,7 @@ namespace TDEnemyPathPrivate
 			return FVector(Desired.X, Desired.Y, Prev.Z);
 		}
 		const FVector Right(-Forward.Y, Forward.X, 0.f);
+		const float ForwardStep = FMath::Clamp(FVector::Dist2D(Prev, Desired), 40.f, 140.f);
 
 		TArray<int32, TInlineAllocator<2>> Signs;
 		if (InOutSide != 0)
@@ -1221,25 +1323,32 @@ namespace TDEnemyPathPrivate
 		bool bFound = false;
 		int32 BestSign = InOutSide;
 
+		auto Consider = [&](const FVector& CandRaw, int32 Sign)
+		{
+			bool bCandClimb = false;
+			const FVector Cand = SnapToGround(World, CandRaw, GroundOffset, Ignore, Prev.Z, &bCandClimb);
+			if (bCandClimb || HasBadTerrainBetween(World, Prev, Cand, Ignore, GroundOffset))
+			{
+				return;
+			}
+			const float Score = FVector::DistSquared2D(Cand, Desired) + 0.2f * FVector::DistSquared2D(Cand, Goal);
+			if (Score < BestScore)
+			{
+				BestScore = Score;
+				Best = Cand;
+				BestSign = Sign;
+				bFound = true;
+			}
+		};
+
 		for (float Radius = DetourRadiusStep * 0.5f; Radius <= DetourRadiusMax; Radius += DetourRadiusStep)
 		{
 			for (int32 Sign : Signs)
 			{
-				const FVector CandRaw = Desired + Right * static_cast<float>(Sign) * Radius;
-				bool bCandClimb = false;
-				const FVector Cand = SnapToGround(World, CandRaw, GroundOffset, Ignore, Prev.Z, &bCandClimb);
-				if (bCandClimb || HasBadTerrainBetween(World, Prev, Cand, Ignore, GroundOffset))
-				{
-					continue;
-				}
-				const float Score = FVector::DistSquared2D(Cand, Desired) + 0.2f * FVector::DistSquared2D(Cand, Goal);
-				if (Score < BestScore)
-				{
-					BestScore = Score;
-					Best = Cand;
-					BestSign = Sign;
-					bFound = true;
-				}
+				const float Side = static_cast<float>(Sign) * Radius;
+				// Prefer stepping beside the current position (true skirt), then beside the blocked goal.
+				Consider(Prev + Right * Side + Forward * ForwardStep, Sign);
+				Consider(Desired + Right * Side, Sign);
 			}
 			if (bFound)
 			{
@@ -1249,6 +1358,89 @@ namespace TDEnemyPathPrivate
 		}
 
 		return UTDEnemyPathLibrary::ResolveUnwalkableStep(false, Best, Prev);
+	}
+
+	static bool CanSkirtAlongLane(
+		UWorld* World,
+		const FVector& From,
+		const FVector& LaneAhead,
+		const FVector& PathRight,
+		AActor* Enemy,
+		float GroundOffset)
+	{
+		if (!World)
+		{
+			return false;
+		}
+		FVector Forward(LaneAhead.X - From.X, LaneAhead.Y - From.Y, 0.f);
+		Forward = Forward.GetSafeNormal2D();
+		if (Forward.IsNearlyZero())
+		{
+			Forward = FVector(-PathRight.Y, PathRight.X, 0.f);
+		}
+		for (float Radius = 120.f; Radius <= 700.f; Radius += 100.f)
+		{
+			for (int32 Sign : { 1, -1 })
+			{
+				const FVector Side = PathRight * static_cast<float>(Sign) * Radius;
+				const FVector SideNear = From + Side + Forward * 120.f;
+				const FVector SideFar = LaneAhead + Side * 0.65f;
+				if (!HasBadTerrainBetween(World, From, SideNear, Enemy, GroundOffset)
+					&& !HasBadTerrainBetween(World, SideNear, SideFar, Enemy, GroundOffset))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	static int32 PickBypassSide(
+		UWorld* World,
+		const FVector& From,
+		const FVector& Guide,
+		const FVector& PathRight,
+		AActor* Enemy,
+		float GroundOffset,
+		uint32 EnemyId)
+	{
+		for (float Radius = 150.f; Radius <= 600.f; Radius += 150.f)
+		{
+			for (int32 Sign : { 1, -1 })
+			{
+				const FVector Cand = Guide + PathRight * static_cast<float>(Sign) * Radius;
+				if (!HasBadTerrainBetween(World, From, Cand, Enemy, GroundOffset))
+				{
+					return Sign;
+				}
+			}
+		}
+		return (EnemyId & 1u) ? 1 : -1;
+	}
+
+	static bool IsNavigationRoutePhysicallyClear(
+		UWorld* World,
+		const FVector& From,
+		const TArray<FVector>& Route,
+		int32 StartIndex,
+		AActor* Enemy,
+		float GroundOffset)
+	{
+		if (!World || Route.Num() == 0)
+		{
+			return false;
+		}
+		FVector Prev = From;
+		const int32 Begin = FMath::Clamp(StartIndex, 0, Route.Num() - 1);
+		for (int32 i = Begin; i < Route.Num(); ++i)
+		{
+			if (HasBadTerrainBetween(World, Prev, Route[i], Enemy, GroundOffset))
+			{
+				return false;
+			}
+			Prev = Route[i];
+		}
+		return true;
 	}
 
 	static void PushSamplesAroundTerrain(UWorld* World, AActor* Enemy, float GroundOffset, TArray<FVector>& Samples)
@@ -1451,8 +1643,9 @@ namespace TDEnemyPathPrivate
 			return false;
 		}
 
-		OutRoute = NavPath->PathPoints;
-		return true;
+		OutRoute = UTDEnemyPathLibrary::SimplifyNavigationRoute2D(
+			NavPath->PathPoints, Guide, CorridorRadius, RouteColinearTolerance);
+		return OutRoute.Num() >= 2;
 	}
 
 	static void BuildState(UWorld* World, AActor* Enemy, FTDEnemyPathState& State, const TArray<FVector>& Waypoints)
@@ -1467,6 +1660,8 @@ namespace TDEnemyPathPrivate
 			? FMath::Fmod(static_cast<float>(Enemy->GetUniqueID()) * 0.173f, DefaultPathRepathInterval)
 			: 0.f;
 		State.NavigationGoal = FVector::ZeroVector;
+		State.TerrainSteerSide = 0;
+		State.BlockBypassOffset = 0.f;
 		State.TotalLength = 0.f;
 		State.bValid = false;
 		State.bReachedNotified = false;
@@ -2083,16 +2278,157 @@ bool UTDEnemyPathLibrary::IsRouteReturningToCorridor2D(
 	return true;
 }
 
-FVector UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
-	FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex)
+FVector UTDEnemyPathLibrary::SampleNavigationRouteLookAhead(
+	FVector Location, const TArray<FVector>& Route, int32 RouteIndex, float LookAheadDistance)
 {
-	(void)CurrentLocation;
-	return Route.IsValidIndex(RouteIndex) ? Route[RouteIndex] : GuideLocation;
+	if (!Route.IsValidIndex(RouteIndex))
+	{
+		return Location;
+	}
+
+	if (LookAheadDistance <= KINDA_SMALL_NUMBER)
+	{
+		return Route[RouteIndex];
+	}
+
+	float Remaining = LookAheadDistance;
+	FVector Prev = Location;
+	for (int32 i = RouteIndex; i < Route.Num(); ++i)
+	{
+		const FVector& Next = Route[i];
+		const float SegLen = FVector::Dist2D(Prev, Next);
+		if (SegLen <= KINDA_SMALL_NUMBER)
+		{
+			Prev = Next;
+			continue;
+		}
+		if (Remaining <= SegLen)
+		{
+			return FMath::Lerp(Prev, Next, Remaining / SegLen);
+		}
+		Remaining -= SegLen;
+		Prev = Next;
+	}
+	return Route.Last();
+}
+
+TArray<FVector> UTDEnemyPathLibrary::SimplifyNavigationRoute2D(
+	const TArray<FVector>& Route, const TArray<FVector>& Guide, float CorridorRadius,
+	float ColinearTolerance)
+{
+	TArray<FVector> Result;
+	if (Route.Num() == 0)
+	{
+		return Result;
+	}
+	if (Route.Num() == 1)
+	{
+		Result.Add(Route[0]);
+		return Result;
+	}
+
+	TArray<FVector> Culled;
+	Culled.Reserve(Route.Num());
+	Culled.Add(Route[0]);
+	for (int32 i = 1; i < Route.Num() - 1; ++i)
+	{
+		const FVector& Prev = Culled.Last();
+		const FVector& Curr = Route[i];
+		const FVector& Next = Route[i + 1];
+		const FVector AB(Curr.X - Prev.X, Curr.Y - Prev.Y, 0.f);
+		const FVector BC(Next.X - Curr.X, Next.Y - Curr.Y, 0.f);
+		const float Cross = FMath::Abs(AB.X * BC.Y - AB.Y * BC.X);
+		const float AbLen = AB.Size2D();
+		const float BcLen = BC.Size2D();
+		if (AbLen > KINDA_SMALL_NUMBER && BcLen > KINDA_SMALL_NUMBER
+			&& Cross <= ColinearTolerance * FMath::Max(AbLen, BcLen))
+		{
+			continue;
+		}
+		Culled.Add(Curr);
+	}
+	Culled.Add(Route.Last());
+
+	if (Guide.Num() < 2 || CorridorRadius < 0.f || Culled.Num() <= 2)
+	{
+		return Culled;
+	}
+
+	auto SegmentStaysInCorridor = [&Guide, CorridorRadius](const FVector& A, const FVector& B) -> bool
+	{
+		const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist2D(A, B) / 25.f));
+		for (int32 Step = 0; Step <= Steps; ++Step)
+		{
+			const FVector P = FMath::Lerp(A, B, static_cast<float>(Step) / static_cast<float>(Steps));
+			if (DistanceToPolyline2D(P, Guide) > CorridorRadius)
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	Result.Add(Culled[0]);
+	int32 Anchor = 0;
+	while (Anchor < Culled.Num() - 1)
+	{
+		int32 Furthest = Anchor + 1;
+		for (int32 Candidate = Culled.Num() - 1; Candidate > Anchor + 1; --Candidate)
+		{
+			if (SegmentStaysInCorridor(Culled[Anchor], Culled[Candidate]))
+			{
+				Furthest = Candidate;
+				break;
+			}
+		}
+		Result.Add(Culled[Furthest]);
+		Anchor = Furthest;
+	}
+	return Result;
+}
+
+FVector UTDEnemyPathLibrary::ResolveNavigationSteeringTarget(
+	FVector CurrentLocation, FVector GuideLocation, const TArray<FVector>& Route, int32 RouteIndex,
+	float LookAheadDistance)
+{
+	if (!Route.IsValidIndex(RouteIndex))
+	{
+		return GuideLocation;
+	}
+	return SampleNavigationRouteLookAhead(CurrentLocation, Route, RouteIndex, LookAheadDistance);
 }
 
 bool UTDEnemyPathLibrary::DoesNavigationGoalAdvance(FVector From, FVector Goal, float MinDistance)
 {
 	return FVector::Dist2D(From, Goal) > FMath::Max(0.f, MinDistance);
+}
+
+bool UTDEnemyPathLibrary::ShouldAttackBlockingWall(bool bWallContact, bool bCanSkirt)
+{
+	return bWallContact && !bCanSkirt;
+}
+
+float UTDEnemyPathLibrary::ResolveBlockBypassOffset(
+	bool bPathBlocked, float CurrentOffset, float DeltaSeconds, float GrowPerSecond, float DecayPerSecond,
+	float MaxOffset)
+{
+	CurrentOffset = FMath::Max(0.f, CurrentOffset);
+	MaxOffset = FMath::Max(0.f, MaxOffset);
+	DeltaSeconds = FMath::Max(0.f, DeltaSeconds);
+	if (bPathBlocked)
+	{
+		return FMath::Min(MaxOffset, CurrentOffset + FMath::Max(0.f, GrowPerSecond) * DeltaSeconds);
+	}
+	return FMath::Max(0.f, CurrentOffset - FMath::Max(0.f, DecayPerSecond) * DeltaSeconds);
+}
+
+int32 UTDEnemyPathLibrary::ResolveTerrainSteerSide(int32 LockedSide, int32 PreferredSide)
+{
+	if (LockedSide == 1 || LockedSide == -1)
+	{
+		return LockedSide;
+	}
+	return PreferredSide >= 0 ? 1 : -1;
 }
 
 FVector UTDEnemyPathLibrary::ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous)
@@ -2310,15 +2646,6 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		return;
 	}
 
-	if (bWallBlocked)
-	{
-		if (StunRemaining <= 0.f)
-		{
-			CallFloatParam(Enemy, TEXT("AttackBlockingWall"), DeltaSeconds);
-		}
-		return;
-	}
-
 	const float RootRemaining = ReadFloatOr(Enemy, { TEXT("RootRemaining") }, 0.f);
 	if (StunRemaining > 0.f || RootRemaining > 0.f)
 	{
@@ -2368,21 +2695,68 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	const float GuideDistance = FMath::Min(State->Distance + LookAhead, State->TotalLength);
 	FVector Tangent = FVector::ForwardVector;
 	const FVector LaneGuide = SampleAtDistance(*State, GuideDistance, Tangent);
+	const FVector PathRight(-Tangent.GetSafeNormal2D().Y, Tangent.GetSafeNormal2D().X, 0.f);
+
+	const bool bCanSkirtWall = CanSkirtAlongLane(
+		World, PrevLoc, LaneGuide, PathRight, Enemy, GroundOffset);
+	if (ShouldAttackBlockingWall(bWallBlocked, bCanSkirtWall))
+	{
+		if (StunRemaining <= 0.f)
+		{
+			CallFloatParam(Enemy, TEXT("AttackBlockingWall"), DeltaSeconds);
+		}
+		return;
+	}
+	if (bWallBlocked)
+	{
+		// Space exists around the shield/wall — keep pathing and clear BP lock.
+		WriteBool(Enemy, { TEXT("IsWallBlocked"), TEXT("bIsWallBlocked") }, false);
+		if (State->TerrainSteerSide == 0)
+		{
+			State->TerrainSteerSide = PickBypassSide(
+				World, PrevLoc, LaneGuide, PathRight, Enemy, GroundOffset, Enemy->GetUniqueID());
+		}
+		State->BlockBypassOffset = FMath::Max(State->BlockBypassOffset, 250.f);
+	}
+
 	FVector GuideLocation = LaneGuide;
 	const float AvoidanceRadius = ReadFloatOr(Enemy, { TEXT("EnemySpacing"), TEXT("PathSpacing") }, 90.f);
 	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
 	const float TargetOffset = Sys->ComputeAvoidanceOffset(
 		Enemy, *State, GuideLocation, Tangent, AvoidanceRadius, SideStepDistance);
 	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, TargetOffset, DeltaSeconds, 6.f);
-	const FVector PathRight(-Tangent.GetSafeNormal2D().Y, Tangent.GetSafeNormal2D().X, 0.f);
 	GuideLocation += PathRight * State->LateralOffset;
+
+	const bool bGuideBlocked = HasBadTerrainBetween(World, PrevLoc, GuideLocation, Enemy, GroundOffset)
+		|| HasBadTerrainBetween(World, PrevLoc, LaneGuide, Enemy, GroundOffset);
+	if (bGuideBlocked && State->TerrainSteerSide == 0)
+	{
+		State->TerrainSteerSide = PickBypassSide(
+			World, PrevLoc, LaneGuide, PathRight, Enemy, GroundOffset, Enemy->GetUniqueID());
+	}
+	State->BlockBypassOffset = ResolveBlockBypassOffset(
+		bGuideBlocked,
+		State->BlockBypassOffset,
+		DeltaSeconds,
+		BlockBypassGrowPerSecond,
+		BlockBypassDecayPerSecond,
+		MaxBlockBypassOffset);
+	if (State->BlockBypassOffset <= 1.f && !bGuideBlocked)
+	{
+		State->TerrainSteerSide = 0;
+	}
+	else if (State->TerrainSteerSide != 0 && State->BlockBypassOffset > 1.f)
+	{
+		GuideLocation += PathRight * static_cast<float>(State->TerrainSteerSide) * State->BlockBypassOffset;
+	}
 
 	State->RepathRemaining -= DeltaSeconds;
 	const bool bHasRoute = State->NavigationRoute.Num() > 0;
 	const bool bRouteFinished = bHasRoute && State->NavigationRouteIndex >= State->NavigationRoute.Num();
 	const float GoalDelta = FVector::Dist2D(State->NavigationGoal, GuideLocation);
+	const float GoalMoveThreshold = FMath::Max(DefaultGoalMoveThreshold, LookAhead * 0.75f);
 	if (ShouldRefreshNavigationRoute(
-		State->RepathRemaining, bHasRoute, bRouteFinished, GoalDelta, FMath::Max(150.f, LookAhead * 0.75f)))
+		State->RepathRemaining, bHasRoute, bRouteFinished, GoalDelta, GoalMoveThreshold))
 	{
 		TArray<FVector> NewRoute;
 		bool bBuilt = BuildGuidedNavigationRoute(
@@ -2391,6 +2765,12 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		{
 			bBuilt = BuildGuidedNavigationRoute(
 				World, Enemy, PrevLoc, LaneGuide, State->Samples, CorridorRadius, NewRoute);
+		}
+		if (bBuilt
+			&& !IsNavigationRoutePhysicallyClear(
+				World, PrevLoc, NewRoute, NewRoute.Num() > 1 ? 1 : 0, Enemy, GroundOffset))
+		{
+			bBuilt = false;
 		}
 		if (bBuilt)
 		{
@@ -2409,12 +2789,16 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	State->NavigationRouteIndex = AdvanceNavigationRouteIndex(
 		PrevLoc, State->NavigationRoute, State->NavigationRouteIndex, NavigationPointAcceptanceRadius);
 	const FVector SteeringTarget = ResolveNavigationSteeringTarget(
-		PrevLoc, LaneGuide, State->NavigationRoute, State->NavigationRouteIndex);
+		PrevLoc, GuideLocation, State->NavigationRoute, State->NavigationRouteIndex, LookAhead);
 
 	const float ActualSpeed = FMath::Max(0.f, MoveSpeed * SlowFactor);
 	FVector Location = FMath::VInterpConstantTo(PrevLoc, SteeringTarget, DeltaSeconds, ActualSpeed);
-	int32 SteerSide = 0;
+	int32 SteerSide = State->TerrainSteerSide;
 	Location = PushOffBadTerrain(World, PrevLoc, Location, SteeringTarget, Enemy, GroundOffset, SteerSide);
+	if (SteerSide != 0)
+	{
+		State->TerrainSteerSide = SteerSide;
+	}
 	Location = SnapToGround(World, Location, GroundOffset, Enemy, PrevLoc.Z);
 
 	FRotator NewRot = (SteeringTarget - Location).GetSafeNormal().Rotation();
@@ -2438,6 +2822,12 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 		State->NavigationRoute.Reset();
 		State->NavigationRouteIndex = 0;
 		State->RepathRemaining = 0.1f;
+		if (State->TerrainSteerSide == 0)
+		{
+			State->TerrainSteerSide = PickBypassSide(
+				World, PrevLoc, LaneGuide, PathRight, Enemy, GroundOffset, Enemy->GetUniqueID());
+		}
+		State->BlockBypassOffset = FMath::Max(State->BlockBypassOffset, 200.f);
 	}
 	Enemy->SetActorRotation(NewRot, ETeleportType::TeleportPhysics);
 
@@ -2490,13 +2880,17 @@ bool UTDEnemyPathLibrary::IsAttackableEnemy(AActor* Actor)
 
 TSubclassOf<UUserWidget> UTDEnemyPathLibrary::GetEnemyHealthBarWidgetClass()
 {
-	return UCaptureChannelWidget::StaticClass();
+	return UCaptureChannelWidget::ResolveWidgetClass();
 }
 
 FVector2D UTDEnemyPathLibrary::GetEnemyHealthBarWidgetDrawSize()
 {
-	using namespace TDEnemyPathPrivate;
-	return FVector2D(HealthBarWidgetWidth, HealthBarWidgetHeight);
+	return UCaptureChannelWidget::GetDefaultDesignedDrawSize();
+}
+
+bool UTDEnemyPathLibrary::ShouldShowWorldHealthBar(bool bIsGhost)
+{
+	return !bIsGhost;
 }
 
 void UTDEnemyPathLibrary::ComputeEnemyHealthBarFill(float CurrentHealth, float MaxHealth, FVector& OutScale, FVector& OutRelativeLocation)
@@ -2574,6 +2968,23 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime)
 		return;
 	}
 
+	bool bGhost = false;
+	ReadBool(Enemy, { TEXT("IsGhost") }, bGhost);
+	if (!ShouldShowWorldHealthBar(bGhost))
+	{
+		TArray<UWidgetComponent*> Widgets;
+		Enemy->GetComponents<UWidgetComponent>(Widgets);
+		for (UWidgetComponent* WidgetComp : Widgets)
+		{
+			if (WidgetComp && WidgetComp->GetName().Contains(TEXT("HealthBar")))
+			{
+				WidgetComp->SetVisibility(false);
+				WidgetComp->SetHiddenInGame(true);
+			}
+		}
+		return;
+	}
+
 	float Current = 0.f;
 	float Max = 0.f;
 	if (!ReadFloat(Enemy, { TEXT("CurrentHealth") }, Current))
@@ -2601,7 +3012,10 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime)
 	FTDEnemyHealthBarLagState* LagState = &LocalLag;
 	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Enemy))
 	{
-		LagState = &Sys->FindOrAdd(Enemy).HealthBarLag;
+		if (FTDEnemyPathState* PathState = Sys->Find(Enemy))
+		{
+			LagState = &PathState->HealthBarLag;
+		}
 	}
 	TickEnemyHealthBarLag(*LagState, Percent, DeltaTime);
 
@@ -2640,21 +3054,20 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime)
 		return;
 	}
 
-	float LiftZ = HealthBarWidgetLiftZ;
-	if (const UCapsuleComponent* Capsule = Enemy->FindComponentByClass<UCapsuleComponent>())
-	{
-		LiftZ = Capsule->GetScaledCapsuleHalfHeight() + 40.f;
-	}
-	HealthWidget->SetRelativeLocation(FVector(0.f, 0.f, LiftZ));
-	HealthWidget->SetDrawSize(GetEnemyHealthBarWidgetDrawSize());
+	HealthWidget->SetRelativeLocation(FVector(0.f, 0.f, ResolveHealthBarLiftZ(Enemy)));
 	HealthWidget->SetVisibility(true);
 	HealthWidget->SetHiddenInGame(false);
 
 	if (UCaptureChannelWidget* Widget = Cast<UCaptureChannelWidget>(HealthWidget->GetWidget()))
 	{
+		UCaptureChannelWidget::ApplyDrawSizeToComponent(HealthWidget, Widget);
 		Widget->SetProgress(Percent);
 		Widget->SetFillColor(EnemyHealthFillColor(Percent));
 		Widget->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	else
+	{
+		UCaptureChannelWidget::ApplyDrawSizeToComponent(HealthWidget, nullptr);
 	}
 }
 

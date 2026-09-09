@@ -9,28 +9,29 @@ UFloatingDamageTextWidget::UFloatingDamageTextWidget(const FObjectInitializer& O
 	SetIsFocusable(false);
 }
 
+const TCHAR* UFloatingDamageTextWidget::GetWidgetBlueprintPath()
+{
+	return TEXT("/Game/TD/UI/WBP_FloatingDamage.WBP_FloatingDamage_C");
+}
+
+TSubclassOf<UFloatingDamageTextWidget> UFloatingDamageTextWidget::ResolveWidgetClass()
+{
+	return LoadClass<UFloatingDamageTextWidget>(nullptr, GetWidgetBlueprintPath());
+}
+
 void UFloatingDamageTextWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
 
-	if (DamageLabel || !WidgetTree)
+	if (!DamageLabel && WidgetTree)
 	{
-		return;
+		DamageLabel = Cast<UTextBlock>(GetWidgetFromName(TEXT("FloatingDamageLabel")));
+		if (!DamageLabel)
+		{
+			DamageLabel = Cast<UTextBlock>(WidgetTree->RootWidget);
+		}
 	}
 
-	DamageLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FloatingDamageLabel"));
-	DamageLabel->SetJustification(ETextJustify::Center);
-	DamageLabel->SetShadowOffset(FVector2D(1.5f, 1.5f));
-	DamageLabel->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
-	{
-		FSlateFontInfo Font = DamageLabel->GetFont();
-		Font.Size = 22.0f;
-		Font.TypefaceFontName = TEXT("Bold");
-		DamageLabel->SetFont(Font);
-	}
-	WidgetTree->RootWidget = DamageLabel;
-
-	// Never intercept the world right-click that drives champion move/attack.
 	SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
