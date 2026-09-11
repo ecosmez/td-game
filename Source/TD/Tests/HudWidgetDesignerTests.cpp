@@ -307,4 +307,47 @@ bool FMinimapPreservesDesignerMarkerColorsOnTickTest::RunTest(const FString& Par
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMinimapCreatesMapImageWhenDesignerOmitsItTest,
+	"TD.UI.Minimap.CreatesMapImageWhenDesignerOmitsIt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMinimapCreatesMapImageWhenDesignerOmitsItTest::RunTest(const FString& Parameters)
+{
+	UMinimapWidget* Widget = NewObject<UMinimapWidget>();
+	TestNotNull(TEXT("minimap can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UCanvasPanel* Root = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+	USizeBox* Size = Widget->WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(), TEXT("MinimapSizeBox"));
+	Root->AddChild(Size);
+	UBorder* Frame = Widget->WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("MinimapFrame"));
+	Size->SetContent(Frame);
+	UCanvasPanel* Canvas = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
+	Frame->SetContent(Canvas);
+
+	TestNull(TEXT("designer tree has no MinimapImage yet"),
+		Widget->GetWidgetFromName(TEXT("MinimapImage")));
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+
+	UImage* MapImage = Cast<UImage>(Widget->GetWidgetFromName(TEXT("MinimapImage")));
+	TestNotNull(TEXT("C++ creates MinimapImage so the capture has a target"), MapImage);
+	if (MapImage)
+	{
+		TestEqual(TEXT("created map image is visible"),
+			MapImage->GetVisibility(), ESlateVisibility::Visible);
+	}
+	return true;
+}
+
 #endif

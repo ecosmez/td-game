@@ -61,6 +61,7 @@ void UMinimapWidget::NativeConstruct()
 	// teleports the camera (or champion) when clicking the ground.
 	ApplyHitTestPolicy();
 	BindMapPointerEvents();
+	CollapseFogOverlayIfIdle();
 	EnsureCapture();
 	RefreshCaptureSettings();
 }
@@ -83,6 +84,9 @@ void UMinimapWidget::EnsureBuilt()
 	}
 
 	BindDesignerWidgets();
+	EnsureMapImage();
+	StretchMapImage();
+	CollapseFogOverlayIfIdle();
 	bBuilt = FrameBorder != nullptr && MapImage != nullptr && MapCanvas != nullptr;
 }
 
@@ -107,7 +111,15 @@ void UMinimapWidget::BindDesignerWidgets()
 	FrameBorder = Cast<UBorder>(GetWidgetFromName(TEXT("MinimapFrame")));
 	MapCanvas = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("MinimapCanvas")));
 	MapImage = Cast<UImage>(GetWidgetFromName(TEXT("MinimapImage")));
+	if (!MapImage)
+	{
+		MapImage = Cast<UImage>(GetWidgetFromName(TEXT("MapImage")));
+	}
 	FogImage = Cast<UImage>(GetWidgetFromName(TEXT("MinimapFog")));
+	if (!FogImage)
+	{
+		FogImage = Cast<UImage>(GetWidgetFromName(TEXT("FogImage")));
+	}
 	ChampionMarkerFrame = Cast<UBorder>(GetWidgetFromName(TEXT("ChampionMarkerFrame")));
 	if (!ChampionMarkerFrame)
 	{
@@ -139,6 +151,52 @@ void UMinimapWidget::BindDesignerWidgets()
 	CameraSlot = CameraMarker ? Cast<UCanvasPanelSlot>(CameraMarker->Slot) : nullptr;
 	CrystalSlot = CrystalMarker ? Cast<UCanvasPanelSlot>(CrystalMarker->Slot) : nullptr;
 	EnemySpawnSlot = EnemySpawnMarker ? Cast<UCanvasPanelSlot>(EnemySpawnMarker->Slot) : nullptr;
+}
+
+void UMinimapWidget::EnsureMapImage()
+{
+	if (MapImage || !WidgetTree || !MapCanvas)
+	{
+		return;
+	}
+
+	MapImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapImage"));
+	UCanvasPanelSlot* Slot = MapCanvas->AddChildToCanvas(MapImage);
+	if (Slot)
+	{
+		Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		Slot->SetOffsets(FMargin(0.f));
+		Slot->SetAlignment(FVector2D(0.f, 0.f));
+		Slot->SetZOrder(0);
+	}
+}
+
+void UMinimapWidget::StretchMapImage() const
+{
+	if (!MapImage)
+	{
+		return;
+	}
+
+	if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(MapImage->Slot))
+	{
+		Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		Slot->SetOffsets(FMargin(0.f));
+		Slot->SetZOrder(0);
+	}
+	MapImage->SetVisibility(ESlateVisibility::Visible);
+}
+
+void UMinimapWidget::CollapseFogOverlayIfIdle()
+{
+	if (!FogImage)
+	{
+		return;
+	}
+	if (!bMapDiscoveryEnabled)
+	{
+		FogImage->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void UMinimapWidget::ApplyHitTestPolicy()
@@ -328,6 +386,10 @@ void UMinimapWidget::EnsureDiscoveryFog()
 			ApplyMinimapAxisFlip();
 			FogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 			FogImage->SetColorAndOpacity(FLinearColor::White);
+		}
+		else
+		{
+			CollapseFogOverlayIfIdle();
 		}
 		return;
 	}
@@ -620,10 +682,11 @@ void UMinimapWidget::ConfigureSceneCapture()
 
 	Cap->TextureTarget = RenderTarget;
 	Cap->ProjectionType = ECameraProjectionMode::Orthographic;
-	// Base color, not FinalColorLDR: unbound world-FOW post-process paints LDR black,
-	// and player-camera ortho-plane correction clips the landscape out of the frustum.
-	Cap->CaptureSource = ESceneCaptureSource::SCS_BaseColor;
-	Cap->UnlitViewmode = ESceneCaptureUnlitViewmode::Capture;
+	// Lit scene color (dirt/rocks), not BaseColor: this landscape's GBuffer albedo
+	// comes out solid white in an unlit capture. Hide FOW actors instead of switching
+	// to BaseColor, and keep scene-capture ortho planes (not player-camera clip).
+	Cap->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	Cap->UnlitViewmode = ESceneCaptureUnlitViewmode::Disabled;
 	Cap->bCaptureEveryFrame = false;
 	Cap->bCaptureOnMovement = false;
 	Cap->bAlwaysPersistRenderingState = true;
@@ -631,7 +694,6 @@ void UMinimapWidget::ConfigureSceneCapture()
 	Cap->bUseCustomProjectionMatrix = false;
 	Cap->MaxViewDistanceOverride = -1.f;
 	Cap->CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
-	// SceneCapture defaults (not player-camera defaults): near=0, far=WORLD_MAX.
 	Cap->bAutoCalculateOrthoPlanes = false;
 	Cap->bUpdateOrthoPlanes = false;
 	Cap->bUseCameraHeightAsViewTarget = false;
@@ -639,8 +701,8 @@ void UMinimapWidget::ConfigureSceneCapture()
 	Cap->PostProcessBlendWeight = 0.f;
 
 	FEngineShowFlags& Flags = Cap->ShowFlags;
-	Flags.SetLighting(false);
-	Flags.SetSkyLighting(false);
+	Flags.SetLighting(true);
+	Flags.SetSkyLighting(true);
 	Flags.SetStaticMeshes(true);
 	Flags.SetInstancedStaticMeshes(true);
 	Flags.SetLandscape(true);
@@ -664,14 +726,14 @@ void UMinimapWidget::ConfigureSceneCapture()
 	Flags.SetTemporalAA(false);
 	Flags.SetScreenSpaceReflections(false);
 	Flags.SetContactShadows(false);
-	Flags.SetDynamicShadows(false);
+	Flags.SetDynamicShadows(true);
 	Flags.SetAmbientOcclusion(false);
 	Flags.SetGlobalIllumination(false);
-	Flags.SetPostProcessing(false);
+	Flags.SetPostProcessing(true);
 	Flags.SetPostProcessMaterial(false);
 	Flags.SetParticles(false);
 	Flags.SetNiagara(false);
-	Flags.SetTranslucency(false);
+	Flags.SetTranslucency(true);
 
 	HideWorldFogFromCapture(Cap, GetWorld());
 }
@@ -723,6 +785,7 @@ void UMinimapWidget::EnsureCapture()
 
 	if (MapImage && RenderTarget)
 	{
+		StretchMapImage();
 		ApplyCaptureBrush(
 			MapImage,
 			RenderTarget,
@@ -827,6 +890,15 @@ void UMinimapWidget::UpdateCapture(float DeltaTime)
 			{
 				Cap->CaptureScene();
 			}
+		}
+		if (MapImage && RenderTarget)
+		{
+			const int32 Size = FMath::Clamp(RenderTargetSize, 64, 1024);
+			StretchMapImage();
+			ApplyCaptureBrush(
+				MapImage,
+				RenderTarget,
+				FVector2D(static_cast<float>(Size), static_cast<float>(Size)));
 		}
 	}
 }
@@ -1499,13 +1571,14 @@ void UMinimapWidget::ApplyCaptureBrush(UImage* TargetImage, UTexture* Texture, c
 		return;
 	}
 
-	FSlateBrush Brush = TargetImage->GetBrush();
+	FSlateBrush Brush;
 	Brush.SetResourceObject(Texture);
 	Brush.DrawAs = ESlateBrushDrawType::Image;
 	Brush.ImageSize = ImageSize;
 	Brush.TintColor = FSlateColor(FLinearColor::White);
 	Brush.SetUVRegion(FBox2D(FVector2D(0.f, 0.f), FVector2D(1.f, 1.f)));
 	TargetImage->SetBrush(Brush);
+	TargetImage->SetBrushResourceObject(Texture);
 	TargetImage->SetColorAndOpacity(FLinearColor::White);
 }
 

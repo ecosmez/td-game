@@ -286,6 +286,9 @@ public:
 protected:
 	void EnsureBuilt();
 	void BindDesignerWidgets();
+	void EnsureMapImage();
+	void StretchMapImage() const;
+	void CollapseFogOverlayIfIdle();
 	void EnsureCapture();
 	void DestroyCapture();
 	void SyncBoundsFromCamera();
