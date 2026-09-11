@@ -1,6 +1,8 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "../CaptureBase.h"
+#include "../MapDiscoveryComponent.h"
 #include "../TDFogVision.h"
 #include "../TDChampionClickMove.h"
 
@@ -121,6 +123,54 @@ bool FFogVisionClickSkipsFoggedMinionTest::RunTest(const FString& Parameters)
 		!FTDFogVision::ShouldSkipClickThroughFoggedEnemy(true, true));
 	TestTrue(TEXT("Non-enemies are not treated as fogged minion skips"),
 		!FTDFogVision::ShouldSkipClickThroughFoggedEnemy(false, false));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FVisionPreviewDrawsInEditorNotPlayByDefaultTest,
+	"TD.Fog.Vision.PreviewDrawsInEditorNotPlayByDefault",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FVisionPreviewDrawsInEditorNotPlayByDefaultTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Editor viewport draws when the editor toggle is on"),
+		FTDVisionPreview::ShouldDraw(false, true, false));
+	TestFalse(TEXT("Editor viewport stays clean when the editor toggle is off"),
+		FTDVisionPreview::ShouldDraw(false, false, true));
+	TestFalse(TEXT("Play does not draw the ring unless the play toggle is on"),
+		FTDVisionPreview::ShouldDraw(true, true, false));
+	TestTrue(TEXT("Play draws the ring when the play toggle is on"),
+		FTDVisionPreview::ShouldDraw(true, false, true));
+	TestTrue(TEXT("The ring sits on the XY ground plane"),
+		FTDVisionPreview::CircleAxisX().Equals(FVector(1.f, 0.f, 0.f))
+			&& FTDVisionPreview::CircleAxisY().Equals(FVector(0.f, 1.f, 0.f)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FVisionPreviewDefaultRadiiGrewTest,
+	"TD.Fog.Vision.PreviewDefaultRadiiGrew",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FVisionPreviewDefaultRadiiGrewTest::RunTest(const FString& Parameters)
+{
+	const UMapDiscoveryComponent* DiscoveryCDO = GetDefault<UMapDiscoveryComponent>();
+	const ACaptureBase* CaptureCDO = GetDefault<ACaptureBase>();
+	TestNotNull(TEXT("MapDiscovery CDO exists"), DiscoveryCDO);
+	TestNotNull(TEXT("CaptureBase CDO exists"), CaptureCDO);
+	if (!DiscoveryCDO || !CaptureCDO)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("Crystal default vision is 120 m"),
+		DiscoveryCDO->CrystalVisionRadius, FTDVisionPreview::DefaultCrystalRadiusCm);
+	TestEqual(TEXT("Captured-base default vision is 100 m"),
+		CaptureCDO->VisionRadius, FTDVisionPreview::DefaultCaptureBaseRadiusCm);
+	TestTrue(TEXT("Crystal vision stays larger than a captured base"),
+		DiscoveryCDO->CrystalVisionRadius > CaptureCDO->VisionRadius);
+	TestTrue(TEXT("Both radii grew past the old 80 m defaults"),
+		DiscoveryCDO->CrystalVisionRadius > 8000.f && CaptureCDO->VisionRadius > 8000.f);
 	return true;
 }
 

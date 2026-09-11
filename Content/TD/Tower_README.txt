@@ -8,7 +8,8 @@ Construction flow
 
 Editable stats on BP_Tower (Details panel)
 - ConstructionTime  (seconds, default 3)
-- AttackSpeed       (shots/sec; BeginPlay sets FireInterval = 1/AttackSpeed when > 0)
+- AttackSpeed       (shots/sec; BeginPlay sets FireInterval = 1/AttackSpeed when FireCooldown is 0)
+- FireCooldown      (seconds between shots for TryFire towers; if > 0 this wins over AttackSpeed — Arrow uses this)
 - FireInterval      (seconds between shots; shared interval used as each fire point's delay)
 - DamagePerShot     (passed into BP_Projectile InitProjectile)
 - ShotsPerVolley    (projectiles spawned per fire-point shot; SpawnVolleyAt loops this many times, min 1)
@@ -33,7 +34,7 @@ Combat fire (TryFire)
    b. SelectVisibleTarget from that point's world location:
       - Scan BP_Enemy actors; keep those within Range of the fire point.
       - Prefer nearest. Do not require Visibility LoS — rocky pads would block every shot.
-   c. If HasFireTarget: set cooldown[i] = FireInterval, SpawnVolleyAt from that fire point (ShotsPerVolley, InitProjectile on BestFireTarget).
+   c. If HasFireTarget: set cooldown[i] = FireCooldown if > 0 else FireInterval, then SpawnVolleyAt (ShotsPerVolley).
 
 Helpers on BP_Tower
 - GatherFirePoints
@@ -41,7 +42,7 @@ Helpers on BP_Tower
 - SpawnVolleyAt(Origin)
 - TryFire (tick when IsBuilt and not IsAoe)
 - UpdateAoEBehavior(DeltaSeconds) / HasEnemyInRange / FireAoEBurst (tick when IsBuilt and IsAoe;
-  see Tower_UpdateAoEBehavior.dsl.txt — used by BP_Tower_Mine)
+  PulseMode cadence is PulseInterval — see Tower_UpdateAoEBehavior.dsl.txt)
 
 Collision notes
 - TowerMesh: BlockAllDynamic / QueryAndPhysics — occludes LoS through the tower.

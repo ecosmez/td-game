@@ -1,0 +1,19 @@
+; AoE combat tick (Mine / Cannon when IsAoe). PulseMode repeats via PulseInterval; else one-shot then destroy.
+(fn UpdateAoEBehavior (DeltaSeconds)
+  (bind origin (Transformation|GetActorLocation))
+  (bind radius (Variables|Default|GetAoeRadius))
+  (bind dmg (Variables|Combat|GetDamagePerShot))
+  (if (Variables|Default|GetPulseMode)
+    (bind t (- (Variables|Default|GetPulseTimer) DeltaSeconds))
+    (Variables|Default|SetPulseTimer t)
+    (if (<= t 0.0)
+      (CallFunction|FireAoEBurst self origin radius dmg)
+      (Variables|Default|SetPulseTimer (Variables|Default|GetPulseInterval)))
+    (else
+      (bind has_enemy (Class|BPTrapBase|HasEnemyinRange self origin radius))
+      (if has_enemy
+        (CallFunction|FireAoEBurst self origin radius dmg)
+        (Actor|DestroyActor self)))))
+
+; FireAoEBurst(Origin, Radius, Damage): damage every attackable BP_Enemy within Radius.
+; PulseMode cadence is PulseInterval only (not FireCooldown).

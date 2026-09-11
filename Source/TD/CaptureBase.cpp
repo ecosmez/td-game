@@ -64,6 +64,38 @@ namespace CaptureBasePrivate
 		}
 		return false;
 	}
+
+	void ApplyPadClickCollision(AActor* Pad, bool bBuildable)
+	{
+		if (!IsValid(Pad))
+		{
+			return;
+		}
+
+		const FTDPadClickCollision Click = FTDCaptureBaseLogic::ResolvePadClickCollision(bBuildable);
+		Pad->SetActorEnableCollision(Click.bActorCollision);
+		if (!Click.bActorCollision)
+		{
+			return;
+		}
+
+		TInlineComponentArray<UPrimitiveComponent*> Primitives(Pad);
+		for (UPrimitiveComponent* Primitive : Primitives)
+		{
+			if (!Primitive)
+			{
+				continue;
+			}
+			if (Click.bQueryOnly)
+			{
+				Primitive->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			}
+			if (Click.bBlockVisibility)
+			{
+				Primitive->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+			}
+		}
+	}
 }
 
 ACaptureBase::ACaptureBase()
@@ -270,7 +302,7 @@ void ACaptureBase::ApplyPadPresentation(
 		? (!bOccupied && State.bStarterPadsVisible)
 		: State.bExtraPadsVisible;
 	CaptureBasePrivate::SetPadHiddenInGame(Pad, !bVisible);
-	Pad->SetActorEnableCollision(bBuildable);
+	CaptureBasePrivate::ApplyPadClickCollision(Pad, bBuildable);
 	UTDEnemyPathLibrary::ApplyLaneDecorationCollision(Pad);
 }
 

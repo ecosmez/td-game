@@ -116,6 +116,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	bool bClickToMoveChampion = true;
 
+	/** Kept for existing WBP defaults. Frame / landmark colors come from WBP_Minimap. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap")
 	FLinearColor FrameColor = FLinearColor(0.04f, 0.07f, 0.10f, 0.94f);
 

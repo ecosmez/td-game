@@ -33,6 +33,13 @@ struct FTDCaptureBaseOutput
 	bool bShouldUnregisterVision = false;
 };
 
+struct FTDPadClickCollision
+{
+	bool bActorCollision = false;
+	bool bQueryOnly = false;
+	bool bBlockVisibility = false;
+};
+
 struct FTDCaptureBaseLogic
 {
 	static bool ShouldFillChannel(
@@ -65,6 +72,14 @@ struct FTDCaptureBaseLogic
 		bool bIsBuilt,
 		float Dist2D,
 		float OccupancyRadius);
+
+	/**
+	 * Click traces for Arrow-style pad placement use ECC_Visibility.
+	 * Buildable pads must re-assert QueryOnly + Visibility block after
+	 * SetActorEnableCollision(true), because HideAllPads can save NoCollision
+	 * if it runs before BP_HexPad BeginPlay.
+	 */
+	static FTDPadClickCollision ResolvePadClickCollision(bool bBuildable);
 
 	static FTDCaptureBaseOutput Step(const FTDCaptureBaseInput& Input);
 };

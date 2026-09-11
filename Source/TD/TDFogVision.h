@@ -33,3 +33,25 @@ struct FTDFogVision
 	/** Click traces skip fogged minions so the ground behind them can still be ordered. */
 	static bool ShouldSkipClickThroughFoggedEnemy(bool bIsAttackableEnemy, bool bLocationVisible);
 };
+
+/**
+ * Editor / play debug rings for crystal and capture-base vision circles.
+ * Fog itself is XY; the preview uses the same plane so designers can see coverage.
+ */
+struct FTDVisionPreview
+{
+	static constexpr float DefaultCrystalRadiusCm = 12000.f;
+	static constexpr float DefaultCaptureBaseRadiusCm = 10000.f;
+	static constexpr float GroundHeightOffsetCm = 20.f;
+	static constexpr int32 SegmentCount = 64;
+	static constexpr float Thickness = 12.f;
+
+	static bool ShouldDraw(bool bIsGameWorld, bool bEnabledInEditor, bool bEnabledInPlay);
+	static FVector CircleAxisX();
+	static FVector CircleAxisY();
+	static FVector GroundLocation(const FVector& ActorLocation);
+	static FColor CrystalColor();
+	static FColor CaptureBaseColor();
+
+	static void DrawCircle(const UWorld* World, const FVector& ActorLocation, float RadiusCm, const FColor& Color);
+};

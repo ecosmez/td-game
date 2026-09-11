@@ -51,16 +51,66 @@ function Test-TryFireDsl {
 			throw "$Path : TryFire is missing required behavior: $required"
 		}
 	}
+
+	if ($dsl -notmatch 'GetFireCooldown') {
+		throw "$Path : TryFire must apply FireCooldown when the tower authored a fire delay."
+	}
+}
+
+function Test-FireRateBeginPlayDsl {
+	param([string]$Path)
+
+	$dsl = Get-Content -Raw $Path
+
+	if ($dsl -notmatch 'GetFireCooldown') {
+		throw "$Path : BeginPlay must prefer authored FireCooldown over AttackSpeed when setting FireInterval."
+	}
+	if ($dsl -notmatch 'SetFireInterval \(Variables\|Combat\|GetFireCooldown\)') {
+		throw "$Path : BeginPlay must copy FireCooldown into FireInterval when FireCooldown is greater than 0."
+	}
+}
+
+function Test-UpdateAoEBehaviorDsl {
+	param([string]$Path)
+
+	$dsl = Get-Content -Raw $Path
+
+	foreach ($required in @(
+		'GetPulseMode',
+		'GetPulseTimer',
+		'SetPulseTimer',
+		'FireAoEBurst',
+		'GetPulseInterval'
+	)) {
+		if ($dsl -notmatch [regex]::Escape($required)) {
+			throw "$Path : UpdateAoEBehavior is missing required behavior: $required"
+		}
+	}
+
+	if ($dsl -match 'GetFireCooldown') {
+		throw "$Path : UpdateAoEBehavior must keep pulse cadence on PulseInterval, not FireCooldown."
+	}
+	if ($dsl -notmatch 'SetPulseTimer \(Variables\|Default\|GetPulseInterval\)') {
+		throw "$Path : PulseMode reset must use PulseInterval."
+	}
 }
 
 $root = Join-Path $PSScriptRoot '..\Content\TD'
 Test-SelectVisibleTargetDsl (Join-Path $root 'Tower_SelectVisibleTarget.dsl.txt')
 Test-TryFireDsl (Join-Path $root 'Tower_TryFire.dsl.txt')
+Test-FireRateBeginPlayDsl (Join-Path $root 'Tower_EventGraph.dsl.txt')
+Test-UpdateAoEBehaviorDsl (Join-Path $root 'Tower_UpdateAoEBehavior.dsl.txt')
 
 foreach ($extra in $ExtraDslFiles) {
 	$name = Split-Path $extra -Leaf
 	if ($name -match 'TryFire') {
 		Test-TryFireDsl $extra
+	}
+	elseif ($name -match 'UpdateAoEBehavior') {
+		Test-UpdateAoEBehaviorDsl $extra
+	}
+	elseif ($name -match 'EventGraph') {
+		Test-FireRateBeginPlayDsl $extra
 	}
 	else {
 		Test-SelectVisibleTargetDsl $extra

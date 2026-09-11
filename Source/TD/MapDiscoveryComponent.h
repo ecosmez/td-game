@@ -35,7 +35,15 @@ public:
 
 	/** World-space radius (cm) of current vision around the main crystal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "100.0", EditCondition = "bEnabled"))
-	float CrystalVisionRadius = 8000.0f;
+	float CrystalVisionRadius = FTDVisionPreview::DefaultCrystalRadiusCm;
+
+	/** Draw the crystal vision ring in the editor viewport. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Preview")
+	bool bDrawCrystalVisionPreview = true;
+
+	/** Also draw the crystal vision ring during PIE / play. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery|Preview")
+	bool bDrawCrystalVisionPreviewInPlay = false;
 
 	/** Soft edge as a fraction of each vision radius. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Discovery", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))

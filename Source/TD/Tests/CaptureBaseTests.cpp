@@ -301,6 +301,26 @@ bool FCaptureBaseOccupancyIgnoresPadsAndUnbuiltTest::RunTest(const FString& Para
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCaptureBaseBuildablePadReassertsClickQueryTest,
+	"TD.Capture.Base.BuildablePadReassertsClickQuery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCaptureBaseBuildablePadReassertsClickQueryTest::RunTest(const FString& Parameters)
+{
+	const FTDPadClickCollision Buildable = FTDCaptureBaseLogic::ResolvePadClickCollision(true);
+	TestTrue(TEXT("Buildable pads enable actor collision"), Buildable.bActorCollision);
+	TestTrue(TEXT("Buildable pads re-assert QueryOnly, not the HideAllPads saved NoCollision"),
+		Buildable.bQueryOnly);
+	TestTrue(TEXT("Buildable pads block the visibility click channel"), Buildable.bBlockVisibility);
+
+	const FTDPadClickCollision Locked = FTDCaptureBaseLogic::ResolvePadClickCollision(false);
+	TestFalse(TEXT("Locked pads disable actor collision"), Locked.bActorCollision);
+	TestFalse(TEXT("Locked pads do not keep a click query"), Locked.bQueryOnly);
+	TestFalse(TEXT("Locked pads do not block visibility"), Locked.bBlockVisibility);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FVisionSourceListUnregisterLeavesOthersTest,
 	"TD.Fog.Vision.UnregisterLeavesOtherSources",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

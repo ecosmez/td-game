@@ -1,8 +1,10 @@
 #include "MapFogWorldSubsystem.h"
 
+#include "CaptureBase.h"
 #include "MapDiscoveryComponent.h"
 #include "WorldFogOfWarComponent.h"
 #include "MobaPlayerController.h"
+#include "TDFogVision.h"
 
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -21,6 +23,7 @@ void UMapFogWorldSubsystem::Deinitialize()
 	BoundDiscovery = nullptr;
 	BoundFog = nullptr;
 	BoundPC = nullptr;
+	CachedCrystal = nullptr;
 	Super::Deinitialize();
 }
 
@@ -31,13 +34,15 @@ TStatId UMapFogWorldSubsystem::GetStatId() const
 
 void UMapFogWorldSubsystem::Tick(float DeltaTime)
 {
-	if (!bAutoEnable)
+	UWorld* World = GetWorld();
+	if (!World)
 	{
 		return;
 	}
 
-	UWorld* World = GetWorld();
-	if (!World || !World->IsGameWorld())
+	DrawVisionPreviews(DeltaTime);
+
+	if (!bAutoEnable || !World->IsGameWorld())
 	{
 		return;
 	}
@@ -145,37 +150,120 @@ void UMapFogWorldSubsystem::EnsureOnLocalPlayer()
 
 void UMapFogWorldSubsystem::RegisterLandmarkReveals(UMapDiscoveryComponent* Discovery)
 {
-	if (!Discovery || !GetWorld())
+	if (!Discovery)
 	{
 		return;
 	}
 
-	auto FindFirst = [this](const TCHAR* SoftPath) -> AActor*
-	{
-		const FSoftClassPath Path(SoftPath);
-		UClass* Cls = Path.TryLoadClass<AActor>();
-		if (!Cls)
-		{
-			return nullptr;
-		}
-		AActor* First = nullptr;
-		for (TActorIterator<AActor> It(GetWorld(), Cls); It; ++It)
-		{
-			AActor* Actor = *It;
-			if (!IsValid(Actor))
-			{
-				continue;
-			}
-			if (!First || Actor->GetName() < First->GetName())
-			{
-				First = Actor;
-			}
-		}
-		return First;
-	};
-
-	if (AActor* Crystal = FindFirst(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C")))
+	if (AActor* Crystal = FindCrystal())
 	{
 		Discovery->RegisterVisionSource(Crystal, Discovery->CrystalVisionRadius);
+	}
+}
+
+AActor* UMapFogWorldSubsystem::FindCrystal()
+{
+	if (AActor* Cached = CachedCrystal.Get())
+	{
+		return Cached;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	const FSoftClassPath Path(TEXT("/Game/TD/BP_Crystal.BP_Crystal_C"));
+	UClass* Cls = Path.TryLoadClass<AActor>();
+	if (!Cls)
+	{
+		return nullptr;
+	}
+
+	AActor* First = nullptr;
+	for (TActorIterator<AActor> It(World, Cls); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor))
+		{
+			continue;
+		}
+		if (!First || Actor->GetName() < First->GetName())
+		{
+			First = Actor;
+		}
+	}
+	CachedCrystal = First;
+	return First;
+}
+
+const UMapDiscoveryComponent* UMapFogWorldSubsystem::ResolveDiscoveryForPreview() const
+{
+	if (BoundDiscovery)
+	{
+		return BoundDiscovery;
+	}
+	if (const AMobaPlayerController* PCCdo = GetDefault<AMobaPlayerController>())
+	{
+		if (const UMapDiscoveryComponent* Comp = PCCdo->FindComponentByClass<UMapDiscoveryComponent>())
+		{
+			return Comp;
+		}
+	}
+	return GetDefault<UMapDiscoveryComponent>();
+}
+
+void UMapFogWorldSubsystem::DrawVisionPreviews(float DeltaTime)
+{
+	UWorld* World = GetWorld();
+	const UMapDiscoveryComponent* Discovery = ResolveDiscoveryForPreview();
+	if (!World || !Discovery)
+	{
+		return;
+	}
+
+	const bool bGameWorld = World->IsGameWorld();
+	if (FTDVisionPreview::ShouldDraw(
+			bGameWorld,
+			Discovery->bDrawCrystalVisionPreview,
+			Discovery->bDrawCrystalVisionPreviewInPlay))
+	{
+		AActor* Crystal = CachedCrystal.Get();
+		CrystalFindRetry -= DeltaTime;
+		if (!Crystal && CrystalFindRetry <= 0.f)
+		{
+			CrystalFindRetry = 0.5f;
+			Crystal = FindCrystal();
+		}
+		if (Crystal)
+		{
+			FTDVisionPreview::DrawCircle(
+				World,
+				Crystal->GetActorLocation(),
+				Discovery->CrystalVisionRadius,
+				FTDVisionPreview::CrystalColor());
+		}
+	}
+
+	for (TActorIterator<ACaptureBase> It(World); It; ++It)
+	{
+		ACaptureBase* Base = *It;
+		if (!IsValid(Base))
+		{
+			continue;
+		}
+		if (!FTDVisionPreview::ShouldDraw(
+				bGameWorld,
+				Base->bDrawVisionPreview,
+				Base->bDrawVisionPreviewInPlay))
+		{
+			continue;
+		}
+		FTDVisionPreview::DrawCircle(
+			World,
+			Base->GetActorLocation(),
+			Base->VisionRadius,
+			FTDVisionPreview::CaptureBaseColor());
 	}
 }

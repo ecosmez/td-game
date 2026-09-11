@@ -6,6 +6,7 @@
 
 class UMapDiscoveryComponent;
 class UWorldFogOfWarComponent;
+class AActor;
 
 /**
  * Ensures map discovery + 3D FOW exist on the local player, regardless of
@@ -22,7 +23,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 	virtual bool IsTickable() const override { return true; }
-	virtual bool IsTickableInEditor() const override { return false; }
+	virtual bool IsTickableInEditor() const override { return true; }
 	virtual bool IsTickableWhenPaused() const override { return false; }
 
 	/** When false, subsystem does nothing. */
@@ -35,6 +36,9 @@ protected:
 	void EnsureOnLocalPlayer();
 	AActor* ResolveExplorer(APlayerController* PC) const;
 	void RegisterLandmarkReveals(UMapDiscoveryComponent* Discovery);
+	void DrawVisionPreviews(float DeltaTime);
+	AActor* FindCrystal();
+	const UMapDiscoveryComponent* ResolveDiscoveryForPreview() const;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMapDiscoveryComponent> BoundDiscovery = nullptr;
@@ -45,5 +49,9 @@ protected:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<APlayerController> BoundPC;
 
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> CachedCrystal;
+
 	float RetryTimer = 0.f;
+	float CrystalFindRetry = 0.f;
 };

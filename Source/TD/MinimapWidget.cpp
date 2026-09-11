@@ -989,12 +989,10 @@ void UMinimapWidget::UpdateMarkers()
 		{
 			const FVector2D ChampNorm = WorldToNormalized(Champ->GetActorLocation());
 			PlaceMarker(ChampionMarker, ChampionSlot, ChampNorm, 6.f);
-			ChampionMarker->SetBrushColor(ChampionMarkerColor);
 
 			if (bShowChampionAvatarFrame && ChampionMarkerFrame && ChampionFrameSlot)
 			{
 				PlaceMarker(ChampionMarkerFrame, ChampionFrameSlot, ChampNorm, 6.f + ChampionAvatarFramePadding);
-				ChampionMarkerFrame->SetBrushColor(ChampionAvatarFrameColor);
 			}
 			else if (ChampionMarkerFrame)
 			{
@@ -1040,7 +1038,6 @@ void UMinimapWidget::UpdateMarkers()
 		if (bHaveCam)
 		{
 			PlaceMarker(CameraMarker, CameraSlot, WorldToNormalized(CamLoc), 5.f);
-			CameraMarker->SetBrushColor(CameraMarkerColor);
 		}
 		else
 		{
@@ -1058,7 +1055,6 @@ void UMinimapWidget::UpdateMarkers()
 		if (AActor* Crystal = CachedCrystalActor.Get())
 		{
 			PlaceMarker(CrystalMarker, CrystalSlot, WorldToNormalized(Crystal->GetActorLocation()), CrystalMarkerHalfSize);
-			CrystalMarker->SetBrushColor(CrystalMarkerColor);
 		}
 		else
 		{
@@ -1076,7 +1072,6 @@ void UMinimapWidget::UpdateMarkers()
 		if (AActor* Spawn = CachedEnemySpawnActor.Get())
 		{
 			PlaceMarker(EnemySpawnMarker, EnemySpawnSlot, WorldToNormalized(Spawn->GetActorLocation()), EnemySpawnMarkerHalfSize);
-			EnemySpawnMarker->SetBrushColor(EnemySpawnMarkerColor);
 		}
 		else
 		{

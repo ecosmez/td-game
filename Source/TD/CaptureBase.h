@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "TDCaptureBaseLogic.h"
+#include "TDFogVision.h"
 #include "CaptureBase.generated.h"
 
 class UMapDiscoveryComponent;
@@ -33,7 +34,15 @@ public:
 	float ChannelDuration = 5.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Base", meta = (ClampMin = "100.0"))
-	float VisionRadius = 8000.f;
+	float VisionRadius = FTDVisionPreview::DefaultCaptureBaseRadiusCm;
+
+	/** Draw this base's vision ring in the editor viewport. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Base|Preview")
+	bool bDrawVisionPreview = true;
+
+	/** Also draw this base's vision ring during PIE / play. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Base|Preview")
+	bool bDrawVisionPreviewInPlay = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Base", meta = (ClampMin = "50.0"))
 	float OccupancyRadius = 180.f;

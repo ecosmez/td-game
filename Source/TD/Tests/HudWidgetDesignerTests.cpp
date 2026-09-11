@@ -9,8 +9,12 @@
 #include "../MinimapWidget.h"
 #include "../TowerStoreWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/CanvasPanel.h"
+#include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
+#include "Layout/Geometry.h"
 #include "Misc/AutomationTest.h"
 
 namespace HudWidgetDesignerTestPrivate
@@ -240,6 +244,66 @@ bool FCaptureChannelBindsDesignerProgressBarTest::RunTest(const FString& Paramet
 	const FLinearColor ExpectedEnemyFill(0.95f, 0.18f, 0.16f, 1.f);
 	Widget->SetFillColor(ExpectedEnemyFill);
 	TestEqual(TEXT("fill color is applied"), Bound->GetFillColorAndOpacity(), ExpectedEnemyFill);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMinimapPreservesDesignerMarkerColorsOnTickTest,
+	"TD.UI.Minimap.PreservesDesignerMarkerColorsOnTick",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMinimapPreservesDesignerMarkerColorsOnTickTest::RunTest(const FString& Parameters)
+{
+	UMinimapWidget* Widget = NewObject<UMinimapWidget>();
+	TestNotNull(TEXT("minimap can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UCanvasPanel* Root = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+
+	USizeBox* Size = Widget->WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(), TEXT("MinimapSizeBox"));
+	Root->AddChild(Size);
+	UBorder* Frame = Widget->WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("MinimapFrame"));
+	Size->SetContent(Frame);
+	UCanvasPanel* Canvas = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
+	Frame->SetContent(Canvas);
+	UImage* MapImage = Widget->WidgetTree->ConstructWidget<UImage>(
+		UImage::StaticClass(), TEXT("MinimapImage"));
+	Canvas->AddChild(MapImage);
+	UBorder* Champion = Widget->WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("ChampionMarker"));
+	Canvas->AddChild(Champion);
+	UBorder* Crystal = Widget->WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("CrystalMarker"));
+	Canvas->AddChild(Crystal);
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+
+	const FLinearColor Sentinel(0.12f, 0.84f, 0.33f, 1.f);
+	Frame->SetBrushColor(Sentinel);
+	Champion->SetBrushColor(Sentinel);
+	Crystal->SetBrushColor(Sentinel);
+
+	Widget->ChampionMarkerColor = FLinearColor(1.f, 0.f, 0.f, 1.f);
+	Widget->CrystalMarkerColor = FLinearColor(1.f, 0.f, 0.f, 1.f);
+	Widget->FrameColor = FLinearColor(1.f, 0.f, 0.f, 1.f);
+
+	Widget->NativeTick(FGeometry(), 0.f);
+
+	TestEqual(TEXT("minimap frame keeps the designer tint"),
+		Frame->GetBrushColor(), Sentinel);
+	TestEqual(TEXT("champion marker keeps the designer tint"),
+		Champion->GetBrushColor(), Sentinel);
+	TestEqual(TEXT("crystal marker keeps the designer tint"),
+		Crystal->GetBrushColor(), Sentinel);
 	return true;
 }
 

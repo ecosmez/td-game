@@ -22,29 +22,13 @@
 
 namespace CrystalHealthBarPrivate
 {
-	static FLinearColor ChromeBg(0.03f, 0.04f, 0.06f, 0.94f);
-	static FLinearColor ChromeOutline(0.18f, 0.55f, 0.85f, 0.75f);
-	static FLinearColor TrackBg(0.05f, 0.07f, 0.10f, 0.98f);
-	static FLinearColor FillHealthy(0.18f, 0.72f, 1.0f, 1.f);
-	static FLinearColor FillHurt(0.95f, 0.62f, 0.18f, 1.f);
-	static FLinearColor FillCritical(0.92f, 0.22f, 0.22f, 1.f);
-	static FLinearColor TitleColor(0.95f, 0.97f, 1.f, 1.f);
-	static FLinearColor ValueColor(1.f, 1.f, 1.f, 1.f);
+	// Runtime-created wave dots have no Designer brush. Named WBP widgets keep
+	// whatever colors the Designer set; C++ must not overwrite them on tick.
 	static FLinearColor DotEmptyFill(0.04f, 0.06f, 0.09f, 0.95f);
-	static FLinearColor DotEmptyOutline(0.22f, 0.55f, 0.78f, 0.85f);
 	static FLinearColor BossFill(0.12f, 0.03f, 0.03f, 0.96f);
 	static FLinearColor BossOutline(0.95f, 0.18f, 0.16f, 1.f);
 	static FLinearColor BossIcon(1.f, 0.32f, 0.28f, 1.f);
-	static FLinearColor PlayFill(0.05f, 0.08f, 0.12f, 0.98f);
-	static FLinearColor PlayFillBusy(0.06f, 0.07f, 0.09f, 0.95f);
-	static FLinearColor PlayIcon(0.95f, 0.98f, 1.f, 1.f);
-	static FLinearColor TimerDim(0.40f, 0.50f, 0.58f, 1.f);
-	static FLinearColor EnemyCountHot(1.0f, 0.55f, 0.18f, 1.f);
-	static FLinearColor EnemyCountIdle(0.40f, 0.50f, 0.58f, 1.f);
 	static FLinearColor EnemySideOutline(0.95f, 0.18f, 0.16f, 1.f);
-	static FLinearColor ThreatLow(0.96f, 0.78f, 0.20f, 1.f);
-	static FLinearColor ThreatMedium(1.0f, 0.48f, 0.12f, 1.f);
-	static FLinearColor ThreatHigh(0.95f, 0.16f, 0.12f, 1.f);
 }
 
 FCrystalWaveThreat UCrystalHealthBarWidget::CalculateCrystalWaveThreat(float EnemyResourcePool)
@@ -430,7 +414,6 @@ void UCrystalHealthBarWidget::RefreshFromCrystal()
 	{
 		HealthBar->SetPercent(0.f);
 		ValueLabel->SetText(FText::FromString(TEXT("-- / --")));
-		HealthBar->SetFillColorAndOpacity(CrystalHealthBarPrivate::FillCritical);
 		if (BarChrome)
 		{
 			BarChrome->SetRenderOpacity(0.55f);
@@ -440,17 +423,6 @@ void UCrystalHealthBarWidget::RefreshFromCrystal()
 
 	const float Percent = FMath::Clamp(Current / Max, 0.f, 1.f);
 	HealthBar->SetPercent(Percent);
-
-	FLinearColor Fill = CrystalHealthBarPrivate::FillHealthy;
-	if (Percent <= 0.25f)
-	{
-		Fill = CrystalHealthBarPrivate::FillCritical;
-	}
-	else if (Percent <= 0.5f)
-	{
-		Fill = CrystalHealthBarPrivate::FillHurt;
-	}
-	HealthBar->SetFillColorAndOpacity(Fill);
 
 	const int32 CurInt = FMath::Max(0, FMath::CeilToInt(Current));
 	const int32 MaxInt = FMath::Max(1, FMath::CeilToInt(Max));
@@ -517,20 +489,16 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	if (ThreatImpactLabel && ThreatSourceLabel && ThreatChrome)
 	{
 		const FCrystalWaveThreat Threat = CalculateCrystalWaveThreat(EnemyResourcePool);
-		FLinearColor ThreatColor = CrystalHealthBarPrivate::EnemyCountIdle;
 		const TCHAR* ThreatName = TEXT("NONE");
 		switch (Threat.ThreatLevel)
 		{
 		case ECrystalThreatLevel::Low:
-			ThreatColor = CrystalHealthBarPrivate::ThreatLow;
 			ThreatName = TEXT("LOW");
 			break;
 		case ECrystalThreatLevel::Medium:
-			ThreatColor = CrystalHealthBarPrivate::ThreatMedium;
 			ThreatName = TEXT("MEDIUM");
 			break;
 		case ECrystalThreatLevel::High:
-			ThreatColor = CrystalHealthBarPrivate::ThreatHigh;
 			ThreatName = TEXT("HIGH");
 			break;
 		default:
@@ -540,13 +508,10 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		ThreatImpactLabel->SetText(FText::FromString(FString::Printf(
 			TEXT("NEXT WAVE  +%d ENEMIES  |  +%d%% HP & DAMAGE"),
 			Threat.ExtraEnemies, Threat.EmpowermentPercent)));
-		ThreatImpactLabel->SetColorAndOpacity(FSlateColor(ThreatColor));
 		ThreatSourceLabel->SetText(FText::FromString(
 			EnemyBonusPerSecond > KINDA_SMALL_NUMBER
 				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  â€¢  THREAT %s"), EnemyBonusPerSecond, ThreatName)
 				: FString::Printf(TEXT("ACCUMULATION STOPPED  â€¢  THREAT %s"), ThreatName)));
-		ThreatSourceLabel->SetColorAndOpacity(FSlateColor(ThreatColor.CopyWithNewOpacity(0.82f)));
-		ApplyRoundedBrush(ThreatChrome, CrystalHealthBarPrivate::ChromeBg, ThreatColor, 1.6f, false);
 	}
 
 	if (WaveLabel)
@@ -596,13 +561,6 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	{
 		NextWaveButton->SetIsEnabled(!bBusy && Spawner != nullptr);
 	}
-	if (NextWaveFrame)
-	{
-		ApplyRoundedBrush(NextWaveFrame,
-			bBusy ? CrystalHealthBarPrivate::PlayFillBusy : CrystalHealthBarPrivate::PlayFill,
-			bBusy ? CrystalHealthBarPrivate::DotEmptyOutline : CrystalHealthBarPrivate::EnemySideOutline,
-			2.f, false);
-	}
 	if (NextWaveSizeBox)
 	{
 		NextWaveSizeBox->SetRenderOpacity(bBusy ? 0.45f : 1.f);
@@ -610,15 +568,12 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 	if (NextWaveLabel)
 	{
 		NextWaveLabel->SetText(FText::FromString(bBusy ? TEXT("âšâš") : TEXT("â–¶")));
-		NextWaveLabel->SetColorAndOpacity(FSlateColor(CrystalHealthBarPrivate::PlayIcon));
 	}
 
 	if (EnemiesCountLabel)
 	{
 		const int32 Remaining = UTDEnemyPathLibrary::CountWaveEnemiesRemaining(this);
 		EnemiesCountLabel->SetText(FText::FromString(FString::Printf(TEXT("ENEMIES\n%d"), Remaining)));
-		EnemiesCountLabel->SetColorAndOpacity(FSlateColor(
-			Remaining > 0 ? CrystalHealthBarPrivate::EnemyCountHot : CrystalHealthBarPrivate::EnemyCountIdle));
 	}
 
 	if (TimerLabel)
@@ -627,8 +582,6 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		const int32 Minutes = TotalSeconds / 60;
 		const int32 Seconds = TotalSeconds % 60;
 		TimerLabel->SetText(FText::FromString(FString::Printf(TEXT("â—·  %d:%02d"), Minutes, Seconds)));
-		TimerLabel->SetColorAndOpacity(FSlateColor(
-			TotalSeconds > 0 ? CrystalHealthBarPrivate::EnemySideOutline : CrystalHealthBarPrivate::TimerDim));
 	}
 }
 

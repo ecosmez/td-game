@@ -79,6 +79,18 @@ bool FTDCaptureBaseLogic::ShouldCountOccupyingTower(
 	return Dist2D <= OccupancyRadius;
 }
 
+FTDPadClickCollision FTDCaptureBaseLogic::ResolvePadClickCollision(bool bBuildable)
+{
+	FTDPadClickCollision Out;
+	if (bBuildable)
+	{
+		Out.bActorCollision = true;
+		Out.bQueryOnly = true;
+		Out.bBlockVisibility = true;
+	}
+	return Out;
+}
+
 FTDCaptureBaseOutput FTDCaptureBaseLogic::Step(const FTDCaptureBaseInput& Input)
 {
 	FTDCaptureBaseOutput Out;
