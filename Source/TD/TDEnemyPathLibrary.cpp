@@ -2025,7 +2025,12 @@ namespace TDEnemyPathPrivate
 			{
 				return Slot.RouteId != PrimaryRouteId;
 			});
+			return;
 		}
+		InOutPoints.RemoveAll([PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
+		{
+			return Slot.RouteId == PrimaryRouteId;
+		});
 	}
 
 	static void ChooseWaveSpawnSlots(
@@ -2058,7 +2063,7 @@ namespace TDEnemyPathPrivate
 		Algo::RandomShuffle(OtherRoutes);
 
 		TArray<int32> ChosenRoutes;
-		if (ByRoute.Contains(PrimaryRouteId))
+		if (WaveNumber <= 1 && ByRoute.Contains(PrimaryRouteId))
 		{
 			ChosenRoutes.Add(PrimaryRouteId);
 		}
@@ -2074,6 +2079,10 @@ namespace TDEnemyPathPrivate
 		{
 			for (const TPair<int32, TArray<FTDWaveSpawnSlot>>& Pair : ByRoute)
 			{
+				if (WaveNumber > 1 && Pair.Key == PrimaryRouteId)
+				{
+					continue;
+				}
 				if (!ChosenRoutes.Contains(Pair.Key))
 				{
 					ChosenRoutes.Add(Pair.Key);
@@ -2098,8 +2107,12 @@ namespace TDEnemyPathPrivate
 		}
 
 		TArray<FTDWaveSpawnSlot> Unused = Points;
-		Unused.RemoveAll([&OutChosen](const FTDWaveSpawnSlot& Slot)
+		Unused.RemoveAll([&OutChosen, WaveNumber, PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
 		{
+			if (WaveNumber > 1 && Slot.RouteId == PrimaryRouteId)
+			{
+				return true;
+			}
 			for (const FTDWaveSpawnSlot& Chosen : OutChosen)
 			{
 				if (Chosen.RouteId == Slot.RouteId && Chosen.bOverLane == Slot.bOverLane)
@@ -2155,14 +2168,19 @@ namespace TDEnemyPathPrivate
 		}
 
 		const int32 WaveNumber = FMath::Max(ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1), 1);
-		const int32 PrimaryRouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
-		FilterSpawnPointsForWave(WaveNumber, PrimaryRouteId, Points);
+		// Route 0 is the first-wave path only; later waves never use it.
+		constexpr int32 InitialRouteId = 0;
+		FilterSpawnPointsForWave(WaveNumber, InitialRouteId, Points);
 		if (Points.Num() == 0)
 		{
+			if (WaveNumber > 1)
+			{
+				return false;
+			}
 			FTDWaveSpawnSlot Fallback;
-			Fallback.RouteId = PrimaryRouteId;
+			Fallback.RouteId = InitialRouteId;
 			Fallback.bOverLane = true;
-			Fallback.Location = SpawnXformFromRoute(World, PrimaryRouteId, true).GetLocation();
+			Fallback.Location = SpawnXformFromRoute(World, InitialRouteId, true).GetLocation();
 			if (Fallback.Location.IsNearlyZero())
 			{
 				return false;
@@ -2171,7 +2189,7 @@ namespace TDEnemyPathPrivate
 		}
 
 		TArray<FTDWaveSpawnSlot> Chosen;
-		ChooseWaveSpawnSlots(WaveNumber, PrimaryRouteId, Points, Chosen);
+		ChooseWaveSpawnSlots(WaveNumber, InitialRouteId, Points, Chosen);
 		const int32 NumSpawns = Chosen.Num();
 		if (NumSpawns <= 0)
 		{
@@ -2221,7 +2239,7 @@ namespace TDEnemyPathPrivate
 		return OutQueue.Num() > 0;
 	}
 
-	/** Elect primary spawner; wave 1 uses only that route, later waves keep it and add others. */
+	/** Elect primary spawner; wave 1 uses RouteId 0, later waves exclude it. */
 	static bool PrepareWaveSpawn(AActor* Spawner)
 	{
 		if (!IsValid(Spawner))
@@ -2295,11 +2313,11 @@ bool FTDWaveOneUsesPrimarySpawnTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FTDLaterWavesKeepPrimarySpawnTest,
-	"TD.EnemyPath.LaterWavesKeepPrimarySpawn",
+	FTDLaterWavesDisablePrimarySpawnTest,
+	"TD.EnemyPath.LaterWavesDisablePrimarySpawn",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FTDLaterWavesKeepPrimarySpawnTest::RunTest(const FString& Parameters)
+bool FTDLaterWavesDisablePrimarySpawnTest::RunTest(const FString& Parameters)
 {
 	TArray<FTDWaveSpawnSlot> Points;
 	FTDWaveSpawnSlot PrimaryOver;
@@ -2320,16 +2338,11 @@ bool FTDLaterWavesKeepPrimarySpawnTest::RunTest(const FString& Parameters)
 
 	TDEnemyPathPrivate::FilterSpawnPointsForWave(2, 0, Points);
 
-	TestEqual(TEXT("Later waves keep primary and extra routes"), Points.Num(), 3);
-	bool bHasPrimary = false;
-	bool bHasOther = false;
+	TestEqual(TEXT("Later waves keep only extra routes"), Points.Num(), 1);
 	for (const FTDWaveSpawnSlot& Slot : Points)
 	{
-		bHasPrimary = bHasPrimary || Slot.RouteId == 0;
-		bHasOther = bHasOther || Slot.RouteId == 1;
+		TestEqual(TEXT("Later waves do not use the first lane"), Slot.RouteId, 1);
 	}
-	TestTrue(TEXT("Later waves still use the first lane"), bHasPrimary);
-	TestTrue(TEXT("Later waves add another route"), bHasOther);
 	return true;
 }
 #endif
