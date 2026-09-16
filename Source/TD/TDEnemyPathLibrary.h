@@ -67,11 +67,31 @@ public:
 	static FVector ResolveGroundCorrectionAfterSweep(FVector SweptLocation, FVector GroundSnappedLocation);
 	static FVector ResolveEngagementGroundLocation(FVector PlanarLocation, FVector GroundSnappedLocation);
 
+	/** True until this minion has already rolled its personal speed and lane slot. */
+	static bool ShouldChooseWalkStyle(bool bAlreadyChosen);
+	/** Map 0..1 into [1-Variance, 1+Variance]. Variance <= 0 keeps the authored speed. */
+	static float ResolveMoveSpeedScale(float Variance, float RandomUnit);
+	/** BaseSpeed * SpeedScale * SlowFactor, never negative. */
+	static float ResolveEnemyMoveSpeed(float BaseSpeed, float SpeedScale, float SlowFactor);
+	/** Map -1..1 into [-Range, Range]. Range <= 0 stays on the centerline. */
+	static float ResolveLaneOffset(float Range, float RandomSignedUnit);
+	/** Personal lane slot plus a momentary avoidance sidestep. */
+	static float ResolveLaneGuideOffset(float PersonalOffset, float AvoidanceOffset);
+	/** Shift a guide point onto a parallel lane using the path tangent. */
+	static FVector OffsetAlongPathRight(FVector PathLocation, FVector PathTangent, float LateralOffset);
+
 	/** Capture bases, resource crystals, and pads must not cut the minion lane. */
 	static bool IsLaneDecorationClassName(const FString& ClassName);
 
 	/** Keep decorations queryable for capture/click, but do not carve NavMesh or block pawns. */
 	static void ApplyLaneDecorationCollision(AActor* Actor);
+
+	/** Champion slow-area (and similar) volumes must never count as terrain. */
+	static bool IsAbilityVolumeClassName(const FString& ClassName);
+
+	/** Visual mesh is non-blocking; overlap sphere stays query-only and does not carve NavMesh. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void ApplyAbilityVolumeCollision(AActor* Actor);
 
 	/** True once a champion pursuit has carried an enemy beyond its lane leash. */
 	static bool ShouldAbandonChampionPursuit(float DistanceToOwnPath, float MaxPathLeashRange);
@@ -104,6 +124,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void BeginWaveSpawning(AActor* Spawner);
+
+	/** Minions sent down each chosen spawn: 12 + WaveNumber * 8. */
+	static int32 ComputeWavePerSpawnCount(int32 WaveNumber);
+	/** How many spawn slots wave N uses, capped by available points. */
+	static int32 ComputeWaveSpawnSlotCount(int32 WaveNumber, int32 AvailablePoints);
+	/** Per-spawn count * slots, plus one on a boss wave. */
+	static int32 ComputeWaveEnemyCount(int32 WaveNumber, int32 SpawnSlots, bool bBossWave);
+	/** 0.55s on wave 1, -0.05s each wave, floor 0.30s. */
+	static float ComputeWaveSpawnInterval(int32 WaveNumber);
 
 	/** True if this is the wave director (lowest RouteId among same-class spawners). */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")

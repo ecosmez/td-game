@@ -1,7 +1,7 @@
 (event EventBeginPlay
   (Variables|Default|SetCountdownSeconds 5)
   (Variables|Default|SetBetweenWaveDelay 4.0)
-  (Variables|Default|SetSpawnInterval 1.25)
+  (Variables|Default|SetSpawnInterval 0.55)
   (Variables|Default|SetMaxAlive 99)
   (Variables|Default|SetAliveCount 0))
 

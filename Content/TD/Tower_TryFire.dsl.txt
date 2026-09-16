@@ -23,7 +23,8 @@
             (CallFunction|SpawnVolleyAt :Origin origin)))
         (:"Is Not Valid")))))
 
-; SelectVisibleTarget(Origin): nearest in-Range enemy. Terrain must not block targeting.
+; SelectVisibleTarget(Origin): nearest in-Range enemy. Other finished towers
+; block the shot; terrain and pads must not.
 ; Sets BestFireTarget / BestFireDist / HasFireTarget.
 
 ; SpawnVolleyAt(Origin): for s in 0..max(ShotsPerVolley,1)-1 spawn BP_Projectile at
