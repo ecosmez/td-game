@@ -32,8 +32,8 @@ struct FCrystalWaveThreat
  * Top-center Base Health + wave HUD (replaces the old crystal-only bar).
  * Polls BP_Crystal CurrentHealth / MaxHealth, BP_EnemySpawner wave state, and
  * remaining enemies (alive + still queued to spawn) each tick.
- * Named Designer widgets keep their WBP colors; C++ only updates text, percent,
- * and runtime-created wave dots.
+ * Named Designer widgets keep their WBP colors, text layout, and visibility.
+ * In a game world C++ only writes live values (health, wave, enemies, timer).
  */
 UCLASS(Blueprintable)
 class TD_API UCrystalHealthBarWidget : public UUserWidget

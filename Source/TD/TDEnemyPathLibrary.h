@@ -150,6 +150,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
 	static void ForceStartNextWave(AActor* Spawner);
 
+	/** After the player picks a between-wave power-up, resume OnWaveCleared / countdown. */
+	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path")
+	static void ContinueAfterWavePowerUp(AActor* Spawner);
+
 	/** True if any trash / ranged / boss enemy is still alive. */
 	UFUNCTION(BlueprintCallable, Category = "TD|Enemy Path", meta = (WorldContext = "WorldContextObject"))
 	static bool AreWaveEnemiesAlive(const UObject* WorldContextObject);

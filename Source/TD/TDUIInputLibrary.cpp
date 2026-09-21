@@ -5,6 +5,7 @@
 #include "MinimapWidget.h"
 #include "CameraOrbitGizmoWidget.h"
 #include "TowerStoreWidget.h"
+#include "WavePowerUpWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Engine/Engine.h"
@@ -69,6 +70,16 @@ bool UTDUIInputLibrary::IsPointerOverHitTestableUI(const UObject* WorldContextOb
 	{
 		UChampionFrameWidget* Frame = *It;
 		if (Frame && Frame->IsInViewport() && Frame->IsScreenPosOverFrame(Cursor))
+		{
+			return true;
+		}
+	}
+
+	// Full-screen between-wave power-up overlay.
+	for (TObjectIterator<UWavePowerUpWidget> It; It; ++It)
+	{
+		UWavePowerUpWidget* Overlay = *It;
+		if (Overlay && Overlay->IsInViewport() && Overlay->IsDraftVisible())
 		{
 			return true;
 		}

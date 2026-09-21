@@ -16,8 +16,8 @@ class UTexture2D;
 
 /**
  * LoL-style champion unit frame: circular avatar + HP bar, bottom-left.
- * Polls the controlled champion's CurrentHealth / MaxHealth (and ChampionLevel)
- * each tick. Optional portrait texture, otherwise a monogram fallback.
+ * Designer widgets keep brush, color, size, visibility, name, and portrait.
+ * In a game world C++ only writes live health percent / value and level.
  */
 UCLASS(Blueprintable)
 class TD_API UChampionFrameWidget : public UUserWidget
@@ -39,19 +39,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame")
 	FVector2D ScreenMargin = FVector2D(24.0f, 24.0f);
 
-	/** Circular portrait diameter (slate units). */
+	/** Fallback size used only when live chrome geometry is not available. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame", meta = (ClampMin = "48.0"))
 	float AvatarSize = 92.0f;
 
-	/** HP bar width (slate units). */
+	/** Fallback HP bar width used only when live chrome geometry is not available. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame", meta = (ClampMin = "80.0"))
 	float BarWidth = 196.0f;
 
-	/** HP track height (slate units). */
+	/** Fallback HP track height used only when live chrome geometry is not available. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame", meta = (ClampMin = "8.0"))
 	float BarHeight = 22.0f;
 
-	/** Optional portrait; pawn Portrait / Avatar / ChampionPortrait overrides when set. */
+	/** Unused at runtime; portrait comes from the Designer image. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Champion Frame")
 	FSoftObjectPath PortraitTexturePath;
 
@@ -72,18 +72,11 @@ protected:
 	void BindDesignerWidgets();
 	void ApplyHitTestPolicy();
 	void RefreshFromChampion();
-	void ApplyPortrait(UTexture2D* Texture);
 	APawn* ResolveChampionPawn() const;
 	bool TryReadHealth(const UObject* Obj, float& OutCurrent, float& OutMax) const;
-	UTexture2D* ResolvePortraitTexture(const UObject* Obj) const;
-	FString ResolveChampionName(const APawn* Pawn) const;
 
-	static void ApplyRoundedBrush(UBorder* Border, const FLinearColor& Fill, const FLinearColor& Outline,
-		float OutlineWidth, bool bCircle);
 	static bool ReadFloatProp(const UObject* Obj, FName Name, float& OutValue);
 	static bool ReadIntProp(const UObject* Obj, FName Name, int32& OutValue);
-	static bool ReadStringProp(const UObject* Obj, FName Name, FString& OutValue);
-	static UTexture2D* ReadTextureProp(const UObject* Obj, FName Name);
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> RootCanvas = nullptr;
@@ -120,9 +113,6 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> HealthValue = nullptr;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UTexture2D> CachedPortrait = nullptr;
 
 	bool bBuilt = false;
 };

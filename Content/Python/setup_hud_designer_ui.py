@@ -313,7 +313,7 @@ def seed_crystal_health(force=False):
     _add(bp, unreal.HorizontalBox, "WaveDotsBox", "WaveStripRow")
 
     enemies = _add(bp, unreal.Border, "EnemiesCountChrome", "TopBarRow")
-    _text(bp, "WaveEnemiesCount", "EnemiesCountChrome", "ENEMIES\n0", 16, unreal.TextJustify.CENTER)
+    _text(bp, "WaveEnemiesCount", "EnemiesCountChrome", "0", 16, unreal.TextJustify.CENTER)
     _text(bp, "WaveTimer", "TopBarRow", "0:00", 20, unreal.TextJustify.CENTER)
 
     _size_box(bp, "NextWaveSize", "TopBarRow", 36.0, 36.0)
@@ -589,6 +589,55 @@ def seed_tower_store(force=False):
     return True
 
 
+def seed_wave_powerup(force=False):
+    path = "/Game/TD/UI/WBP_WavePowerUp"
+    _close(path)
+    bp = _ensure_wbp(path, "WBP_WavePowerUp", "/Script/TD.WavePowerUpWidget")
+    if bp is None:
+        return False
+    if (not force) and _has_any(bp, ("WavePowerUpCardRow", "WavePowerUpRoot")):
+        unreal.log("WBP_WavePowerUp already has designer widgets")
+        _compile_save(bp, path)
+        return True
+
+    _add(bp, unreal.CanvasPanel, "WavePowerUpRoot", "")
+    dimmer = _add(bp, unreal.Border, "WavePowerUpDimmer", "WavePowerUpRoot")
+    if dimmer:
+        dimmer.set_brush_color(unreal.LinearColor(0.02, 0.03, 0.05, 0.78))
+        _canvas_slot(
+            dimmer,
+            unreal.Vector2D(0.0, 0.0),
+            unreal.Vector2D(1.0, 1.0),
+            unreal.Vector2D(0.0, 0.0),
+            unreal.Margin(0.0, 0.0, 0.0, 0.0),
+            0,
+            auto_size=False,
+        )
+    panel = _add(bp, unreal.VerticalBox, "WavePowerUpPanel", "WavePowerUpRoot")
+    _canvas_slot(
+        panel,
+        unreal.Vector2D(0.5, 0.5),
+        unreal.Vector2D(0.5, 0.5),
+        unreal.Vector2D(0.5, 0.5),
+        unreal.Margin(0.0, 0.0, 0.0, 0.0),
+        1,
+    )
+    _text(bp, "WavePowerUpTitle", "WavePowerUpPanel", "CHOOSE A POWER-UP", 28, unreal.TextJustify.CENTER)
+    _text(
+        bp,
+        "WavePowerUpSubtitle",
+        "WavePowerUpPanel",
+        "One card. Both sides apply to the next wave.",
+        14,
+        unreal.TextJustify.CENTER,
+    )
+    _add(bp, unreal.HorizontalBox, "WavePowerUpCardRow", "WavePowerUpPanel")
+
+    _compile_save(bp, path)
+    unreal.log("Seeded WBP_WavePowerUp")
+    return True
+
+
 def setup(force=False):
     ok = True
     ok = seed_capture_channel(force) and ok
@@ -599,6 +648,7 @@ def setup(force=False):
     ok = seed_minimap(force) and ok
     ok = seed_orbit_gizmo(force) and ok
     ok = seed_tower_store(force) and ok
+    ok = seed_wave_powerup(force) and ok
     return ok
 
 

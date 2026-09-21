@@ -15,6 +15,7 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDEnemyPathSubsystem.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Styling/SlateBrush.h"
@@ -76,6 +77,11 @@ void UCrystalHealthBarWidget::NativeConstruct()
 void UCrystalHealthBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (IsDesignTime())
+	{
+		return;
+	}
 
 	if (!bBuilt || !NextWaveButton)
 	{
@@ -169,35 +175,12 @@ void UCrystalHealthBarWidget::BindNextWaveClick()
 
 void UCrystalHealthBarWidget::ApplyHitTestPolicy()
 {
+	if (IsDesignTime())
+	{
+		return;
+	}
+
 	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	if (UWidget* Root = WidgetTree ? WidgetTree->RootWidget : nullptr)
-	{
-		Root->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	}
-	if (BarChrome)
-	{
-		BarChrome->SetVisibility(ESlateVisibility::HitTestInvisible);
-	}
-	if (WaveChrome)
-	{
-		WaveChrome->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	}
-	if (EnemiesChrome)
-	{
-		EnemiesChrome->SetVisibility(ESlateVisibility::HitTestInvisible);
-	}
-	if (EnemiesCountLabel)
-	{
-		EnemiesCountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
-	}
-	if (ThreatChrome)
-	{
-		ThreatChrome->SetVisibility(ESlateVisibility::HitTestInvisible);
-	}
-	if (NextWaveButton)
-	{
-		NextWaveButton->SetVisibility(ESlateVisibility::Visible);
-	}
 }
 
 void UCrystalHealthBarWidget::ApplyRoundedBrush(UBorder* Border, const FLinearColor& Fill, const FLinearColor& Outline,
@@ -414,10 +397,6 @@ void UCrystalHealthBarWidget::RefreshFromCrystal()
 	{
 		HealthBar->SetPercent(0.f);
 		ValueLabel->SetText(FText::FromString(TEXT("-- / --")));
-		if (BarChrome)
-		{
-			BarChrome->SetRenderOpacity(0.55f);
-		}
 		return;
 	}
 
@@ -427,11 +406,6 @@ void UCrystalHealthBarWidget::RefreshFromCrystal()
 	const int32 CurInt = FMath::Max(0, FMath::CeilToInt(Current));
 	const int32 MaxInt = FMath::Max(1, FMath::CeilToInt(Max));
 	ValueLabel->SetText(FText::FromString(FString::Printf(TEXT("%d / %d"), CurInt, MaxInt)));
-
-	if (BarChrome)
-	{
-		BarChrome->SetRenderOpacity(1.f);
-	}
 }
 
 void UCrystalHealthBarWidget::RefreshWaveHud()
@@ -486,6 +460,15 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		ReadFloatProp(Spawner, FName(TEXT("EnemyBonusPerSecond")), EnemyBonusPerSecond);
 	}
 
+	bool bDrafting = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (UTDEnemyPathSubsystem* Sys = World->GetSubsystem<UTDEnemyPathSubsystem>())
+		{
+			bDrafting = Sys->bAwaitingPowerUpPick;
+		}
+	}
+
 	if (ThreatImpactLabel && ThreatSourceLabel && ThreatChrome)
 	{
 		const FCrystalWaveThreat Threat = CalculateCrystalWaveThreat(EnemyResourcePool);
@@ -510,8 +493,8 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 			Threat.ExtraEnemies, Threat.EmpowermentPercent)));
 		ThreatSourceLabel->SetText(FText::FromString(
 			EnemyBonusPerSecond > KINDA_SMALL_NUMBER
-				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  â€¢  THREAT %s"), EnemyBonusPerSecond, ThreatName)
-				: FString::Printf(TEXT("ACCUMULATION STOPPED  â€¢  THREAT %s"), ThreatName)));
+				? FString::Printf(TEXT("ENEMY CRYSTALS +%.1f/s  -  THREAT %s"), EnemyBonusPerSecond, ThreatName)
+				: FString::Printf(TEXT("ACCUMULATION STOPPED  -  THREAT %s"), ThreatName)));
 	}
 
 	if (WaveLabel)
@@ -556,24 +539,16 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		}
 	}
 
-	const bool bBusy = bSpawning || bWaitingClear;
+	const bool bBusy = bSpawning || bWaitingClear || bDrafting;
 	if (NextWaveButton)
 	{
 		NextWaveButton->SetIsEnabled(!bBusy && Spawner != nullptr);
-	}
-	if (NextWaveSizeBox)
-	{
-		NextWaveSizeBox->SetRenderOpacity(bBusy ? 0.45f : 1.f);
-	}
-	if (NextWaveLabel)
-	{
-		NextWaveLabel->SetText(FText::FromString(bBusy ? TEXT("âšâš") : TEXT("â–¶")));
 	}
 
 	if (EnemiesCountLabel)
 	{
 		const int32 Remaining = UTDEnemyPathLibrary::CountWaveEnemiesRemaining(this);
-		EnemiesCountLabel->SetText(FText::FromString(FString::Printf(TEXT("ENEMIES\n%d"), Remaining)));
+		EnemiesCountLabel->SetText(FText::AsNumber(Remaining));
 	}
 
 	if (TimerLabel)
@@ -581,7 +556,7 @@ void UCrystalHealthBarWidget::RefreshWaveHud()
 		const int32 TotalSeconds = FMath::Max(0, FMath::CeilToInt(Countdown));
 		const int32 Minutes = TotalSeconds / 60;
 		const int32 Seconds = TotalSeconds % 60;
-		TimerLabel->SetText(FText::FromString(FString::Printf(TEXT("â—·  %d:%02d"), Minutes, Seconds)));
+		TimerLabel->SetText(FText::FromString(FString::Printf(TEXT("%d:%02d"), Minutes, Seconds)));
 	}
 }
 

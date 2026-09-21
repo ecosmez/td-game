@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDWavePowerUp.h"
 #include "TDEnemyPathSubsystem.generated.h"
 
 struct FTDEnemyPathState
@@ -81,6 +82,13 @@ public:
 	/** Shuffled per-minion spawn assignments for the active wave. */
 	TArray<FTDWaveSpawnSlot> WaveSpawnQueue;
 	int32 WaveSpawnQueueIndex = 0;
+
+	/** Chosen player+enemy pair for the incoming / current wave. */
+	FTDActiveWavePowerUp ActiveWavePowerUp;
+	/** Three double-sided offers while the pick overlay is up. */
+	TArray<FTDWavePowerUpOffer> DraftOffers;
+	bool bAwaitingPowerUpPick = false;
+	TWeakObjectPtr<AActor> DraftSpawner;
 
 private:
 	TMap<TWeakObjectPtr<AActor>, FTDEnemyPathState> States;

@@ -157,4 +157,82 @@ bool FCrystalHudPreservesDesignerColorsOnTickTest::RunTest(const FString& Parame
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCrystalHudPreservesPlayAccumulationTimerTextTest,
+	"TD.UI.CrystalHealthBar.PreservesPlayAccumulationTimerText",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCrystalHudPreservesPlayAccumulationTimerTextTest::RunTest(const FString& Parameters)
+{
+	UCrystalHealthBarWidget* Widget = NewObject<UCrystalHealthBarWidget>();
+	TestNotNull(TEXT("crystal HUD can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UVerticalBox* Root = Widget->WidgetTree->ConstructWidget<UVerticalBox>(
+		UVerticalBox::StaticClass(), TEXT("CrystalHealthRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+
+	auto AddNamed = [Widget, Root](UClass* Class, FName Name) -> UWidget*
+	{
+		UWidget* Child = Widget->WidgetTree->ConstructWidget<UWidget>(Class, Name);
+		Root->AddChild(Child);
+		return Child;
+	};
+
+	AddNamed(UProgressBar::StaticClass(), TEXT("BaseHealthBar"));
+	AddNamed(UTextBlock::StaticClass(), TEXT("BaseHealthValue"));
+	AddNamed(UButton::StaticClass(), TEXT("NextWaveButton"));
+	AddNamed(UBorder::StaticClass(), TEXT("WaveStripChrome"));
+	AddNamed(UBorder::StaticClass(), TEXT("CrystalThreatChrome"));
+	UTextBlock* Enemies = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("WaveEnemiesCount")));
+	AddNamed(UTextBlock::StaticClass(), TEXT("NextWaveCrystalImpact"));
+	UTextBlock* PlayIcon = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("NextWavePlayIcon")));
+	UTextBlock* ThreatSource = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("EnemyCrystalAccumulation")));
+	UTextBlock* Timer = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("WaveTimer")));
+	AddNamed(UHorizontalBox::StaticClass(), TEXT("WaveDotsBox"));
+
+	TestNotNull(TEXT("play icon exists"), PlayIcon);
+	TestNotNull(TEXT("enemies count exists"), Enemies);
+	TestNotNull(TEXT("accumulation exists"), ThreatSource);
+	TestNotNull(TEXT("timer exists"), Timer);
+	if (!PlayIcon || !Enemies || !ThreatSource || !Timer)
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+
+	const FText PlaySentinel = FText::FromString(TEXT("PLAY"));
+	PlayIcon->SetText(PlaySentinel);
+	ThreatSource->SetText(FText::FromString(TEXT("KEEP-ACCUM")));
+	Timer->SetText(FText::FromString(TEXT("9:99")));
+
+	Widget->NativeTick(FGeometry(), 0.f);
+
+	TestEqual(TEXT("play icon keeps the designer text"),
+		PlayIcon->GetText().ToString(), PlaySentinel.ToString());
+
+	const FString Accum = ThreatSource->GetText().ToString();
+	TestTrue(TEXT("accumulation text is not cleared"), !Accum.IsEmpty());
+	TestTrue(TEXT("accumulation stays readable ASCII"), !Accum.Contains(TEXT("â")));
+
+	const FString Time = Timer->GetText().ToString();
+	TestEqual(TEXT("countdown timer uses an ASCII mm:ss value"), Time, FString(TEXT("0:00")));
+	TestTrue(TEXT("countdown timer stays readable ASCII"), !Time.Contains(TEXT("â")));
+
+	const FString EnemyCount = Enemies->GetText().ToString();
+	TestEqual(TEXT("enemies count is the number only"), EnemyCount, FString(TEXT("0")));
+	TestTrue(TEXT("enemies count does not prefix ENEMIES"), !EnemyCount.Contains(TEXT("ENEMIES")));
+
+	return true;
+}
+
 #endif

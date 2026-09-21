@@ -8,6 +8,8 @@
 #include "WorldFogOfWarComponent.h"
 #include "TDUIInputLibrary.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDEnemyPathSubsystem.h"
+#include "TDWavePowerUp.h"
 #include "TDChampionClickMove.h"
 #include "TDChampionDropLand.h"
 #include "FloatingDamageTextWidget.h"
@@ -944,9 +946,16 @@ void AMobaPlayerController::UpdateChampionAttack(float DeltaTime)
 	ChampionAttackCooldownRemaining -= DeltaTime;
 	if (ChampionAttackCooldownRemaining <= 0.0f)
 	{
+		float Dealt = ChampionAttackDamage;
+		float Interval = ChampionAttackInterval;
+		if (UTDEnemyPathSubsystem* Sys = GetWorld() ? GetWorld()->GetSubsystem<UTDEnemyPathSubsystem>() : nullptr)
+		{
+			Dealt = FTDWavePowerUp::ResolveDamage(ChampionAttackDamage, Sys->ActiveWavePowerUp);
+			Interval = FTDWavePowerUp::ResolveAttackInterval(ChampionAttackInterval, Sys->ActiveWavePowerUp);
+		}
 		UTDEnemyPathLibrary::ApplyDamageToEnemy(Target, ChampionAttackDamage);
-		SpawnFloatingDamageText(TargetLoc + FVector(0.0f, 0.0f, TargetHalfHeight * 1.6f), ChampionAttackDamage, OutgoingDamageColor);
-		ChampionAttackCooldownRemaining = ChampionAttackInterval;
+		SpawnFloatingDamageText(TargetLoc + FVector(0.0f, 0.0f, TargetHalfHeight * 1.6f), Dealt, OutgoingDamageColor);
+		ChampionAttackCooldownRemaining = Interval;
 	}
 }
 

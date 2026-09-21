@@ -14,6 +14,7 @@
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
+#include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 #include "Layout/Geometry.h"
 #include "Misc/AutomationTest.h"
@@ -403,6 +404,134 @@ bool FMinimapCreatesMapImageWhenDesignerOmitsItTest::RunTest(const FString& Para
 		TestEqual(TEXT("created map image is visible"),
 			MapImage->GetVisibility(), ESlateVisibility::Visible);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionFramePreservesDesignerNameOnTickTest,
+	"TD.UI.ChampionFrame.PreservesDesignerNameOnTick",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionFramePreservesDesignerNameOnTickTest::RunTest(const FString& Parameters)
+{
+	UChampionFrameWidget* Widget = NewObject<UChampionFrameWidget>();
+	TestNotNull(TEXT("champion frame can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UCanvasPanel* Root = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("ChampionFrameRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+
+	auto AddNamed = [Widget, Root](UClass* Class, FName Name) -> UWidget*
+	{
+		UWidget* Child = Widget->WidgetTree->ConstructWidget<UWidget>(Class, Name);
+		Root->AddChild(Child);
+		return Child;
+	};
+
+	AddNamed(UBorder::StaticClass(), TEXT("ChampionFrameChrome"));
+	AddNamed(UBorder::StaticClass(), TEXT("ChampionAvatarFrame"));
+	AddNamed(UProgressBar::StaticClass(), TEXT("ChampionHpBar"));
+	AddNamed(UTextBlock::StaticClass(), TEXT("ChampionHpValue"));
+	UTextBlock* Name = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("ChampionName")));
+
+	TestNotNull(TEXT("champion name exists"), Name);
+	if (!Name)
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+
+	const FText NameSentinel = FText::FromString(TEXT("MY HERO"));
+	Name->SetText(NameSentinel);
+	Widget->NativeTick(FGeometry(), 0.f);
+
+	TestEqual(TEXT("champion name keeps the designer text"),
+		Name->GetText().ToString(), NameSentinel.ToString());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChampionFramePreservesDesignerAvatarOnTickTest,
+	"TD.UI.ChampionFrame.PreservesDesignerAvatarOnTick",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChampionFramePreservesDesignerAvatarOnTickTest::RunTest(const FString& Parameters)
+{
+	UChampionFrameWidget* Widget = NewObject<UChampionFrameWidget>();
+	TestNotNull(TEXT("champion frame can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UCanvasPanel* Root = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("ChampionFrameRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+
+	auto AddNamed = [Widget, Root](UClass* Class, FName Name) -> UWidget*
+	{
+		UWidget* Child = Widget->WidgetTree->ConstructWidget<UWidget>(Class, Name);
+		Root->AddChild(Child);
+		return Child;
+	};
+
+	AddNamed(UBorder::StaticClass(), TEXT("ChampionFrameChrome"));
+	AddNamed(UBorder::StaticClass(), TEXT("ChampionAvatarFrame"));
+	UProgressBar* HealthBar = Cast<UProgressBar>(
+		AddNamed(UProgressBar::StaticClass(), TEXT("ChampionHpBar")));
+	UTextBlock* HealthValue = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("ChampionHpValue")));
+	UImage* Avatar = Cast<UImage>(
+		AddNamed(UImage::StaticClass(), TEXT("ChampionAvatarImage")));
+	UTextBlock* Letter = Cast<UTextBlock>(
+		AddNamed(UTextBlock::StaticClass(), TEXT("ChampionAvatarLetter")));
+
+	TestNotNull(TEXT("avatar image exists"), Avatar);
+	TestNotNull(TEXT("avatar letter exists"), Letter);
+	TestNotNull(TEXT("health bar exists"), HealthBar);
+	TestNotNull(TEXT("health value exists"), HealthValue);
+	if (!Avatar || !Letter || !HealthBar || !HealthValue)
+	{
+		return false;
+	}
+
+	UTexture2D* Sentinel = UTexture2D::CreateTransient(8, 8, PF_B8G8R8A8);
+	TestNotNull(TEXT("sentinel avatar texture"), Sentinel);
+	if (!Sentinel)
+	{
+		return false;
+	}
+
+	FSlateBrush Designed;
+	Designed.SetResourceObject(Sentinel);
+	Designed.DrawAs = ESlateBrushDrawType::Image;
+	Avatar->SetBrush(Designed);
+	Avatar->SetVisibility(ESlateVisibility::Visible);
+	Letter->SetVisibility(ESlateVisibility::HitTestInvisible);
+	HealthBar->SetFillColorAndOpacity(FLinearColor(0.12f, 0.84f, 0.33f, 1.f));
+	HealthValue->SetText(FText::FromString(TEXT("99 / 99")));
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+	Widget->NativeTick(FGeometry(), 0.f);
+
+	TestEqual(TEXT("avatar keeps the designer texture"),
+		Avatar->GetBrush().GetResourceObject(), static_cast<UObject*>(Sentinel));
+	TestEqual(TEXT("avatar keeps the designer visibility"),
+		Avatar->GetVisibility(), ESlateVisibility::Visible);
+	TestEqual(TEXT("letter keeps the designer visibility"),
+		Letter->GetVisibility(), ESlateVisibility::HitTestInvisible);
+	TestEqual(TEXT("health fill keeps the designer color"),
+		HealthBar->GetFillColorAndOpacity(), FLinearColor(0.12f, 0.84f, 0.33f, 1.f));
+	TestEqual(TEXT("health value keeps the designer text when no pawn is possessed"),
+		HealthValue->GetText().ToString(), FString(TEXT("99 / 99")));
 	return true;
 }
 

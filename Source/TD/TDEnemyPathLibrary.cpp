@@ -2,6 +2,8 @@
 
 #include "TDEnemyPathSubsystem.h"
 #include "TDPathWaypoint.h"
+#include "TDWavePowerUp.h"
+#include "WavePowerUpWidget.h"
 #include "CaptureChannelWidget.h"
 
 #include "Algo/RandomShuffle.h"
@@ -2198,7 +2200,7 @@ namespace TDEnemyPathPrivate
 
 		const bool bBossWave = IsBossWaveFor(Spawner, WaveNumber);
 		const int32 PerSpawn = UTDEnemyPathLibrary::ComputeWavePerSpawnCount(WaveNumber);
-		const int32 EnemyCount = UTDEnemyPathLibrary::ComputeWaveEnemyCount(WaveNumber, NumSpawns, bBossWave);
+		int32 EnemyCount = UTDEnemyPathLibrary::ComputeWaveEnemyCount(WaveNumber, NumSpawns, bBossWave);
 		WriteInt(Spawner, { TEXT("NormalEnemiesThisWave") }, PerSpawn * NumSpawns);
 		WriteInt(Spawner, { TEXT("EnemiesPerWave") }, EnemyCount);
 
@@ -2216,6 +2218,21 @@ namespace TDEnemyPathPrivate
 				OutQueue.Add(Chosen[i]);
 			}
 		}
+
+		if (UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner))
+		{
+			const int32 ScaledCount = FTDWavePowerUp::ResolveEnemyCount(EnemyCount, Sys->ActiveWavePowerUp);
+			for (int32 Extra = EnemyCount; Extra < ScaledCount; ++Extra)
+			{
+				OutQueue.Add(Chosen[FMath::RandRange(0, NumSpawns - 1)]);
+			}
+			if (ScaledCount != EnemyCount)
+			{
+				WriteInt(Spawner, { TEXT("EnemiesPerWave") }, ScaledCount);
+				EnemyCount = ScaledCount;
+			}
+		}
+
 		Algo::RandomShuffle(OutQueue);
 
 		TMap<int32, int32> PerRoute;
@@ -3376,7 +3393,12 @@ void UTDEnemyPathLibrary::UpdateEnemyHealthBar(AActor* Enemy, float DeltaTime)
 void UTDEnemyPathLibrary::ApplyDamageToEnemy(AActor* Enemy, float Amount)
 {
 	using namespace TDEnemyPathPrivate;
-	CallFloatParam(Enemy, TEXT("ApplyEnemyDamage"), Amount);
+	float Scaled = Amount;
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Enemy))
+	{
+		Scaled = FTDWavePowerUp::ResolveDamage(Amount, Sys->ActiveWavePowerUp);
+	}
+	CallFloatParam(Enemy, TEXT("ApplyEnemyDamage"), Scaled);
 	if (IsValid(Enemy))
 	{
 		UpdateEnemyHealthBar(Enemy);
@@ -3628,13 +3650,46 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 	WriteBool(Spawned, { TEXT("bUseLanePreference"), TEXT("UseLanePreference") }, true);
 	WriteBool(Spawned, { TEXT("bPreferOverLane"), TEXT("PreferOverLane") }, Slot.bOverLane);
 
+	FTDActiveWavePowerUp PowerUp;
+	if (UTDEnemyPathSubsystem* PowerSys = GetPathSys(Spawner))
+	{
+		PowerUp = PowerSys->ActiveWavePowerUp;
+	}
+
 	if (!bSpawnBoss)
 	{
-		WriteFloat(Spawned, { TEXT("MaxHealth") }, static_cast<float>(TrashHp));
-		WriteFloat(Spawned, { TEXT("CurrentHealth") }, static_cast<float>(TrashHp));
-		WriteInt(Spawned, { TEXT("MaxHealth") }, TrashHp);
-		WriteInt(Spawned, { TEXT("CurrentHealth") }, TrashHp);
+		const float Hp = FTDWavePowerUp::ResolveHealth(static_cast<float>(TrashHp), PowerUp);
+		const int32 HpInt = FMath::Max(1, FMath::RoundToInt(Hp));
+		WriteFloat(Spawned, { TEXT("MaxHealth") }, Hp);
+		WriteFloat(Spawned, { TEXT("CurrentHealth") }, Hp);
+		WriteInt(Spawned, { TEXT("MaxHealth") }, HpInt);
+		WriteInt(Spawned, { TEXT("CurrentHealth") }, HpInt);
 	}
+	else
+	{
+		float BossHp = 0.f;
+		int32 BossHpInt = 0;
+		const bool bHasFloatHp = ReadFloat(Spawned, { TEXT("MaxHealth") }, BossHp);
+		const bool bHasIntHp = !bHasFloatHp && ReadInt(Spawned, { TEXT("MaxHealth") }, BossHpInt);
+		if (bHasIntHp)
+		{
+			BossHp = static_cast<float>(BossHpInt);
+		}
+		if (bHasFloatHp || bHasIntHp)
+		{
+			BossHp = FTDWavePowerUp::ResolveHealth(BossHp, PowerUp);
+			BossHpInt = FMath::Max(1, FMath::RoundToInt(BossHp));
+			WriteFloat(Spawned, { TEXT("MaxHealth") }, BossHp);
+			WriteFloat(Spawned, { TEXT("CurrentHealth") }, BossHp);
+			WriteInt(Spawned, { TEXT("MaxHealth") }, BossHpInt);
+			WriteInt(Spawned, { TEXT("CurrentHealth") }, BossHpInt);
+		}
+	}
+
+	const float MoveSpeed = ReadFloatOr(Spawned, { TEXT("MoveSpeed") }, 300.f);
+	WriteFloat(Spawned, { TEXT("MoveSpeed") }, FTDWavePowerUp::ResolveMoveSpeed(MoveSpeed, PowerUp));
+	const float SlowFactor = ReadFloatOr(Spawned, { TEXT("SlowFactor") }, 1.f);
+	WriteFloat(Spawned, { TEXT("SlowFactor") }, FTDWavePowerUp::ResolveSlowFactor(SlowFactor, PowerUp));
 
 	UpdateEnemyHealthBar(Spawned);
 	ChooseEnemyPath(Spawned);
@@ -3785,6 +3840,29 @@ void UTDEnemyPathLibrary::CheckWaveEnemiesCleared(AActor* Spawner)
 		return;
 	}
 
+	UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner);
+	if (Sys && Sys->bAwaitingPowerUpPick)
+	{
+		return;
+	}
+
+	if (Sys)
+	{
+		Sys->ActiveWavePowerUp = FTDActiveWavePowerUp();
+	}
+
+	if (Sys && FTDWavePowerUp::ShouldOfferDraft(Spawner))
+	{
+		Sys->bAwaitingPowerUpPick = true;
+		Sys->DraftSpawner = Spawner;
+		FTDWavePowerUp::RollDraft(Sys->DraftOffers);
+		if (UWavePowerUpWidget::OpenDraft(Spawner))
+		{
+			return;
+		}
+		Sys->bAwaitingPowerUpPick = false;
+	}
+
 	CallNoParam(Spawner, TEXT("OnWaveCleared"));
 }
 
@@ -3829,6 +3907,14 @@ void UTDEnemyPathLibrary::ForceStartNextWave(AActor* Spawner)
 	const bool bSpawning = ReadBoolOr(Spawner, { TEXT("IsSpawningWave"), TEXT("bIsSpawningWave") }, false);
 	const bool bWaiting = ReadBoolOr(Spawner,
 		{ TEXT("WaitingForClear"), TEXT("WaitingforClear"), TEXT("bWaitingForClear") }, false);
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner))
+	{
+		if (Sys->bAwaitingPowerUpPick)
+		{
+			ScreenMsg(TEXT("Pick a power-up first"), FLinearColor(1.f, 0.4f, 0.2f), 2.f);
+			return;
+		}
+	}
 	if (bSpawning || bWaiting)
 	{
 		ScreenMsg(TEXT("Wave in progress - cannot force start"), FLinearColor(1.f, 0.4f, 0.2f), 2.f);
@@ -3847,4 +3933,21 @@ void UTDEnemyPathLibrary::ForceStartNextWave(AActor* Spawner)
 	WriteInt(Spawner, { TEXT("CountdownRemaining") }, 0);
 	ScreenMsg(TEXT("FORCE START!"), FLinearColor(1.f, 0.5f, 0.1f), 2.f);
 	BeginWaveSpawning(Spawner);
+}
+
+void UTDEnemyPathLibrary::ContinueAfterWavePowerUp(AActor* Spawner)
+{
+	using namespace TDEnemyPathPrivate;
+
+	if (!IsValid(Spawner))
+	{
+		return;
+	}
+
+	if (UTDEnemyPathSubsystem* Sys = GetPathSys(Spawner))
+	{
+		Sys->bAwaitingPowerUpPick = false;
+	}
+
+	CallNoParam(Spawner, TEXT("OnWaveCleared"));
 }
