@@ -62,7 +62,10 @@ void UMinimapWidget::NativeConstruct()
 	ApplyHitTestPolicy();
 	BindMapPointerEvents();
 	CollapseFogOverlayIfIdle();
-	EnsureCapture();
+	if (bUseLiveSceneCapture)
+	{
+		EnsureCapture();
+	}
 	RefreshCaptureSettings();
 }
 
@@ -161,13 +164,13 @@ void UMinimapWidget::EnsureMapImage()
 	}
 
 	MapImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapImage"));
-	UCanvasPanelSlot* Slot = MapCanvas->AddChildToCanvas(MapImage);
-	if (Slot)
+	UCanvasPanelSlot* ImageSlot = MapCanvas->AddChildToCanvas(MapImage);
+	if (ImageSlot)
 	{
-		Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-		Slot->SetOffsets(FMargin(0.f));
-		Slot->SetAlignment(FVector2D(0.f, 0.f));
-		Slot->SetZOrder(0);
+		ImageSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		ImageSlot->SetOffsets(FMargin(0.f));
+		ImageSlot->SetAlignment(FVector2D(0.f, 0.f));
+		ImageSlot->SetZOrder(0);
 	}
 }
 
@@ -178,11 +181,11 @@ void UMinimapWidget::StretchMapImage() const
 		return;
 	}
 
-	if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(MapImage->Slot))
+	if (UCanvasPanelSlot* ImageSlot = Cast<UCanvasPanelSlot>(MapImage->Slot))
 	{
-		Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-		Slot->SetOffsets(FMargin(0.f));
-		Slot->SetZOrder(0);
+		ImageSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		ImageSlot->SetOffsets(FMargin(0.f));
+		ImageSlot->SetZOrder(0);
 	}
 	MapImage->SetVisibility(ESlateVisibility::Visible);
 }
@@ -1779,7 +1782,10 @@ void UMinimapWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		}
 	}
 
-	UpdateCapture(InDeltaTime);
+	if (bUseLiveSceneCapture)
+	{
+		UpdateCapture(InDeltaTime);
+	}
 	UpdateMapDiscovery();
 
 	// Landmarks may appear after the widget (level streaming) — retry while missing.

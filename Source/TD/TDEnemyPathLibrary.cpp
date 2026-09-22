@@ -210,6 +210,23 @@ bool FTDEnemyPathIgnoresLaneDecorationsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyPathIgnoresAbilityVolumesTest,
+	"TD.EnemyPath.IgnoresAbilitySlowZone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyPathIgnoresAbilityVolumesTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Slow zone is an ability volume"),
+		UTDEnemyPathLibrary::IsAbilityVolumeClassName(TEXT("BP_SlowZone_C")));
+	TestFalse(TEXT("Environment rocks are not ability volumes"),
+		UTDEnemyPathLibrary::IsAbilityVolumeClassName(TEXT("StaticMeshActor")));
+	TestFalse(TEXT("Shield walls stay as blocking defenses"),
+		UTDEnemyPathLibrary::IsAbilityVolumeClassName(TEXT("BP_ShieldWall_C")));
+	UTDEnemyPathLibrary::ApplyAbilityVolumeCollision(nullptr);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FTDChampionPathLeashTest,
 	"TD.EnemyPath.ChampionPursuitRespectsPathLeash",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -311,6 +328,55 @@ bool FTDEnemyHealthBarUsesCaptureChannelWidgetTest::RunTest(const FString& Param
 		UTDEnemyPathLibrary::ShouldShowWorldHealthBar(false));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDEnemyWalkVariationTest,
+	"TD.EnemyPath.WalkVariation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDEnemyWalkVariationTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("A new minion still needs a walk style"),
+		UTDEnemyPathLibrary::ShouldChooseWalkStyle(false));
+	TestFalse(TEXT("A rebuilt path keeps the walk style already rolled"),
+		UTDEnemyPathLibrary::ShouldChooseWalkStyle(true));
+
+	TestEqual(TEXT("Zero variance keeps the type's authored speed"),
+		UTDEnemyPathLibrary::ResolveMoveSpeedScale(0.f, 0.5f), 1.f);
+	TestTrue(TEXT("The slowest roll is 1 minus variance"),
+		FMath::IsNearlyEqual(UTDEnemyPathLibrary::ResolveMoveSpeedScale(0.15f, 0.f), 0.85f, 0.0001f));
+	TestTrue(TEXT("The fastest roll is 1 plus variance"),
+		FMath::IsNearlyEqual(UTDEnemyPathLibrary::ResolveMoveSpeedScale(0.15f, 1.f), 1.15f, 0.0001f));
+	TestTrue(TEXT("A mid roll stays at the authored speed"),
+		FMath::IsNearlyEqual(UTDEnemyPathLibrary::ResolveMoveSpeedScale(0.15f, 0.5f), 1.f, 0.0001f));
+	TestEqual(TEXT("Negative variance is treated as no variance"),
+		UTDEnemyPathLibrary::ResolveMoveSpeedScale(-0.2f, 0.f), 1.f);
+
+	TestTrue(TEXT("Slow factor still applies on top of the personal speed scale"),
+		FMath::IsNearlyEqual(UTDEnemyPathLibrary::ResolveEnemyMoveSpeed(300.f, 0.85f, 0.5f), 127.5f, 0.01f));
+	TestEqual(TEXT("Speed never goes negative"),
+		UTDEnemyPathLibrary::ResolveEnemyMoveSpeed(300.f, 1.f, -1.f), 0.f);
+
+	TestEqual(TEXT("A centered lane slot stays on the guide"),
+		UTDEnemyPathLibrary::ResolveLaneOffset(90.f, 0.f), 0.f);
+	TestEqual(TEXT("The left lane slot uses the full range"),
+		UTDEnemyPathLibrary::ResolveLaneOffset(90.f, -1.f), -90.f);
+	TestEqual(TEXT("The right lane slot uses the full range"),
+		UTDEnemyPathLibrary::ResolveLaneOffset(90.f, 1.f), 90.f);
+	TestEqual(TEXT("A zero range keeps everyone on the centerline"),
+		UTDEnemyPathLibrary::ResolveLaneOffset(0.f, 1.f), 0.f);
+
+	TestEqual(TEXT("Avoidance sidesteps on top of the personal lane slot"),
+		UTDEnemyPathLibrary::ResolveLaneGuideOffset(-40.f, 90.f), 50.f);
+
+	TestEqual(TEXT("A right-facing guide offsets sideways onto the personal lane"),
+		UTDEnemyPathLibrary::OffsetAlongPathRight(FVector(10.f, 20.f, 30.f), FVector(1.f, 0.f, 0.f), 90.f),
+		FVector(10.f, 110.f, 30.f));
+	TestEqual(TEXT("A missing tangent leaves the spawn location alone"),
+		UTDEnemyPathLibrary::OffsetAlongPathRight(FVector(10.f, 20.f, 30.f), FVector::ZeroVector, 90.f),
+		FVector(10.f, 20.f, 30.f));
+	return true;
+}
 #endif
 
 namespace TDEnemyPathPrivate
@@ -321,6 +387,8 @@ namespace TDEnemyPathPrivate
 		1000.f,
 		TEXT("Maximum 2D distance a champion-engaged enemy may leave its own path before returning."));
 	constexpr float DefaultLookAhead = 220.f;
+	constexpr float DefaultMoveSpeedVariance = 0.15f;
+	constexpr float DefaultLaneOffsetRange = 90.f;
 	constexpr float DefaultPathCorridorRadius = 650.f;
 	constexpr float DefaultPathRepathInterval = 0.85f;
 	constexpr float NavigationPointAcceptanceRadius = 130.f;
@@ -927,6 +995,11 @@ namespace TDEnemyPathPrivate
 		return FromProp > 1.f ? FromProp : DefaultCapsuleHalfHeight;
 	}
 
+	static bool IsAbilityVolumeActor(const AActor* Actor)
+	{
+		return Actor && UTDEnemyPathLibrary::IsAbilityVolumeClassName(Actor->GetClass()->GetName());
+	}
+
 	static bool IsLaneDecorationActor(const AActor* Actor)
 	{
 		return Actor && UTDEnemyPathLibrary::IsLaneDecorationClassName(Actor->GetClass()->GetName());
@@ -963,7 +1036,8 @@ namespace TDEnemyPathPrivate
 		}
 		// Do NOT ignore player defenses here: Shield Wall / tower walls must
 		// register as blockers so bypass + break-wall logic can run.
-		if (IsLaneDecorationActor(HitActor) || IsGroundTraceIgnoredActor(HitActor))
+		if (IsLaneDecorationActor(HitActor) || IsGroundTraceIgnoredActor(HitActor)
+			|| IsAbilityVolumeActor(HitActor))
 		{
 			return true;
 		}
@@ -1037,7 +1111,7 @@ namespace TDEnemyPathPrivate
 				continue;
 			}
 			if (IsPlayerDefenseActor(Hit.GetActor()) || IsLaneDecorationActor(Hit.GetActor())
-				|| IsGroundTraceIgnoredActor(Hit.GetActor()))
+				|| IsGroundTraceIgnoredActor(Hit.GetActor()) || IsAbilityVolumeActor(Hit.GetActor()))
 			{
 				continue;
 			}
@@ -1666,6 +1740,16 @@ namespace TDEnemyPathPrivate
 		State.bValid = false;
 		State.bReachedNotified = false;
 
+		if (UTDEnemyPathLibrary::ShouldChooseWalkStyle(State.bWalkStyleChosen))
+		{
+			const float Variance = ReadFloatOr(Enemy, { TEXT("MoveSpeedVariance") }, DefaultMoveSpeedVariance);
+			const float Range = ReadFloatOr(Enemy, { TEXT("LaneOffsetRange") }, DefaultLaneOffsetRange);
+			State.SpeedScale = UTDEnemyPathLibrary::ResolveMoveSpeedScale(Variance, FMath::FRand());
+			State.LaneOffset = UTDEnemyPathLibrary::ResolveLaneOffset(Range, FMath::FRandRange(-1.f, 1.f));
+			State.LateralOffset = State.LaneOffset;
+			State.bWalkStyleChosen = true;
+		}
+
 		if (Waypoints.Num() == 0)
 		{
 			return;
@@ -1935,14 +2019,118 @@ namespace TDEnemyPathPrivate
 	static void FilterSpawnPointsForWave(
 		int32 WaveNumber, int32 PrimaryRouteId, TArray<FTDWaveSpawnSlot>& InOutPoints)
 	{
-		if (WaveNumber > 1)
+		if (WaveNumber <= 1)
 		{
+			InOutPoints.RemoveAll([PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
+			{
+				return Slot.RouteId != PrimaryRouteId;
+			});
 			return;
 		}
 		InOutPoints.RemoveAll([PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
 		{
-			return Slot.RouteId != PrimaryRouteId;
+			return Slot.RouteId == PrimaryRouteId;
 		});
+	}
+
+	static void ChooseWaveSpawnSlots(
+		int32 WaveNumber,
+		int32 PrimaryRouteId,
+		TArray<FTDWaveSpawnSlot>& Points,
+		TArray<FTDWaveSpawnSlot>& OutChosen)
+	{
+		OutChosen.Reset();
+		const int32 NumSpawns = UTDEnemyPathLibrary::ComputeWaveSpawnSlotCount(WaveNumber, Points.Num());
+		if (NumSpawns <= 0)
+		{
+			return;
+		}
+
+		TMap<int32, TArray<FTDWaveSpawnSlot>> ByRoute;
+		for (const FTDWaveSpawnSlot& Slot : Points)
+		{
+			ByRoute.FindOrAdd(Slot.RouteId).Add(Slot);
+		}
+
+		TArray<int32> OtherRoutes;
+		for (const TPair<int32, TArray<FTDWaveSpawnSlot>>& Pair : ByRoute)
+		{
+			if (Pair.Key != PrimaryRouteId)
+			{
+				OtherRoutes.Add(Pair.Key);
+			}
+		}
+		Algo::RandomShuffle(OtherRoutes);
+
+		TArray<int32> ChosenRoutes;
+		if (WaveNumber <= 1 && ByRoute.Contains(PrimaryRouteId))
+		{
+			ChosenRoutes.Add(PrimaryRouteId);
+		}
+		for (int32 Route : OtherRoutes)
+		{
+			if (ChosenRoutes.Num() >= NumSpawns)
+			{
+				break;
+			}
+			ChosenRoutes.Add(Route);
+		}
+		if (ChosenRoutes.Num() < NumSpawns)
+		{
+			for (const TPair<int32, TArray<FTDWaveSpawnSlot>>& Pair : ByRoute)
+			{
+				if (WaveNumber > 1 && Pair.Key == PrimaryRouteId)
+				{
+					continue;
+				}
+				if (!ChosenRoutes.Contains(Pair.Key))
+				{
+					ChosenRoutes.Add(Pair.Key);
+					if (ChosenRoutes.Num() >= NumSpawns)
+					{
+						break;
+					}
+				}
+			}
+		}
+
+		for (int32 Route : ChosenRoutes)
+		{
+			TArray<FTDWaveSpawnSlot>& Slots = ByRoute.FindChecked(Route);
+			Algo::RandomShuffle(Slots);
+			OutChosen.Add(Slots[0]);
+		}
+
+		if (OutChosen.Num() >= NumSpawns)
+		{
+			return;
+		}
+
+		TArray<FTDWaveSpawnSlot> Unused = Points;
+		Unused.RemoveAll([&OutChosen, WaveNumber, PrimaryRouteId](const FTDWaveSpawnSlot& Slot)
+		{
+			if (WaveNumber > 1 && Slot.RouteId == PrimaryRouteId)
+			{
+				return true;
+			}
+			for (const FTDWaveSpawnSlot& Chosen : OutChosen)
+			{
+				if (Chosen.RouteId == Slot.RouteId && Chosen.bOverLane == Slot.bOverLane)
+				{
+					return true;
+				}
+			}
+			return false;
+		});
+		Algo::RandomShuffle(Unused);
+		for (const FTDWaveSpawnSlot& Slot : Unused)
+		{
+			if (OutChosen.Num() >= NumSpawns)
+			{
+				break;
+			}
+			OutChosen.Add(Slot);
+		}
 	}
 
 	static bool IsPrimarySpawner(AActor* Spawner)
@@ -1980,14 +2168,19 @@ namespace TDEnemyPathPrivate
 		}
 
 		const int32 WaveNumber = FMath::Max(ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1), 1);
-		const int32 PrimaryRouteId = ReadIntOr(Spawner, { TEXT("routeId"), TEXT("RouteId") }, 0);
-		FilterSpawnPointsForWave(WaveNumber, PrimaryRouteId, Points);
+		// Route 0 is the first-wave path only; later waves never use it.
+		constexpr int32 InitialRouteId = 0;
+		FilterSpawnPointsForWave(WaveNumber, InitialRouteId, Points);
 		if (Points.Num() == 0)
 		{
+			if (WaveNumber > 1)
+			{
+				return false;
+			}
 			FTDWaveSpawnSlot Fallback;
-			Fallback.RouteId = PrimaryRouteId;
+			Fallback.RouteId = InitialRouteId;
 			Fallback.bOverLane = true;
-			Fallback.Location = SpawnXformFromRoute(World, PrimaryRouteId, true).GetLocation();
+			Fallback.Location = SpawnXformFromRoute(World, InitialRouteId, true).GetLocation();
 			if (Fallback.Location.IsNearlyZero())
 			{
 				return false;
@@ -1995,42 +2188,25 @@ namespace TDEnemyPathPrivate
 			Points.Add(Fallback);
 		}
 
-		int32 EnemyCount = ReadIntOr(Spawner, { TEXT("EnemiesPerWave") }, 0);
-		if (EnemyCount <= 0)
+		TArray<FTDWaveSpawnSlot> Chosen;
+		ChooseWaveSpawnSlots(WaveNumber, InitialRouteId, Points, Chosen);
+		const int32 NumSpawns = Chosen.Num();
+		if (NumSpawns <= 0)
 		{
-			EnemyCount = 12 + WaveNumber * 6;
-			if (IsBossWaveFor(Spawner, WaveNumber))
-			{
-				++EnemyCount;
-			}
+			return false;
 		}
 
-		const int32 NumSpawns = FMath::Clamp(
-			FMath::Min(WaveNumber, EnemyCount), 1, Points.Num());
-
-		TArray<FTDWaveSpawnSlot> Chosen = Points;
-		Algo::RandomShuffle(Chosen);
-		Chosen.SetNum(NumSpawns);
+		const bool bBossWave = IsBossWaveFor(Spawner, WaveNumber);
+		const int32 PerSpawn = UTDEnemyPathLibrary::ComputeWavePerSpawnCount(WaveNumber);
+		const int32 EnemyCount = UTDEnemyPathLibrary::ComputeWaveEnemyCount(WaveNumber, NumSpawns, bBossWave);
+		WriteInt(Spawner, { TEXT("NormalEnemiesThisWave") }, PerSpawn * NumSpawns);
+		WriteInt(Spawner, { TEXT("EnemiesPerWave") }, EnemyCount);
 
 		TArray<int32> Counts;
-		Counts.Init(0, NumSpawns);
-		if (EnemyCount >= NumSpawns)
+		Counts.Init(PerSpawn, NumSpawns);
+		if (bBossWave && NumSpawns > 0)
 		{
-			for (int32 i = 0; i < NumSpawns; ++i)
-			{
-				Counts[i] = 1;
-			}
-			for (int32 Extra = NumSpawns; Extra < EnemyCount; ++Extra)
-			{
-				Counts[FMath::RandRange(0, NumSpawns - 1)]++;
-			}
-		}
-		else
-		{
-			for (int32 i = 0; i < EnemyCount; ++i)
-			{
-				Counts[FMath::RandRange(0, NumSpawns - 1)]++;
-			}
+			Counts[FMath::RandRange(0, NumSpawns - 1)]++;
 		}
 
 		for (int32 i = 0; i < NumSpawns; ++i)
@@ -2063,7 +2239,7 @@ namespace TDEnemyPathPrivate
 		return OutQueue.Num() > 0;
 	}
 
-	/** Elect primary spawner; wave 1 uses only that route, later waves split randomly. */
+	/** Elect primary spawner; wave 1 uses RouteId 0, later waves exclude it. */
 	static bool PrepareWaveSpawn(AActor* Spawner)
 	{
 		if (!IsValid(Spawner))
@@ -2132,6 +2308,40 @@ bool FTDWaveOneUsesPrimarySpawnTest::RunTest(const FString& Parameters)
 	for (const FTDWaveSpawnSlot& Slot : Points)
 	{
 		TestEqual(TEXT("Wave 1 does not use a later route"), Slot.RouteId, 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTDLaterWavesDisablePrimarySpawnTest,
+	"TD.EnemyPath.LaterWavesDisablePrimarySpawn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTDLaterWavesDisablePrimarySpawnTest::RunTest(const FString& Parameters)
+{
+	TArray<FTDWaveSpawnSlot> Points;
+	FTDWaveSpawnSlot PrimaryOver;
+	PrimaryOver.RouteId = 0;
+	PrimaryOver.bOverLane = true;
+	PrimaryOver.Location = FVector(10.f, 0.f, 0.f);
+	FTDWaveSpawnSlot OtherRoute;
+	OtherRoute.RouteId = 1;
+	OtherRoute.bOverLane = true;
+	OtherRoute.Location = FVector(500.f, 0.f, 0.f);
+	FTDWaveSpawnSlot PrimaryUnder;
+	PrimaryUnder.RouteId = 0;
+	PrimaryUnder.bOverLane = false;
+	PrimaryUnder.Location = FVector(10.f, 50.f, 0.f);
+	Points.Add(PrimaryOver);
+	Points.Add(OtherRoute);
+	Points.Add(PrimaryUnder);
+
+	TDEnemyPathPrivate::FilterSpawnPointsForWave(2, 0, Points);
+
+	TestEqual(TEXT("Later waves keep only extra routes"), Points.Num(), 1);
+	for (const FTDWaveSpawnSlot& Slot : Points)
+	{
+		TestEqual(TEXT("Later waves do not use the first lane"), Slot.RouteId, 1);
 	}
 	return true;
 }
@@ -2431,6 +2641,45 @@ int32 UTDEnemyPathLibrary::ResolveTerrainSteerSide(int32 LockedSide, int32 Prefe
 	return PreferredSide >= 0 ? 1 : -1;
 }
 
+bool UTDEnemyPathLibrary::ShouldChooseWalkStyle(bool bAlreadyChosen)
+{
+	return !bAlreadyChosen;
+}
+
+float UTDEnemyPathLibrary::ResolveMoveSpeedScale(float Variance, float RandomUnit)
+{
+	const float ClampedVariance = FMath::Max(0.f, Variance);
+	const float T = FMath::Clamp(RandomUnit, 0.f, 1.f);
+	return 1.f + FMath::Lerp(-ClampedVariance, ClampedVariance, T);
+}
+
+float UTDEnemyPathLibrary::ResolveEnemyMoveSpeed(float BaseSpeed, float SpeedScale, float SlowFactor)
+{
+	return FMath::Max(0.f, BaseSpeed * SpeedScale * SlowFactor);
+}
+
+float UTDEnemyPathLibrary::ResolveLaneOffset(float Range, float RandomSignedUnit)
+{
+	const float ClampedRange = FMath::Max(0.f, Range);
+	return FMath::Clamp(RandomSignedUnit, -1.f, 1.f) * ClampedRange;
+}
+
+float UTDEnemyPathLibrary::ResolveLaneGuideOffset(float PersonalOffset, float AvoidanceOffset)
+{
+	return PersonalOffset + AvoidanceOffset;
+}
+
+FVector UTDEnemyPathLibrary::OffsetAlongPathRight(FVector PathLocation, FVector PathTangent, float LateralOffset)
+{
+	const FVector Forward = PathTangent.GetSafeNormal2D();
+	if (Forward.IsNearlyZero())
+	{
+		return PathLocation;
+	}
+	const FVector Right(-Forward.Y, Forward.X, 0.f);
+	return PathLocation + Right * LateralOffset;
+}
+
 FVector UTDEnemyPathLibrary::ResolveUnwalkableStep(bool bFoundWalkable, FVector Walkable, FVector Previous)
 {
 	return bFoundWalkable ? Walkable : Previous;
@@ -2489,6 +2738,50 @@ void UTDEnemyPathLibrary::ApplyLaneDecorationCollision(AActor* Actor)
 		}
 		Primitive->SetCanEverAffectNavigation(false);
 		Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
+}
+
+bool UTDEnemyPathLibrary::IsAbilityVolumeClassName(const FString& ClassName)
+{
+	return ClassName.Contains(TEXT("SlowZone"));
+}
+
+void UTDEnemyPathLibrary::ApplyAbilityVolumeCollision(AActor* Actor)
+{
+	if (!Actor)
+	{
+		return;
+	}
+
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		if (!Primitive)
+		{
+			continue;
+		}
+
+		Primitive->SetCanEverAffectNavigation(false);
+		Primitive->CanCharacterStepUpOn = ECB_No;
+		if (Cast<UStaticMeshComponent>(Primitive))
+		{
+			Primitive->SetCollisionProfileName(TEXT("NoCollision"));
+			Primitive->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Primitive->SetCollisionResponseToAllChannels(ECR_Ignore);
+			Primitive->SetGenerateOverlapEvents(false);
+		}
+		else
+		{
+			Primitive->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			Primitive->SetCollisionResponseToAllChannels(ECR_Overlap);
+			Primitive->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+			Primitive->SetGenerateOverlapEvents(true);
+		}
+		if (Primitive->IsRegistered())
+		{
+			Primitive->RecreatePhysicsState();
+			FNavigationSystem::UpdateComponentData(*Primitive);
+		}
 	}
 }
 
@@ -2677,6 +2970,8 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 
 	const float MoveSpeed = ReadFloatOr(Enemy, { TEXT("MoveSpeed") }, 300.f);
 	const float SlowFactor = ReadFloatOr(Enemy, { TEXT("SlowFactor") }, 1.f);
+	const float ActualSpeed = UTDEnemyPathLibrary::ResolveEnemyMoveSpeed(
+		MoveSpeed, State->SpeedScale, SlowFactor);
 	const float GroundOffset = ResolveGroundOffset(Enemy);
 	float LookAhead = DefaultLookAhead;
 	ReadFloat(Enemy, { TEXT("PathLookAhead") }, LookAhead);
@@ -2724,8 +3019,9 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	const float SideStepDistance = ReadFloatOr(Enemy, { TEXT("AvoidanceSideStep") }, AvoidanceRadius);
 	const float TargetOffset = Sys->ComputeAvoidanceOffset(
 		Enemy, *State, GuideLocation, Tangent, AvoidanceRadius, SideStepDistance);
-	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, TargetOffset, DeltaSeconds, 6.f);
-	GuideLocation += PathRight * State->LateralOffset;
+	const float DesiredOffset = UTDEnemyPathLibrary::ResolveLaneGuideOffset(State->LaneOffset, TargetOffset);
+	State->LateralOffset = FMath::FInterpTo(State->LateralOffset, DesiredOffset, DeltaSeconds, 6.f);
+	GuideLocation = UTDEnemyPathLibrary::OffsetAlongPathRight(GuideLocation, Tangent, State->LateralOffset);
 
 	const bool bGuideBlocked = HasBadTerrainBetween(World, PrevLoc, GuideLocation, Enemy, GroundOffset)
 		|| HasBadTerrainBetween(World, PrevLoc, LaneGuide, Enemy, GroundOffset);
@@ -2791,7 +3087,6 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	const FVector SteeringTarget = ResolveNavigationSteeringTarget(
 		PrevLoc, GuideLocation, State->NavigationRoute, State->NavigationRouteIndex, LookAhead);
 
-	const float ActualSpeed = FMath::Max(0.f, MoveSpeed * SlowFactor);
 	FVector Location = FMath::VInterpConstantTo(PrevLoc, SteeringTarget, DeltaSeconds, ActualSpeed);
 	int32 SteerSide = State->TerrainSteerSide;
 	Location = PushOffBadTerrain(World, PrevLoc, Location, SteeringTarget, Enemy, GroundOffset, SteerSide);
@@ -2810,14 +3105,21 @@ void UTDEnemyPathLibrary::AdvanceEnemyAlongPath(AActor* Enemy, float DeltaSecond
 	NewRot.Roll = 0.f;
 
 	FHitResult MovementHit;
+	const FVector DesiredLocation = Location;
 	Enemy->SetActorLocation(Location, true, &MovementHit, ETeleportType::None);
 	Location = Enemy->GetActorLocation();
+	if (MovementHit.bBlockingHit && IsAbilityVolumeActor(MovementHit.GetActor()))
+	{
+		UTDEnemyPathLibrary::ApplyAbilityVolumeCollision(MovementHit.GetActor());
+		Location = DesiredLocation;
+	}
 	const FVector GroundAtSweptLocation = SnapToGround(
 		World, Location, GroundOffset, Enemy, PrevLoc.Z);
 	Location = ResolveGroundCorrectionAfterSweep(Location, GroundAtSweptLocation);
 	Enemy->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
 	if (MovementHit.bBlockingHit
-		&& !IsLaneDecorationActor(MovementHit.GetActor()))
+		&& !IsLaneDecorationActor(MovementHit.GetActor())
+		&& !IsAbilityVolumeActor(MovementHit.GetActor()))
 	{
 		State->NavigationRoute.Reset();
 		State->NavigationRouteIndex = 0;
@@ -3336,6 +3638,24 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 
 	UpdateEnemyHealthBar(Spawned);
 	ChooseEnemyPath(Spawned);
+	if (UTDEnemyPathSubsystem* PathSys = GetPathSys(Spawned))
+	{
+		if (FTDEnemyPathState* PathState = PathSys->Find(Spawned))
+		{
+			if (PathState->bValid)
+			{
+				FVector SpawnTangent = FVector::ForwardVector;
+				const FVector SpawnGuide = SampleAtDistance(*PathState, 0.f, SpawnTangent);
+				const FVector SpawnedLoc = Spawned->GetActorLocation();
+				Spawned->SetActorLocation(
+					UTDEnemyPathLibrary::OffsetAlongPathRight(
+						FVector(SpawnGuide.X, SpawnGuide.Y, SpawnedLoc.Z),
+						SpawnTangent,
+						PathState->LaneOffset),
+					false, nullptr, ETeleportType::TeleportPhysics);
+			}
+		}
+	}
 	WriteInt(Spawner, { TEXT("WaveSpawnedCount") }, WaveSpawnedCount + 1);
 
 	if (bSpawnBoss)
@@ -3348,6 +3668,37 @@ AActor* UTDEnemyPathLibrary::SpawnNextWaveEnemy(AActor* Spawner)
 	}
 
 	return Spawned;
+}
+
+int32 UTDEnemyPathLibrary::ComputeWavePerSpawnCount(int32 WaveNumber)
+{
+	const int32 SafeWave = FMath::Max(WaveNumber, 1);
+	return 12 + SafeWave * 8;
+}
+
+int32 UTDEnemyPathLibrary::ComputeWaveSpawnSlotCount(int32 WaveNumber, int32 AvailablePoints)
+{
+	if (AvailablePoints <= 0)
+	{
+		return 0;
+	}
+	return FMath::Clamp(FMath::Max(WaveNumber, 1), 1, AvailablePoints);
+}
+
+int32 UTDEnemyPathLibrary::ComputeWaveEnemyCount(int32 WaveNumber, int32 SpawnSlots, bool bBossWave)
+{
+	int32 Count = ComputeWavePerSpawnCount(WaveNumber) * FMath::Max(SpawnSlots, 0);
+	if (bBossWave)
+	{
+		++Count;
+	}
+	return Count;
+}
+
+float UTDEnemyPathLibrary::ComputeWaveSpawnInterval(int32 WaveNumber)
+{
+	const int32 SafeWave = FMath::Max(WaveNumber, 1);
+	return FMath::Max(0.30f, 0.55f - static_cast<float>(SafeWave - 1) * 0.05f);
 }
 
 void UTDEnemyPathLibrary::BeginWaveSpawning(AActor* Spawner)
@@ -3368,7 +3719,9 @@ void UTDEnemyPathLibrary::BeginWaveSpawning(AActor* Spawner)
 	WriteInt(Spawner, { TEXT("WaveSpawnedCount") }, 0);
 	WriteBool(Spawner, { TEXT("WaitingForClear"), TEXT("WaitingforClear"), TEXT("bWaitingForClear") }, false);
 
-	const float Interval = ReadFloatOr(Spawner, { TEXT("SpawnInterval") }, 1.25f);
+	const int32 WaveNumber = FMath::Max(ReadIntOr(Spawner, { TEXT("WaveNumber") }, 1), 1);
+	const float Interval = UTDEnemyPathLibrary::ComputeWaveSpawnInterval(WaveNumber);
+	WriteFloat(Spawner, { TEXT("SpawnInterval") }, Interval);
 	ScreenMsg(TEXT("Spawning enemies!"), FLinearColor(0.2f, 0.8f, 1.f), 2.f);
 	UKismetSystemLibrary::K2_SetTimer(Spawner, TEXT("SpawnEnemy"), Interval, true);
 	CallNoParam(Spawner, TEXT("SpawnEnemy"));

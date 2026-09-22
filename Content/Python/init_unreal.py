@@ -63,3 +63,9 @@ else:
         setup_ability_preview_materials.setup()
     except Exception as exc:
         unreal.log_warning("init_unreal setup_ability_preview_materials failed: {}".format(exc))
+
+    try:
+        import setup_slow_zone_collision
+        setup_slow_zone_collision.setup()
+    except Exception as exc:
+        unreal.log_warning("init_unreal setup_slow_zone_collision failed: {}".format(exc))

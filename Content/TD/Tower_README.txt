@@ -33,7 +33,8 @@ Combat fire (TryFire)
    a. FirePointCooldowns[i] -= DeltaSeconds; skip if still > 0.
    b. SelectVisibleTarget from that point's world location:
       - Scan BP_Enemy actors; keep those within Range of the fire point.
-      - Prefer nearest. Do not require Visibility LoS — rocky pads would block every shot.
+      - Prefer nearest. Other finished towers occlude the shot; rocky pads and
+        terrain do not (Visibility LoS against the world would silence every pad).
    c. If HasFireTarget: set cooldown[i] = FireCooldown if > 0 else FireInterval, then SpawnVolleyAt (ShotsPerVolley).
 
 Helpers on BP_Tower

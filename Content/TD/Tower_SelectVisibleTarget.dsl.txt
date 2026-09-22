@@ -8,7 +8,9 @@
       (:"Is Valid"
         (bind enemy_loc (Transformation|GetActorLocation enemy))
         (bind dist (Math|Vector|Distance(Vector) Origin enemy_loc))
-        (if (and (<= dist range) (< dist (Variables|Combat|GetBestFireDist)))
+        (if (and
+              (and (<= dist range) (< dist (Variables|Combat|GetBestFireDist)))
+              (not (TD|TowerCombat|IsShotBlockedByOtherTower Origin enemy_loc)))
           (Variables|Combat|SetBestFireDist dist)
           (Variables|Combat|SetBestFireTarget enemy)
           (Variables|Combat|SetHasFireTarget true)))

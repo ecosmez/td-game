@@ -12,6 +12,9 @@ function Test-SelectVisibleTargetDsl {
 	if ($dsl -match 'LineTraceByChannel') {
 		throw "$Path : tower targeting must not reject in-range enemies because terrain blocks Visibility."
 	}
+	if ($dsl -notmatch 'IsShotBlockedByOtherTower') {
+		throw "$Path : tower targeting must skip enemies whose shot line is blocked by another tower."
+	}
 	if ($dsl -match 'ForEachLoop') {
 		throw "$Path : SelectVisibleTarget must not use leftover ForEachLoop for enemy location."
 	}

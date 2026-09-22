@@ -3,7 +3,7 @@
   (Variables|Default|SetWaveSpawnedCount 0)
   (Variables|Default|SetIsSpawningWave false)
   (Variables|Default|SetWaitingforClear false)
-  (Variables|Default|SetNormalEnemiesThisWave (+ 12 (* (Variables|Default|GetWaveNumber) 6)))
+  (Variables|Default|SetNormalEnemiesThisWave (+ 12 (* (Variables|Default|GetWaveNumber) 8)))
   (|SetbIsBossWave (== (Variables|Default|GetWaveNumber) (Variables|Boss|GetBossWaveNumber)))
   (Variables|Default|SetEnemiesPerWave (+ (Variables|Default|GetNormalEnemiesThisWave) (select (|GetbIsBossWave) 1 0)))
   (Variables|Default|SetCountdownRemaining 5)

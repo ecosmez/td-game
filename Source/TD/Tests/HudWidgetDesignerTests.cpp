@@ -14,8 +14,10 @@
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
+#include "Engine/Texture2D.h"
 #include "Layout/Geometry.h"
 #include "Misc/AutomationTest.h"
+#include "Styling/SlateBrush.h"
 
 namespace HudWidgetDesignerTestPrivate
 {
@@ -308,6 +310,60 @@ bool FMinimapPreservesDesignerMarkerColorsOnTickTest::RunTest(const FString& Par
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMinimapPreservesDesignerMapBrushOnTickTest,
+	"TD.UI.Minimap.PreservesDesignerMapBrushOnTick",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMinimapPreservesDesignerMapBrushOnTickTest::RunTest(const FString& Parameters)
+{
+	UMinimapWidget* Widget = NewObject<UMinimapWidget>();
+	TestNotNull(TEXT("minimap can be created"), Widget);
+	if (!Widget || !Widget->WidgetTree)
+	{
+		return false;
+	}
+
+	UCanvasPanel* Root = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapRoot"));
+	Widget->WidgetTree->RootWidget = Root;
+	USizeBox* Size = Widget->WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(), TEXT("MinimapSizeBox"));
+	Root->AddChild(Size);
+	UBorder* Frame = Widget->WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("MinimapFrame"));
+	Size->SetContent(Frame);
+	UCanvasPanel* Canvas = Widget->WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("MinimapCanvas"));
+	Frame->SetContent(Canvas);
+	UImage* MapImage = Widget->WidgetTree->ConstructWidget<UImage>(
+		UImage::StaticClass(), TEXT("MinimapImage"));
+	Canvas->AddChild(MapImage);
+
+	TestFalse(TEXT("minimap keeps the designer texture instead of a live scene capture"),
+		Widget->bUseLiveSceneCapture);
+
+	UTexture2D* Sentinel = UTexture2D::CreateTransient(8, 8, PF_B8G8R8A8);
+	TestNotNull(TEXT("sentinel map texture"), Sentinel);
+	if (!Sentinel)
+	{
+		return false;
+	}
+
+	FSlateBrush Designed;
+	Designed.SetResourceObject(Sentinel);
+	Designed.DrawAs = ESlateBrushDrawType::Image;
+	MapImage->SetBrush(Designed);
+
+	TestTrue(TEXT("widget initializes"), Widget->Initialize());
+	Widget->TakeWidget();
+	Widget->NativeTick(FGeometry(), 0.f);
+
+	TestEqual(TEXT("minimap image keeps the designer texture"),
+		MapImage->GetBrush().GetResourceObject(), static_cast<UObject*>(Sentinel));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMinimapCreatesMapImageWhenDesignerOmitsItTest,
 	"TD.UI.Minimap.CreatesMapImageWhenDesignerOmitsIt",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -341,7 +397,7 @@ bool FMinimapCreatesMapImageWhenDesignerOmitsItTest::RunTest(const FString& Para
 	Widget->TakeWidget();
 
 	UImage* MapImage = Cast<UImage>(Widget->GetWidgetFromName(TEXT("MinimapImage")));
-	TestNotNull(TEXT("C++ creates MinimapImage so the capture has a target"), MapImage);
+	TestNotNull(TEXT("C++ creates MinimapImage so the designer map has a target"), MapImage);
 	if (MapImage)
 	{
 		TestEqual(TEXT("created map image is visible"),

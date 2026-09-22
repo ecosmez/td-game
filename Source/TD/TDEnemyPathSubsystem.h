@@ -13,6 +13,9 @@ struct FTDEnemyPathState
 	float Distance = 0.f;
 	float TotalLength = 0.f;
 	float LateralOffset = 0.f;
+	float SpeedScale = 1.f;
+	float LaneOffset = 0.f;
+	bool bWalkStyleChosen = false;
 	TArray<FVector> NavigationRoute;
 	int32 NavigationRouteIndex = 0;
 	float RepathRemaining = 0.f;

@@ -20,8 +20,8 @@ class UMapDiscoveryComponent;
 
 /**
  * LoL-style minimap anchored bottom-right.
- * Top-down orthographic SceneCapture of the playable level (landscape base color),
- * champion / camera markers, LMB camera pan, and optional discovery fog.
+ * Uses the designer MinimapImage texture by default (no live SceneCapture).
+ * Champion / camera markers, LMB camera pan, and optional discovery fog.
  */
 UCLASS(Blueprintable)
 class TD_API UMinimapWidget : public UUserWidget
@@ -69,6 +69,10 @@ public:
 	/** Update scene capture every N seconds (0 = every frame). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture", meta = (ClampMin = "0.0"))
 	float CaptureInterval = 0.1f;
+
+	/** When false, MinimapImage keeps the Widget Blueprint brush instead of a live SceneCapture. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Minimap|Capture")
+	bool bUseLiveSceneCapture = false;
 
 	/**
 	 * Fit minimap orthographic bounds to placed level actors (pads, meshes, etc.).
