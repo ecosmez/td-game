@@ -244,36 +244,6 @@ void UTowerStoreWidget::BuildDefaultCatalog()
 		TEXT("/Game/TD/Towers/BP_Tower_Magic.BP_Tower_Magic_C"),
 		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Magic.MI_Tower_Magic"),
 		200, 5.0f, 1.2f, 55.f, 2000.f, TEXT("Multi-shot beam"));
-
-	Add(TEXT("Slow Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowFieldTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
-		50, 2.0f, 0.f, 0.f, 350.f, TEXT("Pulses slow â€¢ permanent"));
-
-	Add(TEXT("Slow Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectSlowSnareTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Buff.MI_Tower_Buff"),
-		30, 1.5f, 0.f, 0.f, 250.f, TEXT("One-shot slow â€¢ consumed"));
-
-	Add(TEXT("Root Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootFieldTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
-		70, 2.5f, 0.f, 0.f, 300.f, TEXT("Pulses root â€¢ permanent"));
-
-	Add(TEXT("Root Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectRootSnareTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Wall.MI_Tower_Wall"),
-		45, 1.5f, 0.f, 0.f, 220.f, TEXT("One-shot root â€¢ consumed"));
-
-	Add(TEXT("Freeze Field"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeFieldTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
-		90, 3.0f, 0.f, 0.f, 280.f, TEXT("Pulses freeze â€¢ permanent"));
-
-	Add(TEXT("Freeze Snare"), TEXT("Trap"), ETowerStoreCategory::Defense, TEXT("SelectFreezeSnareTrap"),
-		TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C"),
-		MeshBase, TEXT("/Game/TD/Materials/TowerColors/MI_Tower_Sniper.MI_Tower_Sniper"),
-		55, 1.5f, 0.f, 0.f, 200.f, TEXT("One-shot freeze â€¢ consumed"));
 }
 
 void UTowerStoreWidget::EnsureBuilt()
