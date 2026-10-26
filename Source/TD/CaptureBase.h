@@ -12,6 +12,7 @@ class UWidgetComponent;
 
 /**
  * Designer-placed outpost: channel, 3 starter pads, then extra pads + crystal vision.
+ * The 3 starter pads accept only the Base building type. Extra pads accept any building.
  */
 UCLASS(Blueprintable)
 class TD_API ACaptureBase : public AActor
@@ -26,6 +27,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Capture Base")
 	bool IsPadBuildable(const AActor* Pad) const;
+
+	/** Same gate as IsPadBuildable. Starter pads are false unless a Base building is selected. */
+	UFUNCTION(BlueprintPure, Category = "Capture Base")
+	bool CanPlaceOnPad(const AActor* Pad) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Base", meta = (ClampMin = "100.0"))
 	float CaptureRadius = 1200.f;
@@ -63,6 +68,8 @@ protected:
 	int32 CountStarterTowers() const;
 	void ApplyExtraTowerPower(bool bPowered);
 	void ApplyVision(const FTDCaptureBaseOutput& State);
+	void RefreshSelectedBuilding() const;
+	bool IsStarterPad(const AActor* Pad) const;
 	UMapDiscoveryComponent* FindDiscovery() const;
 	void UpdateChannelBar(const FTDCaptureBaseOutput& State);
 	static bool IsLivingActor(const AActor* Actor);
@@ -80,6 +87,9 @@ protected:
 	TObjectPtr<UWidgetComponent> ChannelBar = nullptr;
 
 	FTDCaptureBaseOutput LastState;
+	mutable FTDBuildingTypeQuery SelectedBuilding;
+	mutable FString CachedBuildingClassPath;
+	mutable FString CachedBuildingDeclaredType;
 	int32 PreviousStarterTowersAlive = 0;
 	bool bInert = false;
 	bool bVisionRegistered = false;

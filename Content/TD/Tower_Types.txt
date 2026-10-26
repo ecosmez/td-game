@@ -3,6 +3,10 @@ Tower Types (from concept sheets) — /Game/TD/Towers/
 Base: /Game/TD/BP_Tower (shared construction + combat). Child BPs only change defaults.
 
 PlacementRule: Pad (hex pad) | Path | Crystal
+BuildingType: Base | (empty = not a Base building)
+  The 3 starter hex pads that appear after channeling a capture base accept only BuildingType "Base".
+  Mark a store entry's BuildingType as Base, name the selection "Base", or use BP_Tower_Base.
+  Extra pads and pads that are not on a capture base still accept every other building.
 ProjectileStyle: Arrow | CannonShell | SniperShot | MagicBeam | Burst | None
 CanMerge: merge design (later) — drag tower onto tower.
 

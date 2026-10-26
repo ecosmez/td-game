@@ -5,6 +5,7 @@
 #include "MapFogWorldSubsystem.h"
 #include "MobaPlayerController.h"
 #include "TDEnemyPathLibrary.h"
+#include "TDSelectedBuildingType.h"
 
 #include "Blueprint/UserWidget.h"
 
@@ -24,10 +25,100 @@ namespace CaptureBasePrivate
 {
 	const FSoftClassPath TowerClassPath(TEXT("/Game/TD/BP_Tower.BP_Tower_C"));
 	const FSoftClassPath EnemyClassPath(TEXT("/Game/TD/BP_Enemy.BP_Enemy_C"));
+	const FSoftClassPath BuildManagerClassPath(TEXT("/Game/TD/BP_BuildManager.BP_BuildManager_C"));
 
 	UClass* LoadActorClass(const FSoftClassPath& Path)
 	{
 		return Path.TryLoadClass<AActor>();
+	}
+
+	FString ReadStringProperty(const UObject* Object, const TCHAR* Name)
+	{
+		if (!IsValid(Object) || !Name)
+		{
+			return FString();
+		}
+		if (const FStrProperty* StringProp = FindFProperty<FStrProperty>(Object->GetClass(), Name))
+		{
+			return StringProp->GetPropertyValue_InContainer(Object);
+		}
+		if (const FNameProperty* NameProp = FindFProperty<FNameProperty>(Object->GetClass(), Name))
+		{
+			return NameProp->GetPropertyValue_InContainer(Object).ToString();
+		}
+		if (const FTextProperty* TextProp = FindFProperty<FTextProperty>(Object->GetClass(), Name))
+		{
+			return TextProp->GetPropertyValue_InContainer(Object).ToString();
+		}
+		return FString();
+	}
+
+	bool ReadBoolProperty(const UObject* Object, const TCHAR* Name, bool& OutValue)
+	{
+		OutValue = false;
+		if (!IsValid(Object) || !Name)
+		{
+			return false;
+		}
+		if (const FBoolProperty* BoolProp = FindFProperty<FBoolProperty>(Object->GetClass(), Name))
+		{
+			OutValue = BoolProp->GetPropertyValue_InContainer(Object);
+			return true;
+		}
+		return false;
+	}
+
+	AActor* FindBuildManager(UWorld* World)
+	{
+		if (!World)
+		{
+			return nullptr;
+		}
+
+		UClass* BuildManagerClass = LoadActorClass(BuildManagerClassPath);
+		if (BuildManagerClass)
+		{
+			for (TActorIterator<AActor> It(World, BuildManagerClass); It; ++It)
+			{
+				if (IsValid(*It))
+				{
+					return *It;
+				}
+			}
+		}
+
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (IsValid(Actor) && Actor->GetClass()->GetName().Contains(TEXT("BuildManager")))
+			{
+				return Actor;
+			}
+		}
+		return nullptr;
+	}
+
+	FString ReadDeclaredTypeFromClass(const FString& ClassPath)
+	{
+		const FString Trimmed = ClassPath.TrimStartAndEnd();
+		if (Trimmed.IsEmpty())
+		{
+			return FString();
+		}
+
+		UClass* BuildingClass = FSoftClassPath(Trimmed).TryLoadClass<AActor>();
+		if (!BuildingClass)
+		{
+			return FString();
+		}
+
+		const UObject* Defaults = BuildingClass->GetDefaultObject();
+		FString Declared = ReadStringProperty(Defaults, TEXT("BuildingType"));
+		if (Declared.IsEmpty())
+		{
+			Declared = ReadStringProperty(Defaults, TEXT("TowerTypeName"));
+		}
+		return Declared;
 	}
 
 	void SetPadHiddenInGame(AActor* Pad, bool bHidden)
@@ -191,6 +282,7 @@ void ACaptureBase::Tick(float DeltaSeconds)
 
 	LastState = FTDCaptureBaseLogic::Step(Input);
 	PreviousStarterTowersAlive = Starters;
+	RefreshSelectedBuilding();
 
 	for (AActor* Pad : StarterPads)
 	{
@@ -206,37 +298,54 @@ void ACaptureBase::Tick(float DeltaSeconds)
 	UpdateChannelBar(LastState);
 }
 
+bool ACaptureBase::IsStarterPad(const AActor* Pad) const
+{
+	for (const TObjectPtr<AActor>& Entry : StarterPads)
+	{
+		if (Entry.Get() == Pad)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ACaptureBase::CanPlaceOnPad(const AActor* Pad) const
+{
+	return IsPadBuildable(Pad);
+}
+
 bool ACaptureBase::IsPadBuildable(const AActor* Pad) const
 {
+	RefreshSelectedBuilding();
 	if (bInert || !Pad)
 	{
 		return false;
 	}
 
 	const bool bOccupied = FindOccupyingTower(Pad) != nullptr;
-	bool bStarter = false;
+	const bool bStarter = IsStarterPad(Pad);
 	bool bExtra = false;
-	for (const TObjectPtr<AActor>& Entry : StarterPads)
+	if (!bStarter)
 	{
-		if (Entry.Get() == Pad)
+		for (const TObjectPtr<AActor>& Entry : ExtraPads)
 		{
-			bStarter = true;
-			break;
-		}
-	}
-	for (const TObjectPtr<AActor>& Entry : ExtraPads)
-	{
-		if (Entry.Get() == Pad)
-		{
-			bExtra = true;
-			break;
+			if (Entry.Get() == Pad)
+			{
+				bExtra = true;
+				break;
+			}
 		}
 	}
 	if (!bStarter && !bExtra)
 	{
 		return true;
 	}
-	return FTDCaptureBaseLogic::IsPadBuildable(bStarter, bOccupied, LastState);
+	if (!FTDCaptureBaseLogic::IsPadBuildable(bStarter, bOccupied, LastState))
+	{
+		return false;
+	}
+	return FTDCaptureBaseLogic::CanPlaceBuildingOnPad(bStarter, SelectedBuilding);
 }
 
 bool ACaptureBase::ValidatePads()
@@ -297,7 +406,11 @@ void ACaptureBase::ApplyPadPresentation(
 		return;
 	}
 
-	const bool bBuildable = FTDCaptureBaseLogic::IsPadBuildable(bIsStarter, bOccupied, State);
+	bool bBuildable = FTDCaptureBaseLogic::IsPadBuildable(bIsStarter, bOccupied, State);
+	if (bBuildable)
+	{
+		bBuildable = FTDCaptureBaseLogic::CanPlaceBuildingOnPad(bIsStarter, SelectedBuilding);
+	}
 	const bool bVisible = bIsStarter
 		? (!bOccupied && State.bStarterPadsVisible)
 		: State.bExtraPadsVisible;
@@ -441,6 +554,64 @@ void ACaptureBase::ApplyExtraTowerPower(bool bPowered)
 			It.RemoveCurrent();
 		}
 	}
+}
+
+void ACaptureBase::RefreshSelectedBuilding() const
+{
+	SelectedBuilding = FTDBuildingTypeQuery();
+
+	AActor* BuildManager = CaptureBasePrivate::FindBuildManager(GetWorld());
+	if (!IsValid(BuildManager))
+	{
+		return;
+	}
+
+	bool bHasSelection = false;
+	bool bDragLive = false;
+	const bool bFoundSelection = CaptureBasePrivate::ReadBoolProperty(
+		BuildManager, TEXT("HasTowerSelected"), bHasSelection);
+	const bool bFoundDrag = CaptureBasePrivate::ReadBoolProperty(
+		BuildManager, TEXT("TowerDragLive"), bDragLive);
+	if (bFoundSelection || bFoundDrag)
+	{
+		SelectedBuilding.bSelectionActive = bHasSelection || bDragLive;
+	}
+
+	SelectedBuilding.SelectedName = CaptureBasePrivate::ReadStringProperty(
+		BuildManager, TEXT("SelectedTowerName"));
+	SelectedBuilding.ClassPath = CaptureBasePrivate::ReadStringProperty(
+		BuildManager, TEXT("SelectedTowerClassPath"));
+	if (!bFoundSelection && !bFoundDrag)
+	{
+		SelectedBuilding.bSelectionActive = !SelectedBuilding.SelectedName.IsEmpty()
+			|| !SelectedBuilding.ClassPath.IsEmpty();
+	}
+	if (!SelectedBuilding.bSelectionActive)
+	{
+		SelectedBuilding.SelectedName.Reset();
+		SelectedBuilding.ClassPath.Reset();
+		return;
+	}
+
+	if (!SelectedBuilding.ClassPath.Equals(CachedBuildingClassPath, ESearchCase::IgnoreCase))
+	{
+		CachedBuildingClassPath = SelectedBuilding.ClassPath;
+		CachedBuildingDeclaredType = CaptureBasePrivate::ReadDeclaredTypeFromClass(SelectedBuilding.ClassPath);
+	}
+
+	if (const UTDSelectedBuildingTypeSubsystem* Selection = GetWorld()
+		? GetWorld()->GetSubsystem<UTDSelectedBuildingTypeSubsystem>()
+		: nullptr)
+	{
+		const FString FromStore = Selection->ResolveDeclaredType(
+			SelectedBuilding.SelectedName, SelectedBuilding.ClassPath);
+		if (!FromStore.IsEmpty())
+		{
+			SelectedBuilding.DeclaredType = FromStore;
+			return;
+		}
+	}
+	SelectedBuilding.DeclaredType = CachedBuildingDeclaredType;
 }
 
 void ACaptureBase::ApplyVision(const FTDCaptureBaseOutput& State)

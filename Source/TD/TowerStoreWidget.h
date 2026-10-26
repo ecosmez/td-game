@@ -114,6 +114,13 @@ struct FTowerStoreEntryDef
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
 	FString ExtraNote;
+
+	/**
+	 * Placement type. "Base" is the only type the 3 starter pads accept
+	 * after a capture base is channeled. Empty means this building is not Base.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tower Store")
+	FString BuildingType;
 };
 
 /** Runtime UI handles for one compact tower tile in the horizontal strip. */

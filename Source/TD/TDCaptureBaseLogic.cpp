@@ -54,6 +54,90 @@ bool FTDCaptureBaseLogic::IsPadBuildable(bool bIsStarter, bool bOccupied, const 
 	return bIsStarter ? State.bStarterPadsBuildable : State.bExtraPadsBuildable;
 }
 
+const TCHAR* FTDCaptureBaseLogic::BaseBuildingTypeName()
+{
+	return TEXT("Base");
+}
+
+bool FTDCaptureBaseLogic::IsBaseTypeName(const FString& Value)
+{
+	return Value.TrimStartAndEnd().Equals(BaseBuildingTypeName(), ESearchCase::IgnoreCase);
+}
+
+bool FTDCaptureBaseLogic::IsBaseBuildingClassPath(const FString& ClassPath)
+{
+	FString Name = ClassPath.TrimStartAndEnd();
+	int32 Slash = INDEX_NONE;
+	if (Name.FindLastChar(TEXT('/'), Slash))
+	{
+		Name = Name.Mid(Slash + 1);
+	}
+	int32 Dot = INDEX_NONE;
+	if (Name.FindChar(TEXT('.'), Dot))
+	{
+		Name = Name.Mid(Dot + 1);
+	}
+	return Name.Equals(TEXT("BP_Tower_Base_C"), ESearchCase::IgnoreCase)
+		|| Name.Equals(TEXT("BP_Building_Base_C"), ESearchCase::IgnoreCase);
+}
+
+bool FTDCaptureBaseLogic::IsBaseBuildingType(const FTDBuildingTypeQuery& Query)
+{
+	if (!Query.bSelectionActive)
+	{
+		return false;
+	}
+
+	if (!Query.DeclaredType.IsEmpty())
+	{
+		return IsBaseTypeName(Query.DeclaredType);
+	}
+
+	const bool bNameNamesAnotherTower = !Query.SelectedName.IsEmpty() && !IsBaseTypeName(Query.SelectedName);
+	if (bNameNamesAnotherTower)
+	{
+		return false;
+	}
+
+	if (IsBaseTypeName(Query.SelectedName))
+	{
+		return true;
+	}
+	return IsBaseBuildingClassPath(Query.ClassPath);
+}
+
+bool FTDCaptureBaseLogic::CanPlaceBuildingOnPad(bool bIsStarterPad, const FTDBuildingTypeQuery& Query)
+{
+	if (!bIsStarterPad)
+	{
+		return true;
+	}
+	return IsBaseBuildingType(Query);
+}
+
+FString FTDCaptureBaseLogic::ResolveRememberedBuildingType(
+	const FTDRememberedBuildingType& Remembered,
+	const FString& SelectedName,
+	const FString& ClassPath)
+{
+	const bool bHasName = !Remembered.SelectedName.IsEmpty();
+	const bool bHasPath = !Remembered.ClassPath.IsEmpty();
+	if (!bHasName && !bHasPath)
+	{
+		return FString();
+	}
+
+	const bool bNameOk = !bHasName
+		|| Remembered.SelectedName.Equals(SelectedName, ESearchCase::IgnoreCase);
+	const bool bPathOk = !bHasPath
+		|| Remembered.ClassPath.Equals(ClassPath, ESearchCase::IgnoreCase);
+	if (bNameOk && bPathOk)
+	{
+		return Remembered.BuildingType;
+	}
+	return FString();
+}
+
 bool FTDCaptureBaseLogic::IsPadLikeClassName(const FString& ClassName)
 {
 	return ClassName.Contains(TEXT("HexPad")) || ClassName.Contains(TEXT("TowerPad"));

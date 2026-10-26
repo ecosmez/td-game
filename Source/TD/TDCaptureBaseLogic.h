@@ -40,6 +40,25 @@ struct FTDPadClickCollision
 	bool bBlockVisibility = false;
 };
 
+/** The building the player is currently trying to place. */
+struct FTDBuildingTypeQuery
+{
+	/** False after cancel, or when no tower is selected. */
+	bool bSelectionActive = false;
+	FString SelectedName;
+	FString ClassPath;
+	/** Store BuildingType, or the tower BuildingType / TowerTypeName. */
+	FString DeclaredType;
+};
+
+/** Last store selection, so a catalog BuildingType stays tied to that tower. */
+struct FTDRememberedBuildingType
+{
+	FString SelectedName;
+	FString ClassPath;
+	FString BuildingType;
+};
+
 struct FTDCaptureBaseLogic
 {
 	static bool ShouldFillChannel(
@@ -59,6 +78,36 @@ struct FTDCaptureBaseLogic
 		bool bAnyNull);
 
 	static bool IsPadBuildable(bool bIsStarter, bool bOccupied, const FTDCaptureBaseOutput& State);
+
+	/**
+	 * Building type name for the towers that may be placed on a capture base's
+	 * 3 starter pads. Extra pads and pads that do not belong to a base ignore it.
+	 */
+	static const TCHAR* BaseBuildingTypeName();
+
+	/** True when Value is the Base building type (case-insensitive, trimmed). */
+	static bool IsBaseTypeName(const FString& Value);
+
+	/** True when ClassPath is a dedicated Base building class, not BP_Tower or BP_Trap_Base. */
+	static bool IsBaseBuildingClassPath(const FString& ClassPath);
+
+	/** True when the active selection is a Base-type building. */
+	static bool IsBaseBuildingType(const FTDBuildingTypeQuery& Query);
+
+	/**
+	 * Starter pads accept only the Base building type.
+	 * Every other pad accepts whatever building is selected.
+	 */
+	static bool CanPlaceBuildingOnPad(bool bIsStarterPad, const FTDBuildingTypeQuery& Query);
+
+	/**
+	 * Returns the remembered store BuildingType when the current selection still
+	 * matches that store click. Empty when the selection has moved on.
+	 */
+	static FString ResolveRememberedBuildingType(
+		const FTDRememberedBuildingType& Remembered,
+		const FString& SelectedName,
+		const FString& ClassPath);
 
 	/** True when an actor is a pad, not a placed tower (HexPad / TowerPad). */
 	static bool IsPadLikeClassName(const FString& ClassName);

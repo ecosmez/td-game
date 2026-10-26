@@ -1,5 +1,7 @@
 ﻿#include "TowerStoreWidget.h"
 
+#include "TDSelectedBuildingType.h"
+
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -95,6 +97,27 @@ namespace TowerStorePrivate
 			return true;
 		}
 		return false;
+	}
+
+	static FString ReadStringProp(const UObject* Obj, const TCHAR* Name)
+	{
+		if (!Obj || !Name)
+		{
+			return FString();
+		}
+		if (const FStrProperty* Prop = FindFProperty<FStrProperty>(Obj->GetClass(), Name))
+		{
+			return Prop->GetPropertyValue_InContainer(Obj);
+		}
+		if (const FNameProperty* Prop = FindFProperty<FNameProperty>(Obj->GetClass(), Name))
+		{
+			return Prop->GetPropertyValue_InContainer(Obj).ToString();
+		}
+		if (const FTextProperty* Prop = FindFProperty<FTextProperty>(Obj->GetClass(), Name))
+		{
+			return Prop->GetPropertyValue_InContainer(Obj).ToString();
+		}
+		return FString();
 	}
 
 }
@@ -626,8 +649,22 @@ void UTowerStoreWidget::OnCardClicked(int32 CardIndex)
 				BM->ProcessEvent(BeginDrag, nullptr);
 			}
 		}
-		UE_LOG(LogTemp, Display, TEXT("TowerStore: selected %s via %s"),
-			*Def.DisplayName, *Def.SelectFunctionName.ToString());
+		if (UWorld* World = GetWorld())
+		{
+			if (UTDSelectedBuildingTypeSubsystem* Selection = World->GetSubsystem<UTDSelectedBuildingTypeSubsystem>())
+			{
+				FString SelectedName = TowerStorePrivate::ReadStringProp(BM, TEXT("SelectedTowerName"));
+				FString ClassPath = TowerStorePrivate::ReadStringProp(BM, TEXT("SelectedTowerClassPath"));
+				if (ClassPath.IsEmpty())
+				{
+					ClassPath = Def.TowerClassPath;
+				}
+				Selection->Remember(SelectedName, ClassPath, Def.BuildingType);
+			}
+		}
+		UE_LOG(LogTemp, Display, TEXT("TowerStore: selected %s via %s (type %s)"),
+			*Def.DisplayName, *Def.SelectFunctionName.ToString(),
+			*Def.BuildingType);
 		SetStoreOpen(false);
 	}
 	else

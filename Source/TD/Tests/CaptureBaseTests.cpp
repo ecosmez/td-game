@@ -321,6 +321,77 @@ bool FCaptureBaseBuildablePadReassertsClickQueryTest::RunTest(const FString& Par
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCaptureBaseStarterPadsAcceptOnlyBaseTypeTest,
+	"TD.Capture.Base.StarterPadsAcceptOnlyBaseType",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCaptureBaseStarterPadsAcceptOnlyBaseTypeTest::RunTest(const FString& Parameters)
+{
+	FTDBuildingTypeQuery BaseByName;
+	BaseByName.bSelectionActive = true;
+	BaseByName.SelectedName = TEXT("Base");
+	TestTrue(TEXT("Base is the starter-pad building type"),
+		FTDCaptureBaseLogic::IsBaseTypeName(FTDCaptureBaseLogic::BaseBuildingTypeName()));
+	TestTrue(TEXT("A selected Base building may use a starter pad"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, BaseByName));
+	TestTrue(TEXT("Base is recognized case-insensitively"),
+		FTDCaptureBaseLogic::IsBaseTypeName(TEXT("  base  ")));
+
+	FTDBuildingTypeQuery Arrow;
+	Arrow.bSelectionActive = true;
+	Arrow.SelectedName = TEXT("Arrow");
+	Arrow.ClassPath = TEXT("/Game/TD/Towers/BP_Tower_Arrow.BP_Tower_Arrow_C");
+	TestFalse(TEXT("Arrow cannot be built on a starter pad"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, Arrow));
+	TestTrue(TEXT("Arrow can still be built on an extra pad"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(false, Arrow));
+
+	FTDBuildingTypeQuery Cancelled = BaseByName;
+	Cancelled.bSelectionActive = false;
+	TestFalse(TEXT("A cancelled Base selection cannot be placed on a starter pad"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, Cancelled));
+
+	FTDBuildingTypeQuery DeclaredBase;
+	DeclaredBase.bSelectionActive = true;
+	DeclaredBase.SelectedName = TEXT("Outpost");
+	DeclaredBase.DeclaredType = TEXT("Base");
+	TestTrue(TEXT("An explicit BuildingType of Base is allowed on starter pads"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, DeclaredBase));
+
+	FTDBuildingTypeQuery DeclaredOther;
+	DeclaredOther.bSelectionActive = true;
+	DeclaredOther.SelectedName = TEXT("Base");
+	DeclaredOther.DeclaredType = TEXT("Attack");
+	TestFalse(TEXT("A non-Base declared type blocks the starter pads"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, DeclaredOther));
+
+	FTDBuildingTypeQuery BaseClass;
+	BaseClass.bSelectionActive = true;
+	BaseClass.ClassPath = TEXT("/Game/TD/Towers/BP_Tower_Base.BP_Tower_Base_C");
+	TestTrue(TEXT("BP_Tower_Base is a Base building"),
+		FTDCaptureBaseLogic::IsBaseBuildingClassPath(BaseClass.ClassPath));
+	TestTrue(TEXT("The Base class can be placed on a starter pad"),
+		FTDCaptureBaseLogic::CanPlaceBuildingOnPad(true, BaseClass));
+	TestFalse(TEXT("The shared BP_Tower parent is not the Base type"),
+		FTDCaptureBaseLogic::IsBaseBuildingClassPath(TEXT("/Game/TD/BP_Tower.BP_Tower_C")));
+	TestFalse(TEXT("Trap base is not the capture-pad Base type"),
+		FTDCaptureBaseLogic::IsBaseBuildingClassPath(TEXT("/Game/TD/Traps/BP_Trap_Base.BP_Trap_Base_C")));
+
+	FTDRememberedBuildingType Remembered;
+	Remembered.SelectedName = TEXT("Outpost");
+	Remembered.ClassPath = TEXT("/Game/TD/Towers/BP_Tower_Base.BP_Tower_Base_C");
+	Remembered.BuildingType = TEXT("Base");
+	TestEqual(TEXT("The store type sticks while that selection is current"),
+		FTDCaptureBaseLogic::ResolveRememberedBuildingType(
+			Remembered, TEXT("Outpost"), Remembered.ClassPath),
+		FString(TEXT("Base")));
+	TestTrue(TEXT("A later Arrow selection drops the remembered Base type"),
+		FTDCaptureBaseLogic::ResolveRememberedBuildingType(
+			Remembered, TEXT("Arrow"), TEXT("/Game/TD/Towers/BP_Tower_Arrow.BP_Tower_Arrow_C")).IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FVisionSourceListUnregisterLeavesOthersTest,
 	"TD.Fog.Vision.UnregisterLeavesOtherSources",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
